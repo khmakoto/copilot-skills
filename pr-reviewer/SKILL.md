@@ -49,11 +49,31 @@ Give the agent:
 - instructions to retrieve the PR metadata, description, target branch, complete
   current diff, and relevant source context;
 - instructions to review only changes in the PR;
-- instructions to report only concrete bugs, security vulnerabilities,
-  regressions, compatibility breaks, or meaningful test gaps;
-- instructions to ignore style, formatting, naming preferences, and speculative
-  concerns;
+- instructions to report concrete bugs, security vulnerabilities, regressions,
+  compatibility breaks, meaningful test gaps, and objectively verifiable
+  architectural-boundary violations, including:
+  - use of legacy or deprecated APIs in a new or replacement path;
+  - mixing implementation systems that the target path is intended to replace
+    or isolate;
+  - dependencies from a new layer back into its legacy implementation;
+  - violations of repository documentation, package conventions, or invariants
+    demonstrated by canonical neighboring code;
+- instructions to ignore subjective style, formatting, naming preferences, and
+  speculative concerns. Do not classify implementation-system selection as
+  subjective when repository evidence establishes it as an architectural or
+  migration invariant;
 - instructions not to post comments or modify the PR.
+
+For every newly introduced adapter, new or replacement implementation, or
+migration layer, require the agent to:
+
+1. Locate the canonical implementation it wraps or replaces.
+2. Compare imports, implementation systems, dependency direction, and
+   package-level build conventions.
+3. Search changed files for dependencies on legacy implementations or use of
+   deprecated APIs.
+4. Report mismatches when the invariant is supported by source, configuration,
+   documentation, or consistent neighboring implementations.
 
 Require every finding to include:
 
@@ -72,6 +92,16 @@ there is genuine independent work to perform in parallel.
 
 If the agent cannot access the PR or retrieve a complete diff, report the blocker
 accurately and do not invent findings.
+
+Before accepting a `No findings` result, require a focused second pass for:
+
+- legacy dependencies introduced into new or replacement paths;
+- deprecated API usage;
+- architecture or package-boundary violations;
+- implementation-system regressions;
+- missing tests for those boundaries.
+
+Require the agent to state briefly which focused checks it completed.
 
 ## 2. Prepare the review queue
 
