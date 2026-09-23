@@ -47,6 +47,18 @@ user edits and confirms the exact text.
 /pr-reviewer <pull-request-url>
 ```
 
+### `pr-walkthrough`
+
+Builds a read-only, dependency-ordered walkthrough for manually reviewing a
+GitHub or Azure DevOps pull request or a branch in the current local repository.
+
+The walkthrough explains what to review, in what order, and how the notable
+changes connect so a human reviewer can form the right mental model efficiently.
+
+```text
+/pr-walkthrough <GitHub-or-Azure-DevOps-PR-URL | local-branch-name>
+```
+
 ## Installation
 
 Install a skill by copying or linking its directory into your global Copilot
