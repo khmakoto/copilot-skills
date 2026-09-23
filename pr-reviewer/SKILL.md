@@ -47,7 +47,14 @@ Give the agent:
 
 - the complete pull request URL;
 - instructions to retrieve the PR metadata, description, target branch, complete
-  current diff, and relevant source context;
+  current diff, current active review threads, and relevant source context;
+- instructions to enumerate every changed file and inspect every changed hunk rather
+  than sampling representative files;
+- instructions to discover and read repository-wide and package-local contributor
+  instructions, testing guidance, package documentation, and build conventions that
+  govern the changed files. Existing review comments may identify useful evidence,
+  but the agent must validate each concern independently against source or documented
+  repository policy;
 - instructions to review only changes in the PR;
 - instructions to report concrete bugs, security vulnerabilities, regressions,
   compatibility breaks, meaningful test gaps, and objectively verifiable
@@ -70,10 +77,89 @@ migration layer, require the agent to:
 1. Locate the canonical implementation it wraps or replaces.
 2. Compare imports, implementation systems, dependency direction, and
    package-level build conventions.
-3. Search changed files for dependencies on legacy implementations or use of
+3. Compare the adapter's public props, slots, render-prop contracts, selectors,
+   class-name constants, ARIA attributes, and design tokens with the canonical
+   exported types and constants. Flag locally recreated contracts only when they
+   can drift from the wrapped API or violate a documented convention.
+4. Search changed files for dependencies on legacy implementations or use of
    deprecated APIs.
-4. Report mismatches when the invariant is supported by source, configuration,
+5. Report mismatches when the invariant is supported by source, configuration,
    documentation, or consistent neighboring implementations.
+
+Before the focused passes, classify each changed file or hunk by evidence from its
+content and repository context. A change may belong to multiple categories. Do not
+classify the whole pull request under one broad label, and do not infer a category
+from file extensions alone. Record which categories apply and why.
+
+Always run these cross-cutting passes, even when another finding has already been
+found:
+
+1. **State and lifecycle:** For any stateful code, trace initialization, updates,
+   repeated calls, cleanup, shutdown, error paths, and ownership boundaries using
+   the lifecycle model appropriate to that technology. Check no-op writes, shared
+   or injected state isolation, stale data, cleanup ordering, and mutations from
+   inactive or already-closed code. Treat same-value writes as actionable only
+   when they can notify consumers, erase another feature's state, cause unnecessary
+   work, or produce an observable lifecycle error.
+2. **Test validity:** For each changed test, verify that its preconditions can
+   distinguish the claimed behavior, assertions would fail for the relevant
+   regression, untouched stores or objects are compared on fields that could
+   actually change, and assertions test production behavior rather than behavior
+   invented by mocks. Apply the repository's required test harness and test-layer
+   conventions. A passing test is still invalid when it mocks the implementation
+   system under test or bypasses a documented required harness, because it cannot
+   protect the production integration.
+3. **Coverage of behavioral branches:** Map each newly introduced branch, mode,
+   injected dependency, lifecycle path, and failure path to a meaningful test or
+   other explicit contract. Pay special attention when one mode is covered but a
+   sibling mode follows a different event, state, or error path.
+
+Run each of the following passes only when at least one changed hunk contains
+evidence for that category:
+
+1. **Rendered UI and interaction:** When a change renders UI, handles user input,
+   or participates in a browser/native event chain, follow keyboard and pointer
+   events, `preventDefault`, `stopPropagation`, native activation, focus, and
+   parent handlers through the real rendered component chain. Check accessibility
+   contracts such as names, roles, and focus restoration. Do not accept a mocked
+   control or isolated hook test as proof of integration behavior.
+2. **Wrappers and adapters:** When a change wraps, adapts, proxies, or replaces an
+   existing API or component, compare its public types and runtime contract
+   directly with the canonical upstream contract. Look for omitted-and-redeclared
+   properties, widened or narrowed types, duplicated selectors or constants,
+   altered defaults, incomplete error propagation, and definitions that can
+   silently diverge.
+3. **Design systems and presentation:** When a change uses a design system,
+   component library, CSS, styling API, or presentation tokens, check required
+   semantic tokens, exported class-name constants, supported component APIs, and
+   repository rules that prohibit mixing or mocking implementation systems.
+4. **Persistence, stores, hooks, and reactive effects:** When a change uses a
+   store, cache, subscription, reactive hook, observer, or effect system, trace
+   mount/start, update, cleanup/unsubscribe, unmount/stop, already-closed, and
+   repeated-call paths. Check cross-store isolation, subscription noise, cleanup
+   races, stale closures, and whether inactive code can clear state owned by
+   another feature.
+5. **Service and data contracts:** When a change modifies an API, RPC, event,
+   message, schema, serialization format, database interaction, or other external
+   data boundary, check backward and forward compatibility, validation, error
+   propagation, retries/idempotency, authorization, and all affected producers and
+   consumers.
+6. **Build and package boundaries:** When a change modifies imports, exports,
+   dependencies, entry points, bundling, generated output, or build configuration,
+   check dependency direction, independent consumability, tree-shaking or loading
+   behavior, package conventions, and compatibility of public entry points.
+
+If a conditional pass is skipped, require the agent to state briefly what evidence
+was absent. If applicability is uncertain, inspect the relevant source or canonical
+implementation rather than skipping the pass.
+
+Do not turn these passes into style review. In particular, do not report equivalent
+null checks, test-file organization, requests for explanatory comments, redundant
+mock-call assertions when observable behavior is already proved, or opportunities
+to shorten code unless there is a concrete failure mode or documented invariant.
+Only flag recreated props, selectors, constants, or tokens when divergence is
+observable, violates the canonical upstream contract, or breaks an explicit
+repository invariant; cosmetic duplication alone is not a finding.
 
 Require every finding to include:
 
@@ -93,15 +179,21 @@ there is genuine independent work to perform in parallel.
 If the agent cannot access the PR or retrieve a complete diff, report the blocker
 accurately and do not invent findings.
 
-Before accepting a `No findings` result, require a focused second pass for:
+Before accepting the agent's final result, require it to state briefly which
+categories it identified, which focused passes it completed or skipped with
+reasons, and which repository or package guidance it consulted.
+If it reports `No findings`, require a second pass for:
 
-- legacy dependencies introduced into new or replacement paths;
-- deprecated API usage;
-- architecture or package-boundary violations;
-- implementation-system regressions;
-- missing tests for those boundaries.
-
-Require the agent to state briefly which focused checks it completed.
+- legacy dependencies, deprecated APIs, architecture boundaries, and
+  implementation-system regressions when wrappers, migrations, imports, exports,
+  dependencies, or replacement paths changed;
+- no-op or cross-feature state mutations during initialization and cleanup when
+  stateful, reactive, persistent, cached, or subscription-based code changed;
+- event propagation through real parent components when rendered UI or user-input
+  handling changed;
+- ineffective test assertions and tests that validate mocks instead of production
+  behavior when tests changed;
+- missing tests for every applicable boundary and behavioral branch.
 
 ## 2. Prepare the review queue
 
