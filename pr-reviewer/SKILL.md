@@ -259,14 +259,30 @@ Never infer a side-effecting choice from ambiguous input.
    iteration.
 3. Rewrite the draft to be concise, specific, natural, and human-sounding. Avoid
    canned headings, excessive explanation, repeated context, and AI-like phrasing.
-4. Present an editable text field containing the exact comment.
-5. Offer `Post this exact comment`, `Skip`, `Move to end`, and `Revise again`.
-6. Post only when the user selects `Post this exact comment`.
-7. Use the edited text exactly as supplied, without silently rewriting it.
-8. Prefer an inline comment on the relevant changed line. If the provider rejects
+4. Prefer collaborative, question-oriented wording when asking the author to
+   confirm intended behavior or compatibility, for example, "Should this be
+   variant-dependent?" or "Would this work?" Do not weaken a confirmed defect
+   into vague speculation: retain the concrete failure path and the evidence that
+   motivates the question.
+5. When the fix is small, precise, type-safe, and directly applicable to the
+   anchored changed lines, offer a provider-supported suggestion code block in the
+   editable draft. The block must contain the exact replacement text with correct
+   indentation. Anchor the thread to exactly the line or line range replaced by
+   the suggestion, moving the anchor from the diagnostic line when necessary.
+   Do not use a suggestion block when the correct implementation is uncertain,
+   requires coordinated changes elsewhere, or the provider does not support
+   applicable suggestions; use prose instead.
+6. Present an editable text field containing the exact comment.
+7. Offer `Post this exact comment`, `Skip`, `Move to end`, and `Revise again`.
+8. If the user asks for different framing, such as making the comment a question
+   or adding an applicable suggestion block, revise the editable draft and require
+   confirmation again.
+9. Post only when the user selects `Post this exact comment`.
+10. Use the edited text exactly as supplied, without silently rewriting it.
+11. Prefer an inline comment on the relevant changed line. If the provider rejects
    a valid-looking anchor, explain the failure and return to the same suggestion;
    do not silently post a general comment.
-9. Record the returned thread or comment ID.
+12. Record the returned thread or comment ID.
 
 ### Skip
 
