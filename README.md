@@ -1,5 +1,7 @@
 # Copilot Skills and Prompts
 
+[![skills.sh](https://skills.sh/b/khmakoto/copilot-skills)](https://skills.sh/khmakoto/copilot-skills)
+
 A collection of reusable skills and prompt templates for extending GitHub Copilot
 CLI with focused, repeatable software-engineering workflows.
 
@@ -86,9 +88,22 @@ using a template.
 
 ## Installation
 
-Install a skill by copying or linking its directory into your global Copilot
-skills directory. Keep the full directory contents together so that `SKILL.md`
-can access any files under `references/`.
+### Install with skills.sh
+
+Install skills from this repository with the `skills` CLI:
+
+```text
+npx skills add khmakoto/copilot-skills
+```
+
+The CLI discovers the available skills and lets you select which ones to install
+for GitHub Copilot or another supported agent.
+
+### Install manually
+
+Alternatively, copy or link a skill directory into your global Copilot skills
+directory. Keep the full directory contents together so that `SKILL.md` can
+access any files under `references/`.
 
 Each directory under `skills/` is self-contained and uses the standard `SKILL.md`
 format. Prompt templates under `prompts/` can be copied, customized, and submitted
