@@ -161,6 +161,29 @@ A review stop may cover:
 - a return to a previously visited file after another change supplies necessary
   context.
 
+Do not let file boundaries determine stop boundaries. In particular, split a large
+or behavior-dense file into multiple sequential stops when reading it as one stop
+would require the reviewer to hold several distinct concepts in mind at once. Treat
+the following as strong signals to split:
+
+- the stop spans multiple phases such as input collection, derived state, branch
+  selection, side effects, rendering, and cleanup;
+- separate regions implement different modes, protocols, lifecycle paths, or failure
+  behavior;
+- a later region is understandable only after reviewing tests, a helper, or an
+  external contract in between;
+- the proposed `Read` range is broad enough that the reviewer would need to search
+  within it to find the behavior being discussed;
+- the explanation needs several unrelated sets of review questions for the same
+  file.
+
+Prefer stops centered on named symbols, cohesive branches, or narrow line ranges,
+even when this means several consecutive stops in one file. Give each stop a
+behavioral purpose, not labels such as "part 1" and "part 2." Keep tightly coupled
+code together, and do not split merely to meet a line-count target. As a practical
+check, reconsider any stop that asks the reviewer to read more than roughly 100-150
+changed lines in one file unless those lines form one coherent unit.
+
 Explicitly revisit files when useful. For example, read a public contract, follow its
 implementation into storage and integration code, then return to the contract's tests
 with that context. Never force a one-file-at-a-time walkthrough.
@@ -210,6 +233,12 @@ Use numbered `Review stop` entries. Each stop must include:
 - **Evidence:** relevant tests, configuration, documentation, or unchanged source
   that helps validate the change.
 
+When one file requires multiple stops, make the progression explicit. Each stop must
+identify a narrower symbol or region and explain what new mental model it establishes
+before the next region. Interleave tests or dependencies between those stops when
+that reduces cognitive load; consecutive stops in the same file are also appropriate
+when the file itself expresses a clear pipeline.
+
 Use file links or provider line links when the available tools return stable URLs.
 Otherwise use repository-relative `path:line` references. When exact line numbers are
 unavailable or unstable, name the symbol and changed region rather than inventing a
@@ -255,6 +284,8 @@ validation unless the user asks.
 - Cover every changed file in the route or in an explicit low-attention/mechanical
   inventory. Do not silently omit files.
 - Spend detail in proportion to risk and explanatory value, not diff size.
+- Break behavior-dense single files into enough stops that each stop has one primary
+  reasoning objective; a large file is not itself a review unit.
 - Explain relationships across files and layers; do not produce isolated file
   summaries.
 - Make review questions specific enough that a human can answer them from code or by
