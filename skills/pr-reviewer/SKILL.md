@@ -171,7 +171,9 @@ Require every finding to include:
 - failure path and impact;
 - relevant code excerpt or context;
 - recommended direction;
-- a ready-to-post review comment.
+- a ready-to-post review comment following the comment-drafting defaults below;
+- an applicable suggestion code block when supported and safe, or a brief reason
+  why a code suggestion cannot be supplied.
 
 Rank findings by severity, then confidence. Prefer synchronous execution unless
 there is genuine independent work to perform in parallel.
@@ -219,6 +221,54 @@ again when it is the only item left, leave it deferred and end with that status.
 
 Show only the next suggestion. Do not reveal titles or details of later findings.
 
+### Comment-drafting defaults
+
+Apply these defaults to the first proposed comment, not only after the user
+selects **Prepare to post**. Pass them to the review agent and refine its draft
+before presenting it. Do not wait for the user to request more natural wording or
+a suggestion code block.
+
+**Write like a teammate.** Use plain, specific language and usually one to three
+sentences before any code block. Name the concrete failure or missing protection,
+then ask a direct, collaborative question when appropriate. Vary the wording to
+fit the concern rather than starting every comment with the same phrase.
+For example, "Could we cover Enter here? All the selection tests use clicks, so
+broken keyboard activation would still pass."
+
+Keep severity, confidence, diagnostic headings, and detailed investigation notes
+in the review presentation, not in the posted comment. Avoid canned introductions,
+generic praise, formal audit language, repeated context, and phrases such as
+"It is important to note", "To ensure robustness", or "Consider adding coverage".
+Do not soften a confirmed defect into speculation or call a test gap a proven
+runtime bug.
+
+**Include applicable code by default.** When the retrieved source establishes a
+precise, type-safe, self-contained change and the provider supports applicable
+suggestions, include the exact replacement in a suggestion code block in the
+first draft. This applies to production fixes and missing tests or stories.
+Do not omit a suggestion merely because it adds a new test, needs a local helper,
+or requires moving the anchor away from the diagnostic line.
+
+For a missing test, prefer a complete test or story using the existing imports,
+fixtures, assertions, and required harness. Check that it distinguishes the
+reported regression and exercises production behavior rather than inventing
+behavior in a mock. Avoid timing races that could let the broken implementation
+pass. Do not invent unavailable APIs or assume a fixture supports unverified
+props.
+
+For a self-contained test or story appended to a changed file, prefer an anchor
+at the end of that file. Preserve the anchored closing line or lines in the
+replacement, then append the new code. For other fixes, anchor exactly the lines
+being replaced. Verify indentation, imports, types, fixture contracts, and anchor
+boundaries against the current source. Keep the diagnostic location separate
+from the replacement anchor when they differ.
+
+If an applicable suggestion is unsafe because source context is missing, the
+implementation is uncertain, coordinated edits elsewhere are required, or the
+provider does not support it, use prose and briefly explain the limitation to
+the user. Do not force a code block or claim proposed code was tested when it was
+not. Keep any unexecuted-code qualification in the review presentation.
+
 Use this shape:
 
 ```text
@@ -239,6 +289,9 @@ Proposed review comment:
 > <ready-to-post comment>
 ```
 
+Include any applicable suggestion code block with the proposed comment and show
+its replacement anchor if different from the diagnostic location.
+
 Use the structured user-input tool to offer:
 
 1. **Prepare to post** - proceed to editable comment confirmation.
@@ -257,21 +310,15 @@ Never infer a side-effecting choice from ambiguous input.
 1. Re-check current active PR threads for a materially equivalent comment.
 2. Verify that the file and changed-line anchor are still valid in the latest PR
    iteration.
-3. Rewrite the draft to be concise, specific, natural, and human-sounding. Avoid
-   canned headings, excessive explanation, repeated context, and AI-like phrasing.
-4. Prefer collaborative, question-oriented wording when asking the author to
-   confirm intended behavior or compatibility, for example, "Should this be
-   variant-dependent?" or "Would this work?" Do not weaken a confirmed defect
-   into vague speculation: retain the concrete failure path and the evidence that
-   motivates the question.
-5. When the fix is small, precise, type-safe, and directly applicable to the
-   anchored changed lines, offer a provider-supported suggestion code block in the
-   editable draft. The block must contain the exact replacement text with correct
-   indentation. Anchor the thread to exactly the line or line range replaced by
-   the suggestion, moving the anchor from the diagnostic line when necessary.
-   Do not use a suggestion block when the correct implementation is uncertain,
-   requires coordinated changes elsewhere, or the provider does not support
-   applicable suggestions; use prose instead.
+3. Refresh the draft using the comment-drafting defaults above. It should already
+   be natural and concise; preserve the concrete failure path while incorporating
+   any user direction and newly retrieved evidence.
+4. Re-check whether an applicable suggestion can now be included. Include it by
+   default when safe, including for a new test or story; otherwise explain the
+   limitation briefly rather than silently dropping it.
+5. Verify the exact replacement code and anchor against the latest PR iteration.
+   For an appended test or story, use the end-of-file anchor and preserve the
+   replaced closing lines. Show the final anchor alongside the editable draft.
 6. Present an editable text field containing the exact comment.
 7. Offer `Post this exact comment`, `Skip`, `Move to end`, and `Revise again`.
 8. If the user asks for different framing, such as making the comment a question
@@ -280,8 +327,8 @@ Never infer a side-effecting choice from ambiguous input.
 9. Post only when the user selects `Post this exact comment`.
 10. Use the edited text exactly as supplied, without silently rewriting it.
 11. Prefer an inline comment on the relevant changed line. If the provider rejects
-   a valid-looking anchor, explain the failure and return to the same suggestion;
-   do not silently post a general comment.
+    a valid-looking anchor, explain the failure and return to the same suggestion;
+    do not silently post a general comment.
 12. Record the returned thread or comment ID.
 
 ### Skip
