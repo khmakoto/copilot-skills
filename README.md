@@ -77,14 +77,16 @@ not need a full skill:
 
 - `commit-and-push.md` commits and pushes the current changes, then replies to and
   resolves any pull request comments addressed by those changes.
+- `independent-review.md` applies a supplied set of review suggestions without
+  committing or pushing, while avoiding duplicate package change files.
 - `resolve-active-comments.md` walks through active pull request feedback one item
   at a time and applies only the fixes the user keeps, without committing or
   pushing.
 - `update-pr-stack.md` refreshes the base branch, checks a pull request stack for
   stale local branches, and updates the stack after one pull request changes.
 
-Replace placeholders such as `[PR-LINK]`, `[PR-NUMBER]`, and `[PR-STACK]` before
-using a template.
+Replace placeholders such as `[SUGGESTIONS]`, `[PR-LINK]`, `[PR-NUMBER]`, and
+`[PR-STACK]` before using a template.
 
 ## Installation
 
