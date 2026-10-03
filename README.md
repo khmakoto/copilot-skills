@@ -37,23 +37,38 @@ exact payload.
 /brainstorm [repository or path] [suggest-only] [count, focus areas, exclusions, or other constraints]
 ```
 
+### `pr-feedback`
+
+Validates incoming GitHub or Azure DevOps pull request feedback against the
+current code, classifies each concern, and presents review threads one at a time
+for interactive triage.
+
+The skill can implement individually approved fixes and run focused validation,
+while replies, thread resolution, commits, pushes, and other remote changes
+require separate explicit approval.
+
+```text
+/pr-feedback <pull-request-url> [scope or constraints]
+```
+
 ### `pr-reviewer`
 
-Reviews a GitHub or Azure DevOps pull request with a specialist code-review
-agent, retaining only concrete defects, regressions, vulnerabilities,
-compatibility problems, and meaningful test gaps.
+Reviews a GitHub or Azure DevOps pull request or a local Git branch with a
+specialist code-review agent, retaining only concrete defects, regressions,
+vulnerabilities, compatibility problems, and meaningful test gaps.
 
 The review covers every changed hunk and applies cross-cutting checks for state and
 lifecycle behavior, test validity, and behavioral branch coverage. It also runs
 focused checks when relevant for UI interactions, wrappers and adapters, design
 systems, reactive state, service contracts, and package boundaries.
 
-Findings are presented one at a time. Review comments can include directly
-applicable suggestion blocks, but nothing is posted until the user edits and
-confirms the exact text.
+Findings are presented one at a time. Local findings can be retained without
+changing the worktree, while remote review comments can include directly
+applicable suggestion blocks but are not posted until the user edits and confirms
+the exact text.
 
 ```text
-/pr-reviewer <pull-request-url>
+/pr-reviewer <pull-request-url | local-branch-name> [base branch or constraints]
 ```
 
 ### `pr-walkthrough`
@@ -70,23 +85,40 @@ as a single review unit.
 /pr-walkthrough <GitHub-or-Azure-DevOps-PR-URL | local-branch-name>
 ```
 
+### `session-distill`
+
+Extracts evidence-backed workflow lessons from the current session or explicitly
+selected past sessions and turns them into bounded proposals for improving a
+skill, repository instructions, or an explicitly stated user preference.
+
+The skill presents proposals individually and does not save changes
+automatically.
+
+```text
+/session-distill [selected session IDs] [focus] [proposals-only]
+```
+
+### `skill-doctor`
+
+Audits personal skill definitions and supporting resources for concrete workflow
+defects involving triggers, inputs, tools, authorization, evidence, failure
+handling, interaction, and completion criteria.
+
+Findings are presented individually, and repairs are applied only after approval
+of the specific proposed change.
+
+```text
+/skill-doctor [skill names or paths] [audit-only] [focus or constraints]
+```
+
 ## Prompts
 
-The `prompts/` directory contains reusable prompt templates for workflows that do
-not need a full skill:
+The `prompts/` directory contains `update-pr-stack.md`, a reusable template that
+refreshes the base branch, checks a pull request stack for stale local branches,
+and updates the stack after one pull request changes.
 
-- `commit-and-push.md` commits and pushes the current changes, then replies to and
-  resolves any pull request comments addressed by those changes.
-- `independent-review.md` applies a supplied set of review suggestions without
-  committing or pushing, while avoiding duplicate package change files.
-- `resolve-active-comments.md` walks through active pull request feedback one item
-  at a time and applies only the fixes the user keeps, without committing or
-  pushing.
-- `update-pr-stack.md` refreshes the base branch, checks a pull request stack for
-  stale local branches, and updates the stack after one pull request changes.
-
-Replace placeholders such as `[SUGGESTIONS]`, `[PR-LINK]`, `[PR-NUMBER]`, and
-`[PR-STACK]` before using a template.
+Replace `[PR-NUMBER]`, `[updated/merged]`, and `[PR-STACK]` before using the
+template.
 
 ## Installation
 
