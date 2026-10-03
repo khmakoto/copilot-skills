@@ -125,6 +125,13 @@ In proposals-only mode, do not offer a persistent write.
 
 ## 5. Prepare and confirm persistence
 
+Before preparing a file change, identify whether the destination is personal,
+repository-owned, plugin-managed, or built-in. Do not edit plugin-managed or
+built-in files. Instead, propose a user-owned customization or an upstream
+change, explaining its scope and any skill-name precedence or overlap.
+Creating a customization or publishing an upstream change requires separate
+approval for its exact destination and contents.
+
 Keeping a proposal is not authorization to save it.
 
 Before a write:

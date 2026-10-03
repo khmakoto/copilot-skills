@@ -105,6 +105,16 @@ rather than looping.
 
 ## 4. Implement an approved fix
 
+Immediately before each approved fix, re-check the local repository, branch,
+commit, and worktree state against the latest available PR source head. If the
+checkout is mismatched or materially stale, explain the mismatch and ask how to
+proceed; do not switch branches or edit another checkout implicitly.
+
+Revalidate the concern against current source, including earlier approved fixes.
+If it no longer applies, update its classification and do not edit code. If the
+required scope or approach has materially changed, show the revised scope and
+obtain approval again before editing.
+
 Before editing, read applicable instructions and integrate existing local changes.
 Do not revert work the user or another process created.
 

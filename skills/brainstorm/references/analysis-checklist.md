@@ -98,7 +98,8 @@ narrower scope materially alters the case.
 ## Diversity and ranking
 
 Generate more candidates than needed when evidence allows, remove weak and
-duplicate items, then retain the requested count.
+duplicate items, then retain up to the requested count. If fewer qualify, report
+the shortfall and use the actual retained count; never pad the queue to meet a quota.
 
 Rank by:
 

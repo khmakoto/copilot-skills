@@ -108,8 +108,12 @@ suggestions, explain that rather than inventing repository details.
 
 ## 3. Build the suggestion queue
 
-Generate the complete requested number of candidates internally before presenting
-the first one. Do not reveal the queue as a batch.
+Aim for the requested number of evidence-backed candidates and build the retained
+queue internally before presenting the first one. If fewer candidates meet the
+quality bar after representative analysis and candidate validation, state the
+shortfall and proceed with the qualifying candidates. Use the actual retained
+count in suggestion numbering. If none qualify, explain the evidence limitations
+and finish without inventing suggestions. Do not reveal the queue as a batch.
 
 Every retained candidate must:
 
