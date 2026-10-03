@@ -23,6 +23,10 @@ The skills favor:
 
 ## Skills
 
+All skills can be invoked explicitly with the commands shown below. `brainstorm`
+and `pr-walkthrough` may also be selected automatically when a request matches
+their descriptions. The other skills require explicit invocation.
+
 ### `brainstorm`
 
 Analyzes a local or remote repository and builds a ranked queue of potential
@@ -122,6 +126,19 @@ template.
 
 ## Installation
 
+### Install with GitHub Copilot CLI
+
+Clone this repository, then register its skill collection with Copilot CLI:
+
+```text
+copilot skill add ./skills
+```
+
+This keeps each skill together with its referenced resources. Use
+`copilot skill list` to inspect the registered skills, and
+`copilot skill enable <name>` or
+`copilot skill disable <name>` to control availability.
+
 ### Install with skills.sh
 
 Install skills from this repository with the `skills` CLI:
@@ -135,9 +152,15 @@ for GitHub Copilot or another supported agent.
 
 ### Install manually
 
-Alternatively, copy or link a skill directory into your global Copilot skills
-directory. Keep the full directory contents together so that `SKILL.md` can
-access any files under `references/`.
+Alternatively, copy a complete skill directory into one of Copilot CLI's
+supported locations:
+
+- personal skills: `~/.copilot/skills/` or `~/.agents/skills/`;
+- project skills: `.github/skills/`, `.agents/skills/`, or `.claude/skills/`.
+
+Keep the full directory contents together so that `SKILL.md` can access files
+under `references/`. If Copilot CLI is already running, use `/skills reload`
+after adding or updating a skill manually.
 
 Each directory under `skills/` is self-contained and uses the standard `SKILL.md`
 format. Prompt templates under `prompts/` can be copied, customized, and submitted

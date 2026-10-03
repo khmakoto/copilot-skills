@@ -73,13 +73,18 @@ the default branch is `main` or `master`.
 
 Determine the intended base in this order:
 
-1. configured upstream or branch metadata that identifies a clear base;
-2. remote PR metadata associated with the branch, when provider-native tools expose
-   it unambiguously;
-3. the remote default branch.
+1. an explicitly supplied base branch;
+2. the target branch of an associated remote PR, when provider-native metadata
+   identifies it unambiguously;
+3. branch metadata that unambiguously identifies the intended integration base;
+4. the remote default branch.
 
-If these sources conflict or the comparison base remains materially ambiguous, use
-structured user input to ask for the base branch.
+Do not treat an upstream tracking the same published feature branch as its
+comparison base. A configured upstream alone does not establish the intended
+integration base. If an explicit base cannot be resolved, ask rather than
+silently substituting another branch. If inferred sources conflict or the
+comparison base remains materially ambiguous, use structured user input to ask
+for the base branch.
 
 Compare from the merge base through the named branch head so unrelated target-branch
 changes are excluded. Inspect commits, changed files, rename or copy status, and the
@@ -89,6 +94,18 @@ If the named branch is currently checked out and the worktree has uncommitted ch
 include them as a clearly separated `Uncommitted local state` layer. Do not blend them
 into the committed branch diff. If another branch is checked out, do not attribute
 that worktree's changes to the target branch.
+
+For the committed layer, read source, tests, documentation, and repository
+or directory guidance from Git objects at the resolved target head. Read
+before-change context from the comparison snapshot used by the diff. Do not
+substitute another checked-out branch's files. Use worktree files for the
+separate uncommitted layer only when the target branch is checked out, and
+identify which layer supports each explanation or reference.
+
+Use code-intelligence results only when they correspond to the reviewed
+snapshot; otherwise use direct snapshot reads. If the target head or relevant
+worktree state changes during analysis, refresh affected evidence before
+presenting the walkthrough rather than mixing snapshots.
 
 ## 2. Establish repository context
 

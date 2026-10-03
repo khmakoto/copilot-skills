@@ -31,7 +31,7 @@ For a local repository:
 3. use `gh repo view` to confirm owner, repository, default branch, visibility, and
    repository metadata.
 
-For a URL or `owner/repository`, use `gh repo view --repo <owner/repository>` to
+For a URL or `owner/repository`, use `gh repo view <owner/repository>` to
 confirm it exists and is accessible.
 
 Inspect, with bounded limits and useful JSON fields:
