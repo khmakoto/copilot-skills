@@ -1,34 +1,78 @@
 ---
 name: pr-reviewer
-description: Review a pull request URL with a specialist code-review agent, then present actionable suggestions one at a time for interactive triage and optional posting. Use when the user invokes /pr-reviewer with a PR link or asks for this workflow.
-argument-hint: "<pull-request-url>"
+description: Review a GitHub or Azure DevOps pull request URL or a local Git branch with a specialist code-review agent, then present actionable suggestions one at a time for interactive triage, individually approved local fixes, or optional posting for remote PRs. Use when the user invokes /pr-reviewer.
+argument-hint: "<pull-request-url | local-branch-name> [base branch or constraints]"
 disable-model-invocation: true
 ---
 
 # Interactive Pull Request Reviewer
 
-Review the pull request identified by the URL supplied after `/pr-reviewer`, then
-walk the user through confirmed findings one at a time. Let the user post, skip,
-defer, revise, investigate, or otherwise direct each suggestion.
+Review the pull request or local branch supplied after `/pr-reviewer`, then walk
+the user through confirmed findings one at a time. Let the user apply or retain
+local findings, prepare remote comments, skip, defer, revise, or investigate.
 
 ## Input
 
-A pull request URL is required.
+Accept one GitHub or Azure DevOps pull request URL, or a local branch name in the
+Git repository containing the current working directory. Honor an explicit base
+branch and review constraints.
 
-- Accept GitHub and Azure DevOps pull request URLs.
-- Parse the provider, organization or owner, project when applicable, repository,
-  and pull request number from the URL.
-- If the argument is missing or is not an unambiguous pull request URL, use the
-  structured user-input tool to request a valid URL before doing any review work.
-- Do not infer a pull request from the current branch when a URL was not supplied.
+If no target is supplied inside a Git repository, use structured user input to
+ask which branch or PR to review, suggesting the current branch without silently
+selecting it. Outside a repository, request a PR URL or a local repository path
+and branch. Clarify ambiguous arguments or multiple targets before review.
+
+### Remote pull request
+
+Parse the provider, organization or owner, project when applicable, repository,
+and pull request number from the URL. Do not infer a PR from a local branch or
+silently turn a local review into a remote review.
+
+### Local branch
+
+Resolve the repository root and verify that the named local branch exists.
+Do not switch branches. Resolve the comparison base in this order:
+
+1. An explicitly supplied base branch.
+2. An associated PR's target branch, when provider-native metadata is available.
+3. Branch metadata that unambiguously identifies the intended integration base.
+4. The remote default branch, resolved from repository metadata.
+
+Do not assume `main` or `master`, or treat a feature branch's upstream tracking
+the same feature branch as its comparison base. If sources conflict or the base
+cannot be resolved locally, ask the user. Do not fetch or modify refs implicitly.
+
+Resolve the base, branch head, and merge-base commit IDs. Review the complete diff
+from the merge base to the named branch head, excluding unrelated base changes.
+Inspect commits, every changed file and hunk, and rename or copy information.
+Report the repository, branch, resolved base, and exact comparison before triage.
+
+When the named branch is checked out, include staged, unstaged, and non-ignored
+untracked files as a separate `Uncommitted local state` layer. Account for staged
+and unstaged versions without treating intermediate edits as independent defects.
+Otherwise review committed branch content only; do not attribute the current
+worktree's changes to another branch. Read that branch's source and instructions
+from its Git objects rather than substituting the checked-out branch's files.
+
+Use exact snapshot paths and lines for findings and identify their committed or
+uncommitted layer. If relevant state changes during review, revalidate affected
+findings before presenting them; do not silently mix snapshots.
 
 ## Safety and side effects
 
 Review and discovery are read-only.
 
+Local review and suggestion preparation use read-only Git commands. Only an
+explicit **Apply locally** decision authorizes edits for the current suggestion
+and the smallest relevant validation. Do not fetch, checkout, stash, stage,
+commit, or push as part of applying a suggestion. Retaining a finding is not
+authorization to edit code or publish it.
+
 Do not post, update, reply to, resolve, or close a pull request comment unless the
 user explicitly approves that exact action for the suggestion currently shown.
-Do not edit code, commit, push, change branches, or change the pull request.
+Do not edit code except through the approved local application workflow below.
+Remote reviews remain read-only apart from individually approved comments.
+Do not commit, push, change branches, or change the pull request.
 
 Before posting, always show the exact proposed comment in an editable field and
 require explicit confirmation. Approval of the finding is not approval of the
@@ -38,16 +82,21 @@ Use provider-native tools. Do not scrape credentials, use raw authenticated HTTP
 requests, or guess deferred tool schemas. Load or inspect a deferred tool before
 calling it.
 
-## 1. Review the pull request
+## 1. Review the target
 
 Invoke the specialist code-review agent through the task tool with
 `agent_type: "code-review"`.
 
 Give the agent:
 
-- the complete pull request URL;
-- instructions to retrieve the PR metadata, description, target branch, complete
-  current diff, current active review threads, and relevant source context;
+- the complete PR URL for a remote review, or the repository path, local branch,
+  resolved base, merge-base and head commit IDs, and uncommitted scope for a local
+  review;
+- for remote reviews, instructions to retrieve the PR metadata, description,
+  target branch, complete current diff, active threads, and source context;
+- for local reviews, the local comparison and snapshot rules above, instructions
+  to inspect the full committed diff and separate uncommitted layer when applicable,
+  and instructions not to fetch, switch branches, edit files, or post comments;
 - instructions to enumerate every changed file and inspect every changed hunk rather
   than sampling representative files;
 - instructions to discover and read repository-wide and package-local contributor
@@ -55,7 +104,7 @@ Give the agent:
   govern the changed files. Existing review comments may identify useful evidence,
   but the agent must validate each concern independently against source or documented
   repository policy;
-- instructions to review only changes in the PR;
+- instructions to review only changes in the selected PR or local comparison;
 - instructions to report concrete bugs, security vulnerabilities, regressions,
   compatibility breaks, meaningful test gaps, and objectively verifiable
   architectural-boundary violations, including:
@@ -69,7 +118,7 @@ Give the agent:
   speculative concerns. Do not classify implementation-system selection as
   subjective when repository evidence establishes it as an architectural or
   migration invariant;
-- instructions not to post comments or modify the PR.
+- instructions not to edit files, post comments, or modify repository or PR state.
 
 For every newly introduced adapter, new or replacement implementation, or
 migration layer, require the agent to:
@@ -171,15 +220,17 @@ Require every finding to include:
 - failure path and impact;
 - relevant code excerpt or context;
 - recommended direction;
-- a ready-to-post review comment following the comment-drafting defaults below;
+- a proposed review comment following the comment-drafting defaults below,
+  ready to post for a remote PR or retain as a local finding;
 - an applicable suggestion code block when supported and safe, or a brief reason
   why a code suggestion cannot be supplied.
 
 Rank findings by severity, then confidence. Prefer synchronous execution unless
 there is genuine independent work to perform in parallel.
 
-If the agent cannot access the PR or retrieve a complete diff, report the blocker
-accurately and do not invent findings.
+If the agent cannot access the target or retrieve the complete scoped diff and
+source, report the blocker accurately and do not invent findings or present an
+incomplete review as complete.
 
 Before accepting the agent's final result, require it to state briefly which
 categories it identified, which focused passes it completed or skipped with
@@ -211,6 +262,8 @@ Maintain an ordered queue with these states:
 - skipped;
 - deferred to end;
 - withdrawn;
+- retained locally;
+- applied locally;
 - posted.
 
 A suggestion moved to the end must be shown again after every other unreviewed
@@ -248,6 +301,11 @@ suggestions, include the exact replacement in a suggestion code block in the
 first draft. This applies to production fixes and missing tests or stories.
 Do not omit a suggestion merely because it adds a new test, needs a local helper,
 or requires moving the anchor away from the diagnostic line.
+
+For local reviews, show a precise proposed replacement or patch when safe, rather
+than claiming a provider-applicable suggestion is available. Name its snapshot
+path and replacement range, and do not apply it before approval. The same source, type-safety,
+and test-validity checks apply; no remote provider is required.
 
 For a missing test, prefer a complete test or story using the existing imports,
 fixtures, assertions, and required harness. Check that it distinguishes the
@@ -301,11 +359,65 @@ Use the structured user-input tool to offer:
 5. **Something else** - follow the user's freeform direction when safe.
 6. **Stop review** - stop presenting findings and summarize.
 
+For local reviews, replace **Prepare to post** with **Apply locally** and also
+offer **Keep finding**. Before offering Apply locally, show the proposed fix,
+affected files, and intended validation. For fixes needing coordinated edits,
+describe the complete bounded plan rather than forcing a single replacement.
+Selecting Apply locally authorizes that displayed scope only. Keep retains the
+finding without edits. Do not offer posting actions or imply that a PR exists.
+Keep the other triage choices.
+
 Never infer a side-effecting choice from ambiguous input.
 
 ## 4. Handle the decision
 
+### Apply locally (local reviews)
+
+1. Re-check the repository, branch head, worktree, and relevant source. Apply only
+   when the reviewed branch is checked out in the target worktree. If it is not,
+   explain the mismatch and keep the finding active; do not switch branches or
+   edit another branch. Let the user select an existing worktree with the reviewed
+   branch checked out or arrange the checkout themselves.
+2. Revalidate the concern against current code and locate the fix by source
+   context, not stale line numbers. If it no longer applies, withdraw it with an
+   explanation. If the approved scope or approach must materially change, show
+   the revised plan and obtain approval again before editing.
+3. Read applicable contributor instructions and preserve existing staged,
+   unstaged, and untracked work. If it conflicts with the fix, stop and ask rather
+   than overwriting or reverting it.
+4. Implement the smallest complete approved fix, including directly related
+   tests and documentation where required. Do not fix other queued concerns
+   without separate approval.
+5. If repository conventions require a package change file, check branch changes
+   relative to the review base and uncommitted files for an existing file for that
+   package. Update a suitable existing file without erasing its entries rather
+   than creating a duplicate. Explain any convention requiring a separate file.
+6. Run the smallest existing validation covering the fix. Inspect the resulting
+   diff to confirm the approved scope and preservation of existing work. Record
+   changed files and actual validation results; do not claim unrun checks passed.
+7. Mark successfully implemented and verified findings as applied locally.
+   If implementation or validation fails or is blocked, explain the remaining
+   work and any edits already made, keep the finding active, and ask how to
+   proceed. Do not silently move on or revert other people's work.
+8. Refresh the affected snapshot and revalidate remaining findings as they are
+   presented, accounting for prior approved fixes. Withdraw concerns already
+   addressed by an earlier fix rather than applying stale suggestions.
+
+Leave changes uncommitted and unpushed. Do not stage files, post comments, or
+resolve remote threads as a side effect of local application.
+
+### Keep finding (local reviews)
+
+Record the finding as retained locally and continue to the next suggestion.
+Do not edit code, create files, or post comments. Include retained findings in
+the final response so the user can act on them later.
+
 ### Prepare to post
+
+This action is available only for a remote PR review. If the user wants to publish
+a local finding, request an explicit PR target and revalidate the finding against
+its latest diff and threads before entering this confirmation workflow. Never
+publish uncommitted-only changes as though they were already part of the PR.
 
 1. Re-check current active PR threads for a materially equivalent comment.
 2. Verify that the file and changed-line anchor are still valid in the latest PR
@@ -358,16 +470,20 @@ Stop presenting suggestions. Do not reveal the remaining findings individually.
 ## 5. Continue and finish
 
 After each completed decision, show the next queued suggestion. Continue until all
-suggestions are posted, skipped, withdrawn, or left deferred, or until the user
-stops.
+suggestions are posted, applied locally, retained locally, skipped, withdrawn, or
+left deferred, or until the user stops.
 
 Finish with a concise summary containing:
 
-- pull request reviewed;
+- PR reviewed, or local repository, branch, base, merge-base and head commit IDs;
+- whether uncommitted local state was included;
+- retained local findings with location, impact, and recommended direction;
+- locally applied fixes with changed files and validation results;
+- partially applied or blocked fixes, and whether local changes remain uncommitted;
 - comments posted with file, line, and thread or comment ID;
 - count of skipped and withdrawn suggestions;
 - deferred or unreviewed count;
-- any access, diff, anchor, or posting failures.
+- any access, diff, anchor, application, validation, or posting failures.
 
 Do not repeat the full text of every finding. Do not claim a comment was posted
 without a successful provider write-tool response.
