@@ -14,6 +14,10 @@ This is a review guide, not an automated approval, defect report, or line-by-lin
 dump. Optimize for helping a reviewer form the right mental model and spend attention
 where it matters.
 
+Investigate thoroughly, then write selectively. The walkthrough is a reading route,
+not a record of the investigation. A reviewer should quickly see where to start,
+what to understand next, and which questions deserve their attention.
+
 ## Safety
 
 This workflow is read-only.
@@ -171,6 +175,12 @@ This is guidance, not a fixed template. Reverse or interleave the order when the
 is easier to understand from tests inward, schema upward, data flow forward, or an
 adapter back to its contract.
 
+Aim for 4-6 stops for an ordinary PR, fewer for a small change. Add stops only when
+independent behavioral concepts need them; do not squeeze a complex lifecycle into
+one stop to meet the target. Minor styles, fixtures, release metadata, and mechanical
+changes usually belong beside their behavior or in a compact lower-attention list,
+not in standalone stops.
+
 A review stop may cover:
 
 - one important region in one file;
@@ -221,80 +231,112 @@ genuinely matches the best reasoning flow.
 
 ## 5. Produce the walkthrough
 
-Write a self-contained walkthrough with the following sections.
+Write a self-contained guide with four short sections: **Orientation**, **Reading
+route**, **Cross-cutting checks**, and **Validation**. Include a **Lower-attention
+files** list only when needed for complete file coverage.
 
-### Review orientation
+### Length and readability
 
-Include:
+- Aim for 600-900 words for an ordinary PR; small changes should be much shorter.
+  Exceed this only when distinct, high-attention behavior genuinely needs more
+  explanation or the user requests detail. Word and stop counts are targets, not
+  reasons to omit material evidence or combine unrelated behavior.
+- Give the reviewer a mental model, not an exhaustive explanation of the code.
+  Prefer "closing clears the query before restarting loading" over listing every
+  state variable and hook.
+- Use short paragraphs and behavioral headings. Avoid nested lists, wide tables,
+  long runs of filenames, and repeated metadata.
+- Do not repeat six labeled fields at every stop. Combine the reason for the order,
+  the change, and its connections into natural prose.
+- Keep the investigation map, full build listing, and incidental retrieval details
+  out of the output. Mention a limitation only when it affects interpretation or
+  confidence. Never hide missing snapshot or comparison data.
 
-- target: PR URL or local branch and repository;
-- comparison: exact base and head branch or commit;
-- current state: open, draft, closed, merged, or local, plus checks when available;
-- scope: concise counts for commits and changed files, with additions and deletions
-  when available;
-- intent: what the change appears to accomplish, reconciled with the actual diff;
-- review shape: the main behavioral path and the highest-attention themes;
-- limitations: missing provider data, incomplete diff access, unavailable generated
-  inputs, or other material constraints.
+### Orientation
 
-### Recommended review route
+Lead with 2-3 sentences explaining what the PR actually does, what it deliberately
+does not do, and the main behavior or boundary to watch. Reconcile material
+differences between the description and the inspected diff here or at the relevant
+stop, without repeating them.
 
-Use numbered `Review stop` entries. Each stop must include:
+Use compact metadata, not a large orientation table:
 
-- **Read:** exact file paths and narrow symbol, line, or diff-region references;
-- **Why here:** why this is the right point in the review sequence;
-- **What changed:** a concise explanation of notable behavior, not a transcription;
-- **Connections:** how it depends on, drives, or must agree with other changed code;
-- **Human review focus:** concrete questions, invariants, edge cases, or failure paths
-  to verify manually;
-- **Evidence:** relevant tests, configuration, documentation, or unchanged source
-  that helps validate the change.
+- Identify the PR URL/title or branch and repository, author when available,
+  open/draft/merged/local state, and scope counts.
+- Record the exact reviewed head and comparison snapshot, with branch names.
+  Distinguish the target snapshot from the merge base when they differ or the
+  provider does not expose the latter. Keep full hashes in this one place.
+- Summarize checks in one line. Identify a relevant failed or pending check rather
+  than enumerating every successful job. Qualify unavailable commit counts or
+  update timestamps instead of implying they are exact.
 
-When one file requires multiple stops, make the progression explicit. Each stop must
-identify a narrower symbol or region and explain what new mental model it establishes
-before the next region. Interleave tests or dependencies between those stops when
-that reduces cognitive load; consecutive stops in the same file are also appropriate
-when the file itself expresses a clear pipeline.
+### Reading route
 
-Use file links or provider line links when the available tools return stable URLs.
-Otherwise use repository-relative `path:line` references. When exact line numbers are
-unavailable or unstable, name the symbol and changed region rather than inventing a
-line number.
+Use numbered behavioral headings such as `1. Understand who owns the open state`,
+not repetitive headings such as `Review stop 1`. Aim for 50-90 words per stop,
+excluding references. Each stop has this shape:
 
-Keep related tests near the production behavior they validate instead of placing all
-tests in a final undifferentiated stop. Place mechanical artifacts after the authored
-source that explains them.
+```markdown
+### 1. Understand who owns the open state
 
-Call out transitions such as:
+**Read:** `path/to/Shell.tsx:80-115`; `path/to/Shell.stories.tsx` - handoff story.
 
-- `Now follow the value created above into persistence.`
-- `With the failure behavior understood, return to the entry point to verify how it
-  is surfaced.`
-- `Review these files together because the identifiers must remain synchronized.`
+The shell derives visibility from shared state rather than keeping its own open
+flag. Start here because the close handlers below must preserve a replacement
+surface's ownership.
 
-Use natural prose rather than repeating these phrases mechanically.
+**Check:** Does switching surfaces preserve the new owner's state?
+```
 
-### Cross-cutting review checklist
+This is an illustrative format, not code or evidence for the target PR. For each
+actual stop:
 
-End with a concise checklist tailored to this change. Cover only relevant items, such
-as:
+- **Read:** Give exact paths and narrow line ranges, symbols, or diff regions.
+  Include the most useful test or unchanged dependency here, or cite it inline
+  where it supports the explanation. State meaningful gaps in test evidence.
+- Explain what changed and why it matters in 2-3 sentences. Make the dependency
+  on the preceding or following stop clear when it is not obvious.
+- **Check:** Give one concrete review question or invariant; add a second only
+  when independently important. Avoid laundry lists of speculative edge cases.
+- Mark only the 1-2 highest-attention stops when useful. Do not assign a risk badge
+  to every stop or turn the guide into an automated defect report.
 
-- contract and compatibility;
-- authorization and trust boundaries;
-- validation and error propagation;
-- data consistency, migration, rollback, and partial failure;
-- concurrency, ordering, idempotency, retries, and cancellation;
-- observability and operational behavior;
-- feature-flag and configuration defaults;
-- test coverage across happy paths and important failures;
-- documentation, generated artifacts, and deployment sequencing.
+When revisiting a file, name the new behavior and use a narrower range. Keep tests
+beside the behavior they demonstrate. Do not repeat the same explanation in the
+orientation, multiple stops, and the final checklist.
 
-### Suggested validation
+Use file links or provider line links when available and stable; otherwise use
+repository-relative `path:line` references. Never invent line numbers. If many files
+share a long prefix, state it once and use unambiguous paths relative to that prefix.
 
-List the smallest existing tests, builds, or manual scenarios that would give the
-reviewer confidence in the changed behavior. Clearly distinguish commands discovered
-in repository documentation or automation from inferred manual scenarios. Do not run
-validation unless the user asks.
+### Lower-attention files
+
+Account for every changed file, but do not give every file equal airtime. Group
+remaining files by purpose in a short list with exact paths and one shared reason
+they need less attention. For example, group generated outputs beneath the authored
+input that explains them. Do not silently classify behavior-changing configuration,
+migrations, or snapshots as mechanical.
+
+Do not append a second full inventory when the reading route already covers every
+file. Keep authored behavior in the route; this list is not a shortcut for omitting
+a changed subsystem.
+
+### Cross-cutting checks
+
+Use 3-5 short checklist items only when there are invariants spanning multiple stops,
+such as ownership, ordering, compatibility, or deployment sequencing. Do not repeat
+each stop's question. If there are no additional cross-cutting checks, omit this
+section.
+
+### Validation
+
+Suggest 2-4 focused existing commands or manual scenarios, scaled down for small
+changes. Identify which commands were discovered in repository documentation or
+automation and which scenarios are inferred. Favor specific tests over a default
+full-suite recommendation. Do not run validation unless the user asks.
+
+State briefly if suggested validation was not run. Avoid ending with a recap or
+an offer to continue.
 
 ## Quality bar
 
@@ -316,6 +358,9 @@ validation unless the user asks.
   reviewer.
 - Avoid exhaustive narration of trivial formatting, generated noise, and obvious
   test data unless they affect behavior or review risk.
+- Before sending, check whether a reviewer can identify the starting point, the
+  highest-attention behavior, and the validation route in a 30-second scan. Remove
+  repetition and incidental detail before shortening necessary evidence.
 
 If the target cannot be accessed, the branch does not exist, or the diff cannot be
 retrieved completely, explain the blocker and stop rather than producing a partial
