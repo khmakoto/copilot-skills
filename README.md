@@ -117,12 +117,15 @@ of the specific proposed change.
 
 ## Prompts
 
-The `prompts/` directory contains `update-pr-stack.md`, a reusable template that
-refreshes the base branch, checks a pull request stack for stale local branches,
-and updates the stack after one pull request changes.
+The `prompts/` directory contains reusable templates for branch and pull request
+maintenance:
 
-Replace `[PR-NUMBER]`, `[updated/merged]`, and `[PR-STACK]` before using the
-template.
+- `update-pr-stack.md` refreshes the base branch, checks a pull request stack for
+  stale local branches, and updates the stack after one pull request changes.
+  Replace `[PR-NUMBER]`, `[updated/merged]`, and `[PR-STACK]` before using it.
+- `commit-and-push.md` commits and pushes changes, resolves active review comments
+  addressed by those changes, and replies to any resolved threads without
+  referencing specific commits.
 
 ## Installation
 
