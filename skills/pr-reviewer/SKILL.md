@@ -359,6 +359,13 @@ Use the structured user-input tool to offer:
 5. **Something else** - follow the user's freeform direction when safe.
 6. **Stop review** - stop presenting findings and summarize.
 
+For remote reviews, when the current finding has multiple viable changed-line
+anchors and could usefully be split into independently understandable comments,
+actively include **Split into multiple comments, one per anchor** as an additional
+decision option. Offer it during both finding triage and comment confirmation
+when applicable. Do not wait for the user to request splitting, and do not offer
+it for a single anchor or when separate comments would lack necessary context.
+
 For local reviews, replace **Prepare to post** with **Apply locally** and also
 offer **Keep finding**. Before offering Apply locally, show the proposed fix,
 affected files, and intended validation. For fixes needing coordinated edits,
@@ -433,6 +440,7 @@ publish uncommitted-only changes as though they were already part of the PR.
    replaced closing lines. Show the final anchor alongside the editable draft.
 6. Present an editable text field containing the exact comment.
 7. Offer `Post this exact comment`, `Skip`, `Move to end`, and `Revise again`.
+   Include `Split into multiple comments, one per anchor` when applicable above.
 8. If the user asks for different framing, such as making the comment a question
    or adding an applicable suggestion block, revise the editable draft and require
    confirmation again.
@@ -442,6 +450,15 @@ publish uncommitted-only changes as though they were already part of the PR.
     a valid-looking anchor, explain the failure and return to the same suggestion;
     do not silently post a general comment.
 12. Record the returned thread or comment ID.
+
+If the user selects splitting, keep the shared root cause as one queue finding.
+Prepare one editable draft per anchor, show each file and line range, and state
+whether each comment creates a thread or replies to an existing one. Disclose
+materially equivalent existing threads. Require explicit confirmation of all
+exact texts and destinations before posting; selecting splitting is not posting
+approval. Record each successful comment or thread ID separately. If only some
+writes succeed, report the partial result and keep the finding active; obtain a
+decision before retrying failures, and never repost successful comments.
 
 ### Skip
 
