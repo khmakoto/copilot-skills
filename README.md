@@ -23,9 +23,9 @@ The skills favor:
 
 ## Skills
 
-All skills can be invoked explicitly with the commands shown below. `brainstorm`
-and `pr-walkthrough` may also be selected automatically when a request matches
-their descriptions. The other skills require explicit invocation.
+All skills can be invoked explicitly with the commands shown below. `brainstorm`,
+`pr-walkthrough`, and `pr-graph` may also be selected automatically when a request
+matches their descriptions. The other skills require explicit invocation.
 
 ### `brainstorm`
 
@@ -88,6 +88,43 @@ as a single review unit.
 ```text
 /pr-walkthrough <GitHub-or-Azure-DevOps-PR-URL | local-branch-name>
 ```
+
+### `pr-graph`
+
+Splits existing branches and manages incrementally developed changes as a
+multi-parent dependency graph in local Git, GitHub, GitHub Enterprise Server,
+or Azure DevOps.
+
+All published nodes start as drafts. Blocked drafts use helper integration
+bases to show only their own changes. Review eligibility requires every
+prerequisite to land; sync, readiness, merges, and deletion have explicit
+approval boundaries. The skill supports same-file splitting, graph reshaping,
+merge/squash/rebase strategies, and opt-in committed snapshot recovery across
+machines.
+
+Each PR description ends with a rendered Mermaid DAG image highlighting its own
+node. The skill workflow refreshes these snapshots as graph state changes and
+requires an approved local renderer and supported provider attachment mechanism.
+
+```text
+/pr-graph [split | view | add | sync | ready | merge | reshape | backup | restore]
+```
+
+The self-contained helper requires Node.js 22+ and Git 2.31+, with authenticated
+`gh` or `az` only for the applicable hosting integration. No dependency install
+or build step is needed. Install the complete `skills/pr-graph/` directory
+globally using the installation methods below; its scripts resolve independently
+of the repository being managed. See its references for operation plans, provider
+constraints, and recovery.
+
+Run the helper's local Git and provider-fixture tests:
+
+```text
+node skills/pr-graph/scripts/test.mjs
+```
+
+The `pr-graph` workflow runs this suite on Linux, macOS, and Windows with Node.js
+22 and 24. Fixture coverage does not imply live hosting certification.
 
 ### `session-distill`
 
