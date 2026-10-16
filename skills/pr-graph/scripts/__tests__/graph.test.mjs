@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { validateGraph, eligible, prerequisites, digest, updateFooter, footer } from "../lib/graph.mjs";
+import { validateGraph, eligible, prerequisites, digest, updateFooter, footer, integrationFreshness } from "../lib/graph.mjs";
 
 function graph() {
   const edges = { a: [], b: [], c: ["a", "b"], d: ["b"], e: [], f: ["c", "d", "e"] };
@@ -45,4 +45,32 @@ test("footer replacement preserves human text and is idempotent", () => {
   assert.ok(body.startsWith("Human template\n\nValidation: done."));
   assert.equal(updateFooter(body, block), body);
   assert.equal(digest({ a: 1, b: 2 }), digest({ b: 2, a: 1 }));
+});
+
+test("integration freshness uses recorded verification, an exclusive one-hour window, and forward history", () => {
+  const verifiedAt = Date.UTC(2026, 9, 16);
+  for (const target of ["main", "master"]) {
+    const g = { ...graph(), target, targetSha: "base",
+      integration: { target, sha: "base", verifiedAt } };
+    const node = { ...g.nodes[0], integration: { ...g.integration } };
+    assert.equal(integrationFreshness(g, node, "base", verifiedAt + 7200000).status, "current");
+    const grace = integrationFreshness(g, node, "advanced", verifiedAt + 3599999, true);
+    assert.equal(grace.status, "grace");
+    assert.equal(grace.mergeCurrent, false);
+    assert.equal(grace.expiresAt, verifiedAt + 3600000);
+    assert.equal(integrationFreshness(g, node, "advanced", verifiedAt + 3600000, true).status, "stale");
+    assert.equal(integrationFreshness(g, node, "rewritten", verifiedAt + 1).status, "stale");
+    assert.equal(integrationFreshness(g, node, "advanced", verifiedAt - 1, true).status, "stale");
+    delete node.integration.verifiedAt;
+    assert.equal(integrationFreshness(g, node, "advanced", verifiedAt + 1, true).status, "stale");
+    delete node.integration;
+    assert.equal(integrationFreshness(g, node, "advanced", verifiedAt + 1, true).status, "unknown");
+    node.baseBranch = target;
+    node.base = "base";
+    assert.equal(integrationFreshness(g, node, "base", verifiedAt + 1).status, "current");
+    assert.equal(integrationFreshness(g, node, "advanced", verifiedAt + 1, true).status, "stale");
+    assert.equal(integrationFreshness(g, node, null, verifiedAt + 1).status, "unknown");
+  }
+  const g = { ...graph(), targetSha: "base", integration: { target: "trunk", sha: "base", verifiedAt } };
+  assert.equal(integrationFreshness(g, null, "advanced", verifiedAt + 1, true).status, "stale");
 });

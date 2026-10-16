@@ -14,6 +14,14 @@ eligibility with readiness or assuming checks passed. Label the selected node
 `THIS PR` and give it a distinct outline; do not rely on color alone. Include a
 legend and identify the graph and snapshot revision.
 
+Also show each node's integration freshness (`current`, `grace`, `stale`, or
+`unknown`) independently of eligibility and readiness. Include the snapshot's
+verification time and any grace expiry in the diagram or its legend, with an
+explicit observation time. A grace label is not a merge-ready claim; main/master
+grace lasts less than one hour and never applies to merging. Refresh a depicted
+freshness transition rather than reusing an image that still claims grace after
+expiry. Retain landed/superseded nodes' own snapshot evidence.
+
 Read fresh graph and provider facts after the mandatory branch freshness
 preflight. Do not infer landings from closed PRs, or draw intended future
 changes as completed. If facts cannot be established, stop and report the

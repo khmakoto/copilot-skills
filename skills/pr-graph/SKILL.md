@@ -57,8 +57,8 @@ actions taken directly in a hosting UI. See [providers](references/providers.md)
 
 ## 0. Mandatory branch freshness preflight
 
-Before **any graph or change inspection or mutation**, verify that the local
-DAG branches and integration branch are not stale. This includes `analyze`,
+Before **any graph or change inspection or mutation**, explicitly establish
+each node's branch, integration-snapshot, and validation freshness. This includes `analyze`,
 `status`, `view`, `check`, `doctor`, planning, applying, continuing, and recovery.
 Only the minimal reads needed to identify the repository, applicable safety
 instructions, graph branches, remotes, upstreams, worktree occupancy, and pending
@@ -78,7 +78,8 @@ operations may precede this gate. `help` does not inspect a repository.
 4. Compare each local tip with its freshly fetched counterpart. Equal tips are
    current; a local tip ahead of the remote needs no fast-forward. If the local
    tip is an ancestor of the remote tip, present and approve the exact
-   fast-forward updates, then apply them with expected-old-SHA checks. Never
+   fast-forward updates, then apply them with expected-old-SHA checks, except
+   for the bounded integration grace below. Never
    reset, rebase, merge divergent histories, force-update, stash, or push as part
    of this preflight.
 5. Stop if a required branch has diverged, a remote cannot be checked, an
@@ -86,17 +87,53 @@ operations may precede this gate. `help` does not inspect a repository.
    would move a branch checked out in any worktree. Preserve every worktree and
    explain the blocker. Unpublished local-only branches without an upstream or
    remote counterpart have nothing to fast-forward; report that explicitly.
-6. Recheck all relevant tips after updates. Proceed only when no branch remains
-   behind. In a repository without remotes, report that only local freshness
+6. Recheck all relevant tips after updates. Proceed only when no required branch
+   remains behind outside the integration grace. In a repository without remotes, report that only local freshness
    can be established rather than claiming remote verification.
+
+### Explicit per-node freshness and main/master grace
+
+Report every node's integration status (`current`, `grace`, `stale`, or
+`unknown`), authored snapshot, observed target tip, verification time and
+expiry, branch identity, and validation status. Keep these separate from
+dependency eligibility and draft/readiness state. Use `status`, `view`, and
+the freshness reports in plans and operation results; show interrupted
+candidate freshness separately from persisted graph state.
+
+Only an integration branch named exactly `main` or `master` gets a one-hour
+grace period outside merging. The clock starts at the helper's last recorded
+observation that the authored integration snapshot exactly matched the live
+target, not its commit timestamp. The age must be **less than one hour** and
+the observed target must be a verified descendant. During grace, report that
+the node is behind but within grace; do not repeatedly fast-forward the local
+integration branch or sync/rewrite nodes just because the target advanced.
+Continue checking live refs; this is not permission to trust cached tips.
+
+Shape changes, publication, and `ready` may retain that snapshot during grace.
+Explicit `sync` and `retarget` still reconstruct on their approved target.
+Reading status or observing an already-ahead target never renews the clock.
+Missing/future-dated evidence, rewinds, and divergent histories get no grace.
+Other integration branch names, node/helper refs, human PR content, and
+validation identities remain strict. Before the first graph exists, there is
+no recorded snapshot to exempt from the normal preflight.
+
+At expiry, source-changing operations that retain an older snapshot and
+`ready` require a separately approved sync/replan; metadata-only descriptions
+can still be updated without pretending the node is fresh. **Merge never
+uses grace:** fetch/check the actual current target, sync if needed, rerun
+validation, and explicitly ready again before merging. Do not fast-forward an
+occupied branch or silently broaden an approval to achieve this.
 
 Perform this gate before each subsequent operation, not just once per session.
 Fast-forwarding does not authorize changing graph ownership, adopting external
 changes, or marking validations current. If the fetched DAG heads differ from
 recorded graph state, reconcile them explicitly before proceeding. Never move
 refs belonging to an interrupted operation before its recovery is understood.
-Any fast-forward that changes an approved plan's observations invalidates that
-plan; regenerate it and obtain fresh approval instead of applying stale inputs.
+Any local fast-forward that changes an approved plan's observations invalidates
+that plan unless explicitly adopted through supported recovery. Remote target
+fast-forwards may be accepted only under the helper's bounded grace or the
+documented retarget/description-only rules; other changed inputs require a new
+plan and approval.
 
 This is a mandatory agent workflow, not an automatic helper command. Use the
 approved native Git preflight before invoking the helper; inspection commands
@@ -122,7 +159,7 @@ node "<skill-directory>/scripts/pr-graph.mjs" view --repo "<repo>" --graph "<id>
 ```
 
 Explain current branches, dependencies, drafts, eligible nodes, outstanding
-operations, and backup status before proposing changes. Resolve an interrupted
+operations, per-node freshness, and backup status before proposing changes. Resolve an interrupted
 operation before starting another mutation.
 
 For a new graph, inspect Git remotes and the intended integration branch.
@@ -228,12 +265,33 @@ Blocked drafts target tool-owned helper bases containing exactly their
 prerequisite closure. Their diffs show only their own changes. Never merge a
 product PR into a helper base or create a product PR for a helper branch.
 
-Use explicit `sync` after the target advances or nodes land. It reconstructs
+Use explicit `sync` when target freshness requires it or nodes land. It reconstructs
 affected work, verifies clean diffs, retargets newly eligible nodes, and reports
 eligibility. It does **not** promote drafts or merge anything.
 
+To change the integration branch of an entirely unlanded graph, use a separately
+approved `retarget` plan with an id/target-only spec. This is a full reconstruction,
+validation and leased publication, not a metadata-only target edit. Rewritten
+non-draft PRs return to draft, existing PR identities and own-change ownership
+are retained, and diagrams must be refreshed. See [commands](references/commands.md)
+for its fixed-source-snapshot and forward-moving-target semantics.
+
+When asked to publish existing PRs or take them out of draft, distinguish hosting
+publication, dependency eligibility, and validated graph readiness before
+proposing source changes. If the supported ready workflow requires syncing or
+rewriting branches, disclose that prerequisite and obtain a scope decision before
+preparing the sync. A draft-status request alone does not authorize source
+rewrites.
+
+Do not bypass helper readiness checks through native provider edits. If
+publication-only behavior is unsupported, report the limitation and propose a
+separately reviewed workflow enhancement. After an authorized publication-state
+change, update descriptions and diagrams to the observed state without implying
+unverified test or merge readiness.
+
 An explicit `ready --node <id>` plan promotes only an eligible, currently
-validated node targeting the current integration branch.
+validated node targeting the integration branch on its current snapshot or
+within the bounded main/master grace. Grace does not establish merge readiness.
 
 An explicit `merge --node <id> --strategy merge|squash|rebase` plan checks fresh
 dependencies, target/head identity, readiness, and provider policies. Unknown
@@ -265,12 +323,28 @@ explicit `cleanup` plan.
 Read [safety and recovery](references/safety-and-recovery.md) before continuing,
 resolving, reconciling, aborting, restoring, unlocking, or cleaning resources.
 
+Before reconstructing commits in an operation worktree, check the repository's
+documented hook-tooling prerequisites in that worktree when it is available.
+Do not infer availability from the primary checkout or another operation's
+worktree. Prefer read-only checks; do not install dependencies or alter hooks
+automatically.
+
+If the worktree is created only during apply, disclose any unverified tooling
+prerequisite before execution. If a hook fails because tooling is missing, report
+the exact blocker and use a separately authorized repository setup workflow.
+After setup, recheck the operation's pinned inputs before recovery; successful
+installation does not establish that the original plan is still current.
+
 - On a conflict, inspect the named isolated worktree. Propose a semantic fix.
   Stage only that approved fix there, then obtain approval of a `resolve` plan
   before resuming the original operation.
 - On an ambiguous remote failure, inspect server state and approve a
   `reconcile` plan. Never blindly retry PR creation or pretend remote effects
   were rolled back.
+- If a first publication is rejected during pushes before any PR exists, an
+  explicitly approved `abort --retain-published-refs` plan can preserve exact
+  candidate pushes and stop the operation for replanning. See safety and
+  recovery; ordinary abort never implicitly accepts changed remote refs.
 - Backup is opt-in and publishes committed source with the chosen remote's
   access permissions. It includes graph metadata and committed no-PR work.
 - Download and restore are separate approvals. Restored validation commands are

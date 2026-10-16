@@ -29,6 +29,9 @@ The skill's mandatory preflight checks all local DAG node branches, the actual
 integration branch, and existing local `main`/`master` branches against freshly
 fetched remote tips before any graph/change inspection or mutation. Before graph
 creation, check the source and intended integration branches instead.
+The integration branch alone may remain behind within the documented one-hour
+main/master grace outside merging. Report that status explicitly, keep
+checking live history, and do not repeatedly fast-forward it during grace.
 
 Minimal safety and branch-discovery reads are necessary to perform this check;
 they do not authorize examining changes or executing the requested operation
@@ -45,7 +48,8 @@ counterpart and repositories with no remote without inventing a freshness check.
 This prerequisite is enforced by the skill workflow, not automatically by the
 helper CLI. It neither adopts changed node content into graph metadata nor
 refreshes validation results. Reconcile changed DAG heads explicitly. Ref
-changes invalidate affected approved plans and require replanning and approval.
+changes invalidate affected approved plans and require replanning and approval,
+except for explicitly supported remote-target fast-forwards or approved recovery.
 For interrupted operations, establish ownership and recovery constraints before
 moving any affected branch; do not invalidate an operation merely to pass this
 gate.
@@ -81,6 +85,17 @@ If a process died while holding a lock, `plan unlock` requires a same-host owner
 whose PID is verifiably dead and rechecks that owner on apply. A live or
 unobservable owner is not automatically overridden. Different-host lock
 diagnosis requires environment-specific assistance.
+
+For a first publication interrupted during pushes, `plan abort
+--retain-published-refs` can stop the operation without rolling back verified
+candidate refs. It requires unchanged persisted graph and local refs, no
+pending patch or provider writes, and no discoverable PR for any node. Every
+remote ref must equal its original value or its exact approved candidate;
+target/metadata changes and unknown content are refused. The plan captures
+the full readback, which is rechecked on apply. All refs, snapshots and the
+worktree remain; only the operation is marked aborted. Replan and separately
+approve any namespace change and subsequent publication. Ordinary abort
+behavior is unchanged.
 
 ## Portable committed snapshots
 
@@ -129,6 +144,36 @@ Server state is read back after writes.
 
 Git refs, PR APIs, and metadata backup are separate systems. Journals and
 approved reconciliation provide recoverability, not distributed rollback.
+
+A full `retarget` operation keeps its approved reconstruction snapshot fixed.
+It can observe later fast-forwards of the new remote integration branch without
+adopting them as authored content. Reconciliation may record only such forward
+target movement, exact candidate refs, and understood PR updates. Rewound targets,
+unexpected source/helper content, and landings remain blockers. Conflicts still
+require the normal staged-resolution approval; partial publication retains the
+same operation and PR identities.
+
+Description-only operations use the same forward-target observation rules,
+without reconstructing or publishing source refs.
+
+When the mandatory native preflight independently fast-forwards local integration
+during a paused retarget or description-only operation, an exact reconciliation can adopt that observation only
+if it descends from the original local tip and remains on the observed remote
+integration history. A forward-target reconciliation plan explicitly permits subsequent
+remote integration fast-forwards while keeping its approved local observation
+fixed. A PR preview base may advance with that target only while preserving its
+authored own-change merge base; its head, body, branch, draft and other facts
+remain exact. All other observed refs remain exact. The original
+reconstruction snapshot stays fixed. Other changed local refs are not implicitly
+adopted.
+
+Non-merge source operations and readiness may also tolerate remote main/master
+fast-forwards during their recorded one-hour freshness grace. Reconciliation
+does not renew that clock or change the authored snapshot; apply/continue
+recheck expiry. Source/helper refs, PR content, and validation identities remain
+guarded. A stale readiness/source plan must be aborted or otherwise safely
+resolved and replanned after an explicitly approved sync; extending its
+timestamp by editing state is not recovery. Merge has no grace exception.
 
 ## Cleanup
 

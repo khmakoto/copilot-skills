@@ -1,9 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import { githubProvider } from "../lib/providers/github.mjs";
 import { adoProvider } from "../lib/providers/ado.mjs";
 import { resolveProvider } from "../lib/providers/index.mjs";
-import { fixture, git } from "./fixtures.mjs";
+import { fixture, git, cli } from "./fixtures.mjs";
 import { createPlan, applyPlan, inspect } from "../lib/operations.mjs";
 
 test("provider detection handles GitHub, GHES, ADO SSH/HTTPS and local Git", () => {
@@ -79,6 +81,69 @@ test("ADO retarget readback refuses ignored updates and never exports credential
   assert.throws(() => provider.create({ title: "x" }, "x".repeat(4001)), /4000/);
 });
 
+test("ADO updates do not retarget an unchanged base but still preserve requested body and draft updates", () => {
+  const patches = [];
+  let description = "Before";
+  const runner = (command, args) => {
+    if (args[0] === "rest") {
+      const body = JSON.parse(args[args.indexOf("--body") + 1]);
+      patches.push(body);
+      assert.equal(Object.hasOwn(body, "targetRefName"), false);
+      description = body.description;
+    }
+    return { status: 0, stderr: "", stdout: JSON.stringify({
+      pullRequestId: 1, sourceRefName: "refs/heads/feature",
+      targetRefName: "refs/heads/trunk", description, isDraft: true, status: "active",
+    }) };
+  };
+  const provider = adoProvider({ host: "dev.azure.com", organization: "o", project: "p", repo: "r" }, ".", runner);
+  provider.update(1, { baseBranch: "trunk" });
+  assert.equal(patches.length, 0);
+  assert.equal(provider.update(1, { baseBranch: "trunk", body: "After", draft: true }).body, "After");
+  assert.deepEqual(patches, [{ description: "After", isDraft: true }]);
+});
+
+test("ADO active merge previews are not landing receipts", () => {
+  let status = "active";
+  const provider = adoProvider({ host: "dev.azure.com", organization: "o", project: "p", repo: "r" }, ".",
+    () => ({ status: 0, stderr: "", stdout: JSON.stringify({
+      pullRequestId: 1, status, sourceRefName: "refs/heads/feature", targetRefName: "refs/heads/trunk",
+      lastMergeCommit: { commitId: "preview-or-landing" },
+    }) }));
+  assert.equal(provider.get(1).landing, null);
+  status = "completed";
+  assert.equal(provider.get(1).landing, "preview-or-landing");
+});
+
+test("ADO own-change paths exclude folder entries, retain rename sources and submodules, and paginate unfiltered entries", () => {
+  const pages = [];
+  const runner = (command, args) => {
+    assert.equal(command, "az");
+    let result;
+    if (args[0] === "repos") {
+      result = { pullRequestId: 1, sourceRefName: "refs/heads/feature", targetRefName: "refs/heads/trunk",
+        lastMergeSourceCommit: { commitId: "h" }, lastMergeTargetCommit: { commitId: "b" } };
+    } else {
+      const url = args[args.indexOf("--url") + 1];
+      pages.push(url);
+      result = url.includes("$skip=0")
+        ? { allChangesIncluded: false, changes: Array.from({ length: 100 }, (_, i) =>
+          ({ item: { path: `/folder${i}`, isFolder: true, gitObjectType: "tree" } })) }
+        : { allChangesIncluded: true, changes: [
+          { item: { path: "/folder", gitObjectType: "tree" } },
+          { sourceServerItem: "/old.txt", item: { path: "/new.txt", gitObjectType: "blob" } },
+          { originalPath: "/old-link", item: { path: "/link", gitObjectType: "blob" } },
+          { item: { path: "/submodule", gitObjectType: "commit" } },
+        ] };
+    }
+    return { status: 0, stdout: JSON.stringify(result), stderr: "" };
+  };
+  const provider = adoProvider({ host: "dev.azure.com", organization: "o", project: "p", repo: "r" }, ".", runner);
+  assert.deepEqual(provider.diffPaths(1), ["link", "new.txt", "old-link", "old.txt", "submodule"]);
+  assert.equal(pages.length, 2);
+  assert.ok(pages[1].includes("$skip=100"));
+});
+
 function hostedFixture(f) {
   const records = new Map();
   let next = 1;
@@ -116,7 +181,8 @@ function hostedFixture(f) {
     },
     diffPaths(id) {
       const pr = get(id);
-      return bare("diff", "--name-only", "--no-renames", pr.base, pr.head).split("\n").filter(Boolean).sort();
+      const base = bare("merge-base", pr.base, pr.head);
+      return bare("diff", "--name-only", "--no-renames", base, pr.head).split("\n").filter(Boolean).sort();
     },
     policies: () => ({ ok: true }),
     merge(id, expected, strategy) {
@@ -132,6 +198,485 @@ function hostedFixture(f) {
   };
   f.ctx.providerFactory = () => p;
   return { p, records, loseResponse: () => { loseResponse = true; } };
+}
+
+for (const target of ["main", "master"]) {
+  test(`${target} grace preserves every node's snapshot and permits ready, but not merge`, (t) => {
+    const f = fixture({ remote: true, names: ["a", "b", "c"] });
+    t.after(() => f.dispose());
+    let clock = Date.UTC(2026, 9, 16);
+    f.ctx.now = () => clock;
+    git(f.root, "branch", target, f.base);
+    git(f.root, "push", "-q", "upstream", target);
+    f.spec.target = target;
+    const host = hostedFixture(f);
+    f.apply("split", { spec: f.spec });
+    const before = f.apply("publish", { graph: "example" }).graph;
+    const advanced = git(f.root, "commit-tree", `${f.base}^{tree}`, "-p", f.base, "-m", "Main advanced");
+    git(f.root, "push", "-q", "upstream", `${advanced}:refs/heads/${target}`);
+    clock += 1800000;
+    const result = f.apply("ready", { graph: "example", node: "a" });
+    assert.equal(host.p.get(result.graph.nodes[0].pr.id).draft, false);
+    assert.equal(result.graph.targetSha, f.base);
+    assert.equal(git(f.root, "rev-parse", target), f.base);
+    assert.deepEqual(result.graph.nodes.map((n) => n.head), before.nodes.map((n) => n.head));
+    for (const node of result.graph.nodes) {
+      assert.equal(result.freshness[node.id].integration.status, "grace");
+      assert.equal(result.freshness[node.id].integration.verifiedAt, before.integration.verifiedAt);
+      assert.equal(result.freshness[node.id].integration.mergeCurrent, false);
+      assert.equal(result.freshness[node.id].branch.status, "current");
+      assert.equal(result.freshness[node.id].validation, "current");
+    }
+    const shape = f.apply("deps", { graph: "example", spec: { id: f.spec.id, nodes: f.spec.nodes } });
+    assert.equal(shape.graph.integration.verifiedAt, before.integration.verifiedAt);
+    assert.deepEqual(shape.graph.nodes.map((n) => n.head), before.nodes.map((n) => n.head));
+    const publish = f.apply("publish", { graph: "example" });
+    assert.equal(publish.graph.integration.verifiedAt, before.integration.verifiedAt);
+    const merge = createPlan(f.ctx, "merge", { graph: "example", node: "a" });
+    assert.throws(() => applyPlan(f.ctx, merge, merge.approval, true), /Sync onto the current/);
+    f.apply("abort", { operation: merge.approval });
+    const ready = createPlan(f.ctx, "ready", { graph: "example", node: "b" });
+    clock = before.integration.verifiedAt + 3600000;
+    assert.equal(inspect(f.ctx, "example").freshness.b.integration.status, "stale");
+    assert.throws(() => createPlan(f.ctx, "deps", { graph: "example",
+      spec: { id: f.spec.id, nodes: f.spec.nodes } }), /Integration target moved/);
+    assert.throws(() => applyPlan(f.ctx, ready, ready.approval, true), /freshness expired/);
+    f.apply("abort", { operation: ready.approval });
+    const sync = f.apply("sync", { graph: "example" });
+    assert.equal(sync.graph.targetSha, advanced);
+    assert.equal(sync.freshness.a.integration.status, "current");
+    assert.equal(sync.graph.nodes[0].pr.draft, true);
+    f.apply("ready", { graph: "example", node: "a" });
+    const merged = f.apply("merge", { graph: "example", node: "a" });
+    assert.ok(merged.graph.nodes[0].landing);
+    assert.equal(merged.graph.integration.sha, merged.graph.targetSha);
+    const latest = git(f.root, "commit-tree", `${merged.graph.targetSha}^{tree}`,
+      "-p", merged.graph.targetSha, "-m", "Main advanced after landing");
+    git(f.root, "push", "-q", "upstream", `${latest}:refs/heads/${target}`);
+    const reshaped = f.apply("deps", { graph: "example", spec: { id: f.spec.id, nodes: f.spec.nodes } });
+    assert.equal(reshaped.graph.targetSha, merged.graph.targetSha);
+    assert.equal(reshaped.graph.nodes[1].integration.sha, merged.graph.targetSha);
+    assert.equal(reshaped.graph.nodes[0].integration.sha, advanced);
+    assert.equal(reshaped.freshness.b.integration.status, "grace");
+  });
+}
+
+test("main grace covers target movement after approval, without accepting changed PR content", (t) => {
+  const f = fixture({ remote: true, names: ["a"] });
+  t.after(() => f.dispose());
+  let clock = Date.UTC(2026, 9, 16);
+  f.ctx.now = () => clock;
+  git(f.root, "branch", "main", f.base);
+  git(f.root, "push", "-q", "upstream", "main");
+  f.spec.target = "main";
+  const host = hostedFixture(f);
+  f.apply("split", { spec: f.spec });
+  const publication = createPlan(f.ctx, "publish", { graph: "example" });
+  const advanced = git(f.root, "commit-tree", `${f.base}^{tree}`, "-p", f.base, "-m", "Advance during approval");
+  git(f.root, "push", "-q", "upstream", `${advanced}:refs/heads/main`);
+  clock += 1000;
+  const result = applyPlan(f.ctx, publication, publication.approval, true);
+  assert.equal(result.graph.targetSha, f.base);
+  assert.equal(result.freshness.a.integration.status, "grace");
+  const ready = createPlan(f.ctx, "ready", { graph: "example", node: "a" });
+  host.p.update(result.graph.nodes[0].pr.id, { body: "Concurrent human text" });
+  assert.throws(() => applyPlan(f.ctx, ready, ready.approval, true), /changed; reconcile and replan/);
+  assert.equal(host.p.get(result.graph.nodes[0].pr.id).body, "Concurrent human text");
+  assert.equal(host.p.get(result.graph.nodes[0].pr.id).draft, true);
+});
+
+for (const mutation of ["rewind", "source"]) {
+  test(`main grace still rejects a ${mutation} during approval`, (t) => {
+    const f = fixture({ remote: true, names: ["a"] });
+    t.after(() => f.dispose());
+    f.ctx.now = () => Date.UTC(2026, 9, 16);
+    git(f.root, "branch", "main", f.base);
+    git(f.root, "push", "-q", "upstream", "main");
+    f.spec.target = "main";
+    const host = hostedFixture(f);
+    f.apply("split", { spec: f.spec });
+    const graph = f.apply("publish", { graph: "example" }).graph;
+    const advanced = git(f.root, "commit-tree", `${f.base}^{tree}`, "-p", f.base, "-m", "Main advanced");
+    git(f.root, "push", "-q", "upstream", `${advanced}:refs/heads/main`);
+    const plan = createPlan(f.ctx, "ready", { graph: graph.id, node: "a" });
+    const node = graph.nodes[0];
+    if (mutation === "rewind") {
+      git(f.root, `--git-dir=${f.bare}`, "update-ref", "refs/heads/main", f.base, advanced);
+    } else {
+      git(f.root, `--git-dir=${f.bare}`, "update-ref", `refs/heads/${node.branch}`, f.base, node.head);
+    }
+    assert.throws(() => applyPlan(f.ctx, plan, plan.approval, true),
+      mutation === "rewind" ? /rewound or rewritten/ : /Remote ref changed/);
+    assert.equal(host.p.get(node.pr.id).draft, true);
+  });
+}
+
+test("freshness is visible in read-only CLI output without refreshing its recorded timestamp", (t) => {
+  const f = fixture({ remote: true, names: ["a", "b"] });
+  t.after(() => f.dispose());
+  git(f.root, "branch", "main", f.base);
+  git(f.root, "push", "-q", "upstream", "main");
+  f.spec.target = "main";
+  const graph = f.apply("split", { spec: f.spec }).graph;
+  const advanced = git(f.root, "commit-tree", `${f.base}^{tree}`, "-p", f.base, "-m", "Main advanced");
+  git(f.root, "push", "-q", "upstream", `${advanced}:refs/heads/main`);
+  const status = cli(f.root, "status", "--graph", graph.id);
+  assert.equal(status.status, 0, status.stderr);
+  for (const value of Object.values(JSON.parse(status.stdout).freshness)) {
+    assert.equal(value.integration.status, "grace");
+    assert.equal(value.integration.verifiedAt, graph.integration.verifiedAt);
+    assert.equal(value.branch.scope, "unpublished");
+  }
+  const view = cli(f.root, "view", "--graph", graph.id);
+  assert.equal(view.status, 0, view.stderr);
+  assert.match(view.stdout, /a .*freshness: grace; branch: current; validation: current/);
+  assert.equal(inspect(f.ctx, graph.id).graph.integration.verifiedAt, graph.integration.verifiedAt);
+});
+
+test("retarget fully reconstructs and publishes the same ownership on a new integration snapshot", (t) => {
+  const f = fixture({ remote: true, names: ["a", "b", "c"] });
+  t.after(() => f.dispose());
+  const host = hostedFixture(f);
+  f.apply("split", { spec: f.spec });
+  const before = f.apply("publish", { graph: "example" }).graph;
+  for (const node of before.nodes.filter((n) => !n.dependencies.length)) {
+    host.p.update(node.pr.id, { draft: false, body: `User text for ${node.id}\n${node.pr.body}` });
+  }
+  git(f.root, "checkout", "-qb", "new-main", f.base);
+  fs.writeFileSync(path.join(f.root, "upstream.txt"), "new integration content\n");
+  git(f.root, "add", ".");
+  git(f.root, "commit", "-qm", "New main content");
+  const target = git(f.root, "rev-parse", "HEAD");
+  git(f.root, "checkout", "source");
+  git(f.root, "push", "-q", "upstream", "new-main");
+  const plan = createPlan(f.ctx, "retarget", { graph: "example", spec: { id: "example", target: "new-main" } });
+  const result = applyPlan(f.ctx, plan, plan.approval, true);
+  assert.equal(result.graph.target, "new-main");
+  assert.equal(result.graph.targetSha, target);
+  assert.equal(git(f.root, "rev-parse", "trunk"), f.base);
+  assert.equal(git(f.root, "show", `${result.graph.combined}:upstream.txt`), "new integration content");
+  assert.equal(git(f.root, "show", `${result.graph.combined}:shared.txt`), f.text(["a", "b", "c"]).trim());
+  for (const node of result.graph.nodes) {
+    const old = before.nodes.find((n) => n.id === node.id);
+    assert.equal(node.pr.id, old.pr.id);
+    assert.equal(node.change.fingerprint, old.change.fingerprint);
+    assert.deepEqual(node.dependencies, old.dependencies);
+    assert.notEqual(node.head, old.head);
+    assert.equal(node.validation.head, node.head);
+    assert.equal(node.ready, false);
+    assert.equal(node.pr.draft, true);
+    assert.equal(node.pr.baseBranch, node.dependencies.length ? old.baseBranch : "new-main");
+    if (!node.dependencies.length) assert.ok(node.pr.body.startsWith(`User text for ${node.id}`));
+  }
+  assert.equal(host.records.size, 3);
+});
+
+for (const settles of [true, false]) {
+  test(`ADO retarget ${settles ? "waits for" : "rejects persistently stale"} merge-preview target data`, (t) => {
+    const f = fixture({ remote: true, names: ["a"] });
+    t.after(() => f.dispose());
+    const host = hostedFixture(f);
+    host.p.kind = "ado";
+    f.apply("split", { spec: f.spec });
+    f.apply("publish", { graph: "example" });
+    git(f.root, "checkout", "-qb", "new-main", f.base);
+    fs.writeFileSync(path.join(f.root, "upstream.txt"), "new main content\n");
+    git(f.root, "add", ".");
+    git(f.root, "commit", "-qm", "New main content");
+    git(f.root, "checkout", "source");
+    git(f.root, "push", "-q", "upstream", "new-main");
+    const get = host.p.get;
+    let reads = 0;
+    host.p.get = (id) => {
+      const current = get(id);
+      if (current.baseBranch === "new-main" && (++reads <= 2 || !settles)) {
+        return { ...current, base: f.base };
+      }
+      return current;
+    };
+    const plan = createPlan(f.ctx, "retarget", {
+      graph: "example", spec: { id: "example", target: "new-main" },
+    });
+    if (settles) {
+      const result = applyPlan(f.ctx, plan, plan.approval, true);
+      assert.equal(result.graph.nodes[0].pr.base, result.graph.targetSha);
+      assert.ok(reads >= 3);
+    } else {
+      assert.throws(() => applyPlan(f.ctx, plan, plan.approval, true),
+        /target no longer preserves the authored own-change base/);
+      assert.equal(reads, 5);
+    }
+  });
+}
+
+test("retarget tolerates only forward target movement without silently rebasing its approved snapshot", (t) => {
+  const f = fixture({ remote: true, names: ["a", "b", "c"] });
+  t.after(() => f.dispose());
+  const host = hostedFixture(f);
+  f.apply("split", { spec: f.spec });
+  f.apply("publish", { graph: "example" });
+  git(f.root, "branch", "new-main", f.base);
+  git(f.root, "push", "-q", "upstream", "new-main");
+  const plan = createPlan(f.ctx, "retarget", { graph: "example", spec: { id: "example", target: "new-main" } });
+  git(f.root, "checkout", "-qb", "remote-advance", f.base);
+  fs.writeFileSync(path.join(f.root, "later.txt"), "main advanced after approval\n");
+  git(f.root, "add", ".");
+  git(f.root, "commit", "-qm", "Advance new main");
+  const advanced = git(f.root, "rev-parse", "HEAD");
+  git(f.root, "checkout", "source");
+  git(f.root, "push", "-q", "upstream", `${advanced}:refs/heads/new-main`);
+  const result = applyPlan(f.ctx, plan, plan.approval, true);
+  assert.equal(result.graph.targetSha, plan.target);
+  assert.equal(plan.target, f.base);
+  for (const node of result.graph.nodes.filter((n) => !n.dependencies.length)) {
+    assert.equal(node.base, f.base);
+    assert.equal(host.p.get(node.pr.id).base, advanced);
+  }
+  assert.throws(() => f.apply("ready", { graph: "example", node: "a" }), /Sync onto the current/);
+});
+
+test("retarget rejects target rewinds and altered ownership specs before any publication", (t) => {
+  const f = fixture({ remote: true, names: ["a"] });
+  t.after(() => f.dispose());
+  const host = hostedFixture(f);
+  f.apply("split", { spec: f.spec });
+  const before = f.apply("publish", { graph: "example" }).graph;
+  git(f.root, "branch", "new-main", f.head);
+  git(f.root, "push", "-q", "upstream", "new-main");
+  assert.throws(() => createPlan(f.ctx, "retarget", { graph: "example",
+    spec: { id: "example", target: "new-main", nodes: [] } }), /containing only/);
+  const plan = createPlan(f.ctx, "retarget", { graph: "example", spec: { id: "example", target: "new-main" } });
+  git(f.root, `--git-dir=${f.bare}`, "update-ref", "refs/heads/new-main", f.base, f.head);
+  assert.throws(() => applyPlan(f.ctx, plan, plan.approval, true), /rewound or rewritten/);
+  assert.equal(git(f.root, "rev-parse", before.nodes[0].branch), before.nodes[0].head);
+  assert.equal(host.p.get(before.nodes[0].pr.id).baseBranch, "trunk");
+});
+
+test("retarget resumes a partial hosting update with the same PRs and candidate commits", (t) => {
+  const f = fixture({ remote: true, names: ["a", "b", "c"] });
+  t.after(() => f.dispose());
+  const host = hostedFixture(f);
+  f.apply("split", { spec: f.spec });
+  const before = f.apply("publish", { graph: "example" }).graph;
+  git(f.root, "checkout", "-qb", "new-main", f.base);
+  fs.writeFileSync(path.join(f.root, "upstream.txt"), "new integration content\n");
+  git(f.root, "add", ".");
+  git(f.root, "commit", "-qm", "New main content");
+  git(f.root, "checkout", "source");
+  git(f.root, "push", "-q", "upstream", "new-main");
+  const plan = createPlan(f.ctx, "retarget", { graph: "example", spec: { id: "example", target: "new-main" } });
+  const update = host.p.update;
+  let lose = true;
+  host.p.update = (id, fields) => {
+    const result = update(id, fields);
+    if (lose && fields.baseBranch === "new-main") {
+      lose = false;
+      throw new Error("Lost retarget response after successful update");
+    }
+    return result;
+  };
+  assert.throws(() => applyPlan(f.ctx, plan, plan.approval, true), /Lost retarget response/);
+  const heads = before.nodes.map((n) => host.p.get(n.pr.id).head);
+  const targetBefore = git(f.root, "rev-parse", "new-main");
+  const advanced = git(f.root, "commit-tree", `${targetBefore}^{tree}`, "-p", targetBefore, "-m", "Target advanced during recovery");
+  git(f.root, "push", "-q", "upstream", `${advanced}:refs/heads/new-main`);
+  git(f.root, "update-ref", "refs/heads/new-main", advanced, targetBefore);
+  const recover = createPlan(f.ctx, "reconcile", { operation: plan.approval });
+  const latest = git(f.root, "commit-tree", `${advanced}^{tree}`, "-p", advanced, "-m", "Main and PR preview advanced during approval");
+  git(f.root, "push", "-q", "upstream", `${latest}:refs/heads/new-main`);
+  applyPlan(f.ctx, recover, recover.approval, true);
+  assert.equal(git(f.root, "rev-parse", "new-main"), advanced);
+  const result = applyPlan(f.ctx, plan, plan.approval, true);
+  assert.equal(host.records.size, 3);
+  assert.deepEqual(result.graph.nodes.map((n) => n.head), heads);
+  assert.ok(result.graph.nodes.every((n) => n.pr.baseBranch === n.baseBranch && n.pr.draft));
+});
+
+test("retarget recovery rejects concurrent human PR edits even when its preview base advances", (t) => {
+  const f = fixture({ remote: true, names: ["a"] });
+  t.after(() => f.dispose());
+  const host = hostedFixture(f);
+  f.apply("split", { spec: f.spec });
+  const graph = f.apply("publish", { graph: "example" }).graph;
+  git(f.root, "branch", "new-main", f.base);
+  git(f.root, "push", "-q", "upstream", "new-main");
+  const update = host.p.update;
+  host.p.update = (id, fields) => {
+    const result = update(id, fields);
+    if (fields.baseBranch === "new-main") throw new Error("Lost retarget response");
+    return result;
+  };
+  const plan = createPlan(f.ctx, "retarget", { graph: "example", spec: { id: "example", target: "new-main" } });
+  assert.throws(() => applyPlan(f.ctx, plan, plan.approval, true), /Lost retarget response/);
+  const recover = createPlan(f.ctx, "reconcile", { operation: plan.approval });
+  const advanced = git(f.root, "commit-tree", `${f.base}^{tree}`, "-p", f.base, "-m", "Main advanced");
+  git(f.root, "push", "-q", "upstream", `${advanced}:refs/heads/new-main`);
+  const pr = host.records.get(graph.nodes[0].pr.id);
+  pr.body = "Concurrent human edit\n" + pr.body;
+  assert.throws(() => applyPlan(f.ctx, recover, recover.approval, true),
+    /Observed state changed after reconciliation approval/);
+  assert.ok(pr.body.startsWith("Concurrent human edit\n"));
+});
+
+test("retarget still rejects a changed source ref even when its integration branch advances", (t) => {
+  const f = fixture({ remote: true, names: ["a"] });
+  t.after(() => f.dispose());
+  const host = hostedFixture(f);
+  f.apply("split", { spec: f.spec });
+  const before = f.apply("publish", { graph: "example" }).graph;
+  git(f.root, "branch", "new-main", f.base);
+  git(f.root, "push", "-q", "upstream", "new-main");
+  const plan = createPlan(f.ctx, "retarget", { graph: "example", spec: { id: "example", target: "new-main" } });
+  const node = before.nodes[0];
+  git(f.root, `--git-dir=${f.bare}`, "update-ref", `refs/heads/${node.branch}`, f.base, node.head);
+  assert.throws(() => applyPlan(f.ctx, plan, plan.approval, true), /Remote ref changed/);
+  assert.equal(git(f.root, "rev-parse", node.branch), node.head);
+  assert.equal(host.p.get(node.pr.id).baseBranch, "trunk");
+});
+
+test("retarget abort never rolls back a separately observed native integration fast-forward", (t) => {
+  const f = fixture({ remote: true, names: ["a"] });
+  t.after(() => f.dispose());
+  hostedFixture(f);
+  f.apply("split", { spec: f.spec });
+  f.apply("publish", { graph: "example" });
+  git(f.root, "checkout", "-qb", "new-main", f.base);
+  fs.writeFileSync(path.join(f.root, "upstream.txt"), "main content\n");
+  git(f.root, "add", ".");
+  git(f.root, "commit", "-qm", "New main content");
+  const target = git(f.root, "rev-parse", "HEAD");
+  git(f.root, "checkout", "source");
+  git(f.root, "push", "-q", "upstream", "new-main");
+  const hook = path.join(f.root, ".git", "hooks", "pre-commit");
+  fs.writeFileSync(hook, "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+  const plan = createPlan(f.ctx, "retarget", { graph: "example", spec: { id: "example", target: "new-main" } });
+  assert.throws(() => applyPlan(f.ctx, plan, plan.approval, true), /git commit failed/);
+  const advanced = git(f.root, "commit-tree", `${target}^{tree}`, "-p", target, "-m", "Native target fast-forward");
+  git(f.root, "push", "-q", "upstream", `${advanced}:refs/heads/new-main`);
+  git(f.root, "update-ref", "refs/heads/new-main", advanced, target);
+  f.apply("reconcile", { operation: plan.approval });
+  f.apply("abort", { operation: plan.approval });
+  assert.equal(git(f.root, "rev-parse", "new-main"), advanced);
+});
+
+test("retarget recovery keeps an approved local fast-forward fixed while remote main advances", (t) => {
+  const f = fixture({ remote: true, names: ["a"] });
+  t.after(() => f.dispose());
+  hostedFixture(f);
+  f.apply("split", { spec: f.spec });
+  f.apply("publish", { graph: "example" });
+  git(f.root, "branch", "new-main", f.base);
+  git(f.root, "push", "-q", "upstream", "new-main");
+  fs.writeFileSync(path.join(f.root, ".git", "hooks", "pre-commit"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+  const plan = createPlan(f.ctx, "retarget", { graph: "example", spec: { id: "example", target: "new-main" } });
+  assert.throws(() => applyPlan(f.ctx, plan, plan.approval, true), /git commit failed/);
+  const local = git(f.root, "commit-tree", `${f.base}^{tree}`, "-p", f.base, "-m", "Approved native fast-forward");
+  git(f.root, "push", "-q", "upstream", `${local}:refs/heads/new-main`);
+  git(f.root, "update-ref", "refs/heads/new-main", local, f.base);
+  const remote = git(f.root, "commit-tree", `${local}^{tree}`, "-p", local, "-m", "Remote advanced before planning");
+  git(f.root, "push", "-q", "upstream", `${remote}:refs/heads/new-main`);
+  const recover = createPlan(f.ctx, "reconcile", { operation: plan.approval });
+  assert.equal(recover.forwardTarget, "new-main");
+  const latest = git(f.root, "commit-tree", `${remote}^{tree}`, "-p", remote, "-m", "Remote advanced during approval");
+  git(f.root, "push", "-q", "upstream", `${latest}:refs/heads/new-main`);
+  applyPlan(f.ctx, recover, recover.approval, true);
+  assert.equal(git(f.root, "rev-parse", "new-main"), local);
+  f.apply("abort", { operation: plan.approval });
+  assert.equal(git(f.root, "rev-parse", "new-main"), local);
+});
+
+test("retarget recovery still rejects rewound targets and changed local or source observations", (t) => {
+  for (const mutation of ["rewind", "local", "source"]) {
+    const f = fixture({ remote: true, names: ["a"] });
+    t.after(() => f.dispose());
+    hostedFixture(f);
+    f.apply("split", { spec: f.spec });
+    const graph = f.apply("publish", { graph: "example" }).graph;
+    git(f.root, "branch", "new-main", f.base);
+    git(f.root, "push", "-q", "upstream", "new-main");
+    fs.writeFileSync(path.join(f.root, ".git", "hooks", "pre-commit"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+    const plan = createPlan(f.ctx, "retarget", { graph: "example", spec: { id: "example", target: "new-main" } });
+    assert.throws(() => applyPlan(f.ctx, plan, plan.approval, true), /git commit failed/);
+    const advanced = git(f.root, "commit-tree", `${f.base}^{tree}`, "-p", f.base, "-m", "Remote main advanced");
+    git(f.root, "push", "-q", "upstream", `${advanced}:refs/heads/new-main`);
+    const recover = createPlan(f.ctx, "reconcile", { operation: plan.approval });
+    if (mutation === "rewind") {
+      git(f.root, `--git-dir=${f.bare}`, "update-ref", "refs/heads/new-main", f.base, advanced);
+    } else if (mutation === "local") {
+      git(f.root, "update-ref", "refs/heads/new-main", advanced, f.base);
+    } else {
+      const node = graph.nodes[0];
+      git(f.root, `--git-dir=${f.bare}`, "update-ref", `refs/heads/${node.branch}`, f.base, node.head);
+    }
+    assert.throws(() => applyPlan(f.ctx, recover, recover.approval, true),
+      /rewound or rewritten|Observed state changed after reconciliation approval/);
+  }
+});
+
+test("description batches tolerate forward integration movement without rebasing or promoting nodes", (t) => {
+  const f = fixture({ remote: true, names: ["a", "b"] });
+  t.after(() => f.dispose());
+  const host = hostedFixture(f);
+  f.apply("split", { spec: f.spec });
+  const before = f.apply("publish", { graph: "example" }).graph;
+  const descriptions = { a: "Approved body A", b: "Approved body B" };
+  const plan = createPlan(f.ctx, "describe", { graph: "example", spec: { id: "example", descriptions } });
+  const first = git(f.root, "commit-tree", `${f.base}^{tree}`, "-p", f.base, "-m", "Main advanced before body approval");
+  git(f.root, "push", "-q", "upstream", `${first}:refs/heads/trunk`);
+  const update = host.p.update;
+  let advanced = false;
+  host.p.update = (id, fields) => {
+    const current = update(id, fields);
+    if (!advanced && fields.body !== undefined) {
+      advanced = true;
+      const latest = git(f.root, "commit-tree", `${first}^{tree}`, "-p", first, "-m", "Main advanced during body batch");
+      git(f.root, "push", "-q", "upstream", `${latest}:refs/heads/trunk`);
+    }
+    return current;
+  };
+  const result = applyPlan(f.ctx, plan, plan.approval, true);
+  assert.equal(result.graph.targetSha, before.targetSha);
+  assert.equal(git(f.root, "rev-parse", "trunk"), f.base);
+  assert.deepEqual(result.graph.nodes.map((n) => n.head), before.nodes.map((n) => n.head));
+  for (const node of result.graph.nodes) {
+    const pr = host.p.get(node.pr.id);
+    assert.ok(pr.body.startsWith(descriptions[node.id]));
+    assert.equal(pr.draft, true);
+    assert.equal(pr.baseBranch, node.baseBranch);
+    assert.equal(pr.head, node.head);
+  }
+  assert.throws(() => f.apply("ready", { graph: "example", node: "a" }),
+    /Sync onto the current integration branch before ready\/merge/);
+});
+
+for (const mutation of ["source", "body"]) {
+  test(`description plans reject changed ${mutation} despite forward integration movement`, (t) => {
+    const f = fixture({ remote: true, names: ["a"] });
+    t.after(() => f.dispose());
+    const host = hostedFixture(f);
+    f.apply("split", { spec: f.spec });
+    const graph = f.apply("publish", { graph: "example" }).graph;
+    const node = graph.nodes[0];
+    const plan = createPlan(f.ctx, "describe", {
+      graph: "example", spec: { id: "example", descriptions: { a: "Approved replacement" } },
+    });
+    const advanced = git(f.root, "commit-tree", `${f.base}^{tree}`, "-p", f.base, "-m", "Main advanced");
+    git(f.root, "push", "-q", "upstream", `${advanced}:refs/heads/trunk`);
+    if (mutation === "source") {
+      git(f.root, `--git-dir=${f.bare}`, "update-ref", `refs/heads/${node.branch}`, f.base, node.head);
+    } else {
+      host.records.get(node.pr.id).body = "Concurrent human text";
+    }
+    assert.throws(() => applyPlan(f.ctx, plan, plan.approval, true),
+      /Remote ref changed|PR a changed/);
+    assert.ok(!host.p.get(node.pr.id).body.startsWith("Approved replacement"));
+    if (mutation === "body") {
+      const recover = createPlan(f.ctx, "reconcile", { operation: plan.approval });
+      assert.throws(() => applyPlan(f.ctx, recover, recover.approval, true),
+        /Description inputs changed/);
+      assert.equal(host.p.get(node.pr.id).body, "Concurrent human text");
+    }
+  });
 }
 
 test("hosted lifecycle publishes all drafts, preserves human text, and gates ready/merge", (t) => {
@@ -154,6 +699,47 @@ test("hosted lifecycle publishes all drafts, preserves human text, and gates rea
   assert.equal(d.pr.baseBranch, "trunk");
   assert.equal(d.pr.draft, true);
   assert.ok(result.graph.nodes.find((n) => n.id === "c").pr.baseBranch.includes("/bases/"));
+});
+
+test("batch describe updates approved bodies together without moving refs or draft states", (t) => {
+  const f = fixture({ remote: true, names: ["a", "b"] });
+  t.after(() => f.dispose());
+  const host = hostedFixture(f);
+  f.apply("split", { spec: f.spec });
+  const before = f.apply("publish", { graph: "example" }).graph;
+  host.p.update(before.nodes[0].pr.id, { draft: false });
+  const result = f.apply("describe", { graph: "example", spec: {
+    id: "example", descriptions: { a: "Approved body A", b: "Approved body B" },
+  } });
+  assert.equal(result.graph.revision, before.revision + 1);
+  for (const node of result.graph.nodes) {
+    assert.equal(node.head, before.nodes.find((n) => n.id === node.id).head);
+    assert.equal(node.description, `Approved body ${node.id.toUpperCase()}`);
+    assert.ok(host.p.get(node.pr.id).body.startsWith(node.description));
+    assert.equal(host.p.get(node.pr.id).draft, node.id === "b");
+  }
+});
+
+test("batch describe rejects invalid requests and concurrent human edits rather than overwriting them", (t) => {
+  const f = fixture({ remote: true, names: ["a", "b"] });
+  t.after(() => f.dispose());
+  const host = hostedFixture(f);
+  f.apply("split", { spec: f.spec });
+  const before = f.apply("publish", { graph: "example" }).graph;
+  const bodies = { id: "example", descriptions: { a: "Approved A", b: "Approved B" } };
+  assert.throws(() => createPlan(f.ctx, "describe", { graph: "example", spec: bodies, node: "a" }), /Batch describe/);
+  assert.throws(() => createPlan(f.ctx, "describe", { graph: "example",
+    spec: { id: "example", descriptions: { missing: "No PR" } } }), /Unknown active node/);
+  const plan = createPlan(f.ctx, "describe", { graph: "example", spec: bodies });
+  const update = host.p.update;
+  const b = before.nodes.find((n) => n.id === "b");
+  host.p.update = (id, fields) => {
+    const result = update(id, fields);
+    if (id !== b.pr.id) host.records.get(b.pr.id).body = "Concurrent human body";
+    return result;
+  };
+  assert.throws(() => applyPlan(f.ctx, plan, plan.approval, true), /PR changed before description replacement/);
+  assert.equal(host.p.get(b.pr.id).body, "Concurrent human body");
 });
 
 test("ambiguous PR creation resumes through an approved reconciliation without duplicates", (t) => {

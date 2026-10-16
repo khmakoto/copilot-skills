@@ -3,7 +3,7 @@ import path from "node:path";
 import os from "node:os";
 import {
   VERSION, digest, requireValue, validateGraph, topological, prerequisites,
-  eligible, footer, updateFooter,
+  eligible, footer, updateFooter, helperBranch, integrationFreshness, MAIN_FRESHNESS_MS,
 } from "./graph.mjs";
 import * as git from "./git.mjs";
 import * as state from "./state.mjs";
@@ -11,8 +11,48 @@ import { normalizeChange, applyChange, realize, verifyComposition } from "./chan
 import { resolveProvider, identity, providerFor } from "./providers/index.mjs";
 
 const SHAPE = new Set(["init", "split", "add", "deps", "split-node", "fold", "remove"]);
-const ACTIONS = new Set([...SHAPE, "publish", "sync", "ready", "merge", "backup",
+const FORWARD_TARGET = new Set(["retarget", "describe"]);
+const ACTIONS = new Set([...SHAPE, "publish", "sync", "retarget", "ready", "merge", "backup",
   "fetch-backup", "restore", "resolve", "abort", "cleanup", "describe", "reconcile", "unlock", "record-landing"]);
+
+const now = (ctx) => ctx.now?.() ?? Date.now();
+
+function snapshotFreshness(ctx, graph, target, node) {
+  const observedAt = now(ctx);
+  const freshness = integrationFreshness(graph, node, target, observedAt);
+  if (freshness.status !== "stale" || freshness.target !== graph.target || !freshness.thresholdMs ||
+    freshness.ageMs === null || freshness.ageMs >= freshness.thresholdMs) return freshness;
+  return integrationFreshness(graph, node, target, observedAt,
+    git.ancestor(ctx.root, freshness.snapshot, target));
+}
+
+function permitsForwardTarget(ctx, plan) {
+  if (FORWARD_TARGET.has(plan.action)) return true;
+  const freshness = integrationFreshness(plan.graph, null, null, now(ctx));
+  return plan.action !== "merge" && plan.graph.integration?.sha === plan.target &&
+    freshness.ageMs !== null && freshness.ageMs < freshness.thresholdMs;
+}
+
+function freshnessReport(ctx, graph, facts) {
+  const target = graph.repository.remote ? facts.remote[graph.target] : facts.local[graph.target];
+  return Object.fromEntries(graph.nodes.map((node) => {
+    const local = facts.local[node.branch];
+    const remote = facts.remote[node.branch];
+    return [node.id, {
+      integration: { ...snapshotFreshness(ctx, graph, target, node),
+        scope: graph.repository.remote ? "remote" : "local-only" },
+      branch: {
+        status: !node.head ? "unknown" : !local || (node.pr && graph.repository.remote && !remote) ? "missing" :
+          local !== node.head ? "changed" :
+          graph.repository.remote && remote && remote !== node.head ? "changed" : "current",
+        expected: node.head ?? null, local: local ?? null, remote: remote ?? null,
+        scope: graph.repository.remote ? remote ? "remote" : "unpublished" : "local-only",
+      },
+      validation: !node.validation ? "missing" :
+        node.validation.head === node.head && node.validation.commands === digest(node.validations) ? "current" : "stale",
+    }];
+  }));
+}
 
 function getProvider(ctx, graph) {
   return ctx.providerFactory?.(graph.repository.provider) ??
@@ -28,7 +68,7 @@ function nodeById(graph, id) {
 function graphRefs(graph) {
   return [...new Set([
     graph.target,
-    ...graph.nodes.flatMap((n) => [n.branch, `pr-graph/${graph.id}/bases/${n.id}`]),
+    ...graph.nodes.flatMap((n) => [n.branch, helperBranch(graph, n.id)]),
     graph.backup?.branch,
   ].filter(Boolean))].sort();
 }
@@ -59,11 +99,12 @@ function normalizeSpec(ctx, spec, previous) {
     version: VERSION, id: spec.id, title: spec.title ?? previous?.title ?? spec.id,
     revision: previous?.revision ?? 0, ...(previous?.source ? { source: previous.source } : {}),
     repository: { identity: identity(remote.url, config, ctx.root), remote: remote.name, url: remote.url, provider: config },
-    target, nodes: [],
+    target, nodes: [], ...(previous?.integration ? { integration: previous.integration } : {}),
+    helperBranchPrefix: spec.helperBranchPrefix ?? previous?.helperBranchPrefix ?? `pr-graph/${spec.id}/bases`,
     backup: spec.backup ?? previous?.backup ?? { enabled: false, branch: `pr-graph/${spec.id}/metadata` },
   };
   requireValue(!previous || graph.repository.identity === previous.repository.identity, "Repository identity changed.");
-  requireValue(!previous || graph.target === previous.target, "Changing integration targets requires a separate graph.");
+  requireValue(!previous || graph.target === previous.target, "Changing integration targets requires a separate retarget plan.");
   requireValue(typeof graph.backup.enabled === "boolean", "backup.enabled must be boolean.");
   graph.backup.branch ??= `pr-graph/${graph.id}/metadata`;
   git.checkBranch(ctx.root, graph.backup.branch);
@@ -120,13 +161,14 @@ function normalizeSpec(ctx, spec, previous) {
   }
   const refs = graphRefs(graph);
   const product = graph.nodes.map((n) => n.branch);
-  const helpers = graph.nodes.map((n) => `pr-graph/${graph.id}/bases/${n.id}`);
+  const helpers = graph.nodes.map((n) => helperBranch(graph, n.id));
+  for (const branch of helpers) git.checkBranch(ctx.root, branch);
   requireValue(!product.includes(graph.target) && !product.includes(graph.backup.branch),
     "Product branches cannot collide with the target or metadata branch.");
   requireValue(graph.backup.branch !== graph.target && !helpers.includes(graph.backup.branch) &&
     !helpers.includes(graph.target), "Target, helper, and metadata branches must be distinct.");
   for (const node of graph.nodes) {
-    requireValue(!product.includes(`pr-graph/${graph.id}/bases/${node.id}`), "Product/helper branch collision.");
+    requireValue(!product.includes(helperBranch(graph, node.id)), "Product/helper branch collision.");
   }
   requireValue(refs.length > 0, "Missing refs.");
   return graph;
@@ -213,7 +255,9 @@ export function createPlan(ctx, action, options = {}) {
     requireValue(identity(remote.url, provider, ctx.root) === graph.repository.identity, "Backup repository identity mismatch.");
     requireValue(!options.graph || options.graph === graph.id, "Backup graph ID mismatch.");
     graph.repository = { ...graph.repository, remote: remote.name, url: remote.url, provider };
+    if (graph.integration) delete graph.integration.verifiedAt;
     for (const n of graph.nodes) {
+      if (n.integration) delete n.integration.verifiedAt;
       n.validations = [];
       n.validationReason = null;
       n.validation = null;
@@ -243,20 +287,59 @@ export function createPlan(ctx, action, options = {}) {
         requireValue(digest(old.change) === digest(nodeById(graph, old.id).change), "Use split-node/fold to change existing own-change ownership.");
       }
     }
+  } else if (action === "retarget") {
+    requireValue(previous, "Select an existing graph with --graph.");
+    requireValue(options.spec?.id === previous.id && typeof options.spec.target === "string" &&
+      Object.keys(options.spec).every((key) => ["id", "target"].includes(key)),
+    "Retarget requires a spec containing only this graph's id and the new target.");
+    requireValue(options.spec.target !== previous.target, "Integration target is unchanged; use sync.");
+    requireValue(previous.combined && previous.nodes.every((n) => !n.landing),
+      "Retarget requires a fully realized graph without landing receipts; landed work needs a separate graph.");
+    graph = structuredClone(previous);
+    graph.target = git.checkBranch(ctx.root, options.spec.target);
+    requireValue(graph.target !== graph.backup.branch && graph.nodes.every((n) =>
+      n.branch !== graph.target && helperBranch(graph, n.id) !== graph.target),
+    "Integration target collides with a graph-owned branch.");
   } else {
     requireValue(previous, "Select an existing graph with --graph.");
     graph = structuredClone(previous);
   }
   const provider = getProvider(ctx, graph);
   const facts = observe(ctx, graph, provider);
+  if (options.spec?.helperBranchPrefix !== undefined &&
+    (!previous || helperBranch(graph, "prefix-probe") !== helperBranch(previous, "prefix-probe"))) {
+    for (const node of graph.nodes.filter((n) => !n.retired && !n.landing)) {
+      const branch = helperBranch(graph, node.id);
+      requireValue(!facts.local[branch] && !facts.remote[branch],
+        `New helper namespace already contains ${branch}; existing refs are not implicitly adopted.`);
+    }
+  }
   if (graph.backup.enabled) {
     requireValue((facts.remote[graph.backup.branch] ?? null) === (previous?.backup?.head ?? null),
       "Remote graph metadata advanced or belongs to another graph; restore/reconcile before writing.");
   }
-  const target = graph.repository.remote ? facts.remote[graph.target] : facts.local[graph.target];
-  requireValue(target, `Integration branch does not exist: ${graph.target}`);
+  const observedTarget = graph.repository.remote ? facts.remote[graph.target] : facts.local[graph.target];
+  requireValue(observedTarget, `Integration branch does not exist: ${graph.target}`);
+  const observedAt = now(ctx);
+  const withinGrace = previous && previous.integration?.sha === previous.targetSha && action !== "retarget" &&
+    snapshotFreshness(ctx, previous, observedTarget).status === "grace";
+  const target = withinGrace && (SHAPE.has(action) || ["publish", "ready"].includes(action))
+    ? previous.targetSha : observedTarget;
+  if (action === "retarget") {
+    requireValue(git.ancestor(ctx.root, previous.targetSha, target),
+      "New integration target must contain the previous integration snapshot.");
+  }
   if (SHAPE.has(action) && previous) {
     requireValue(previous.targetSha === target, "Integration target moved; sync before reshaping the graph.");
+  }
+  if (target === observedTarget && (SHAPE.has(action) || ["sync", "publish", "retarget"].includes(action) ||
+    graph.targetSha === target)) {
+    graph.integration = { target: graph.target, sha: target, verifiedAt: observedAt };
+    for (const node of graph.nodes) {
+      if (node.integration?.target === graph.target && node.integration.sha === target) {
+        node.integration = { ...graph.integration };
+      }
+    }
   }
   const source = options.spec?.source ? {
     base: git.commitId(ctx.root, options.spec.source.base),
@@ -265,7 +348,24 @@ export function createPlan(ctx, action, options = {}) {
   requireValue(action !== "split" || source, "Split needs source.base and source.head for exact reconstruction.");
   if (source) requireValue(source.base === target, "Source base must equal the pinned integration target; rebase or explicitly prepare the source first.");
   if (source) graph.source = source;
-  if (["ready", "merge", "describe", "record-landing"].includes(action)) nodeById(graph, options.node);
+  const descriptions = action === "describe" && options.spec ? options.spec.descriptions : null;
+  if (action === "describe" && options.spec) {
+    requireValue(options.spec.id === graph.id && !options.node && options.body === undefined &&
+      Object.keys(options.spec).every((key) => ["id", "descriptions"].includes(key)) &&
+      descriptions && typeof descriptions === "object" && !Array.isArray(descriptions) &&
+      Object.keys(descriptions).length > 0,
+    "Batch describe requires only this graph's id and a nonempty descriptions map; do not combine with --node/--body-file.");
+    for (const [id, body] of Object.entries(descriptions)) {
+      const node = nodeById(graph, id);
+      requireValue(typeof body === "string" && node.pr && provider.kind !== "local",
+        `Description requires text and a hosted PR: ${id}`);
+      requireValue(provider.kind !== "ado" || updateFooter(body, footer(graph, node)).length <= 4000,
+        `ADO description exceeds 4000 characters: ${id}`);
+    }
+  }
+  if (["ready", "merge", "record-landing"].includes(action) || (action === "describe" && !descriptions)) {
+    nodeById(graph, options.node);
+  }
   const landing = action === "record-landing" ? git.commitId(ctx.root, options.landing) : null;
   if (landing) {
     requireValue(provider.kind === "local" && eligible(graph, nodeById(graph, options.node)),
@@ -274,21 +374,23 @@ export function createPlan(ctx, action, options = {}) {
   }
   const strategy = options.strategy ?? "merge";
   requireValue(["merge", "squash", "rebase"].includes(strategy), "Invalid merge strategy.");
-  const remoteAction = ["publish", "sync", "ready", "merge", "describe"].includes(action);
+  const remoteAction = ["publish", "sync", "retarget", "ready", "merge", "describe"].includes(action);
   const capabilities = remoteAction || provider.kind === "local" ? provider.capabilities() : null;
   if (action === "merge") requireValue(capabilities.strategies.includes(strategy), "Merge strategy is unsupported.");
   if (action === "backup") requireValue(graph.backup.enabled && graph.repository.remote, "Enable remote backup explicitly in a graph spec first.");
   const plans = graph.nodes.filter((n) => !n.landing && !n.retired).map((n) => ({
     id: n.id, branch: n.branch, dependencies: n.dependencies, title: n.title,
     ownChange: n.change.fingerprint, description: n.description,
-    base: n.dependencies.length ? `pr-graph/${graph.id}/bases/${n.id} until all prerequisites land` : graph.target,
+    base: n.dependencies.length ? `${helperBranch(graph, n.id)} until all prerequisites land` : graph.target,
     validations: n.validations, validationReason: n.validationReason,
   }));
   const plan = {
     version: VERSION, action, repository: ctx.root, common: ctx.common,
     graph, previousDigest: previous ? digest(previous) : null, landing,
     facts, target, source, node: options.node ?? null, strategy,
+    freshness: freshnessReport(ctx, graph, facts),
     description: action === "describe" ? options.body : null,
+    ...(descriptions ? { descriptions } : {}),
     capabilities, allowNonAtomic: options.allowNonAtomic === true || provider.kind === "ado",
     references: Object.fromEntries([
       ...(options.spec?.source ? [options.spec.source.base, options.spec.source.head] : []),
@@ -296,22 +398,33 @@ export function createPlan(ctx, action, options = {}) {
     ].filter((r) => typeof r === "string" && !/^[a-f0-9]{40}$|^[a-f0-9]{64}$/.test(r))
       .map((r) => [r, git.commitId(ctx.root, r)])),
     effects: [
-      ...(graph.repository.remote ? [`Fetch configured remote ${graph.repository.remote} and recheck its pinned integration SHA before writes.`] : []),
+      ...(graph.repository.remote ? [action === "retarget"
+        ? `Fetch configured remote ${graph.repository.remote} and verify its integration branch still contains the approved snapshot before writes.`
+        : `Fetch configured remote ${graph.repository.remote} and recheck pinned refs before writes; integration fast-forwards are allowed only under the recorded freshness policy.`] : []),
+      ...(!FORWARD_TARGET.has(action) && permitsForwardTarget(ctx, { action, graph, target })
+        ? [`Permit forward-only movement of ${graph.target} until ${new Date(graph.integration.verifiedAt + MAIN_FRESHNESS_MS).toISOString()}; retain the approved authored snapshot and local target ref. Merge never uses this grace.`] : []),
       ...(["merge", "ready", "describe", "backup"].includes(action) ? [] :
         ["Build/validate candidate own changes and integration bases in an isolated worktree; update only unoccupied graph branches."]),
       ...plans,
-      ...(["publish", "sync"].includes(action) ? [
+      ...(action === "retarget" ? [
+        `Reconstruct every active node and prerequisite base on ${graph.target}@${target}; preserve own-change ownership and existing PR identities.`,
+        "Permit only fast-forward advancement of the new remote integration branch during this operation; keep the approved reconstruction snapshot fixed. Ready/merge still require a subsequent current-target check.",
+        `Return rewritten non-draft PRs to draft before pushing: ${Object.values(facts.prs).filter((p) => p.state === "open" && !p.draft).map((p) => p.id).join(", ") || "none"}. No promotions or merges.`,
+        "Preserve the previous integration branch and original source snapshots; verify the combined tree against the unchanged own changes composed on the new snapshot.",
+      ] : []),
+      ...(["publish", "sync", "retarget"].includes(action) ? [
         action === "publish" ? "Push all active nodes; create missing PRs as drafts." : "Push already-published nodes; never promote drafts.",
         "Push tool-owned integration bases; preserve human PR bodies except the managed graph footer.",
       ] : []),
       ...(action === "ready" ? [`Promote only ${options.node}, after dependency, target, diff, and validation checks.`] : []),
-      ...(["publish", "sync", "ready", "merge"].includes(action) ? ["Refresh managed graph footers, including landed nodes; preserve human text."] : []),
+      ...(["publish", "sync", "retarget", "ready", "merge"].includes(action) ? ["Refresh managed graph footers, including landed nodes; preserve human text."] : []),
       ...(action === "merge" ? [`Merge only ${options.node} using ${strategy}; no source-branch deletion, auto-merge, or policy bypass.`] : []),
       ...(landing ? [{ recordLanding: landing, node: options.node,
         observedDelta: git.git(ctx.root, ["diff", "--binary", "--full-index", `${landing}^1`, landing]).stdout,
         effect: "Verify the node's own change replays to exactly this landing tree before recording it; then reconstruct the graph." }] : []),
-      ...(action === "describe" ? [{ node: options.node, replaceBody: options.body }] : []),
-      ...(graph.backup.enabled && ["publish", "sync", "backup", "merge", "ready", "describe"].includes(action)
+      ...(action === "describe" ? Object.entries(descriptions ?? { [options.node]: options.body })
+        .map(([node, replaceBody]) => ({ node, replaceBody })) : []),
+      ...(graph.backup.enabled && ["publish", "sync", "retarget", "backup", "merge", "ready", "describe"].includes(action)
         ? [`Publish graph manifest and reachable committed snapshots to ${graph.backup.branch}.`] : []),
       ...graph.nodes.filter((n) => n.retired && n.pr && n.pr.state === "open")
         .map((n) => `Mark superseded PR ${n.pr.url} as draft; retain all branches and snapshots.`),
@@ -319,7 +432,7 @@ export function createPlan(ctx, action, options = {}) {
     ],
     warnings: warnings(ctx, graph),
   };
-  requireValue(action !== "describe" || typeof options.body === "string", "Describe requires an approved body.");
+  requireValue(action !== "describe" || descriptions || typeof options.body === "string", "Describe requires an approved body.");
   return seal(plan);
 }
 
@@ -358,6 +471,43 @@ function localCurrent(ctx, plan) {
   return previous ? digest(previous) : null;
 }
 
+function forwardTarget(ctx, graph, journal, before, actual) {
+  requireValue(before && actual, "Integration branch disappeared during observation.");
+  fetchRemote(ctx, graph, journal);
+  requireValue(git.ancestor(ctx.root, before, actual),
+    "Integration history was rewound or rewritten during observation; stop and replan.");
+}
+
+function samePrFacts(ctx, graph, journal, before, actual, target) {
+  if (digest(actual) === digest(before)) return true;
+  if (!permitsForwardTarget(ctx, journal.plan) || before?.baseBranch !== graph.target ||
+    actual?.baseBranch !== graph.target ||
+    !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(before.base ?? "") ||
+    !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(actual.base ?? "") ||
+    digest({ ...actual, base: before.base }) !== digest(before)) return false;
+  const node = graph.nodes.find((n) => n.pr?.id === actual.id);
+  if (!node) return false;
+  forwardTarget(ctx, graph, journal, before.base, actual.base);
+  return git.ancestor(ctx.root, node.base, actual.base) &&
+    git.ancestor(ctx.root, actual.base, target) &&
+    git.out(ctx.root, ["merge-base", node.head, actual.base]) === node.base;
+}
+
+function verifyIntegration(ctx, plan, journal, target) {
+  const graph = plan.graph;
+  const expected = graph.repository.remote
+    ? journal.remote[graph.target] ?? plan.facts.remote[graph.target]
+    : journal.local[graph.target] ?? journal.observedLocal?.[graph.target] ?? plan.facts.local[graph.target];
+  if (target !== expected) {
+    requireValue(graph.repository.remote && permitsForwardTarget(ctx, plan), `Remote ref changed: ${graph.target}`);
+    forwardTarget(ctx, graph, journal, expected, target);
+  }
+  if (!FORWARD_TARGET.has(plan.action) && plan.action !== "merge" && plan.target !== target) {
+    requireValue(permitsForwardTarget(ctx, plan), "Integration freshness expired; sync and approve a new plan.");
+    forwardTarget(ctx, graph, journal, plan.target, target);
+  }
+}
+
 function verifyFacts(ctx, plan, provider, journal) {
   for (const [ref, sha] of Object.entries(plan.references ?? {})) {
     requireValue(git.commitId(ctx.root, ref) === sha, `Source reference changed: ${ref}`);
@@ -365,14 +515,22 @@ function verifyFacts(ctx, plan, provider, journal) {
   requireValue(localCurrent(ctx, plan) === plan.previousDigest, "Graph state changed; create a fresh plan.");
   const current = observe(ctx, journal.candidate ?? plan.graph, provider);
   for (const [branch, before] of Object.entries(plan.facts.local)) {
-    requireValue(current.local[branch] === (journal.local?.[branch] ?? before), `Local ref changed: ${branch}`);
+    requireValue(current.local[branch] === (journal.local?.[branch] ?? journal.observedLocal?.[branch] ?? before),
+      `Local ref changed: ${branch}`);
   }
   for (const [branch, before] of Object.entries(plan.facts.remote)) {
-    requireValue(current.remote[branch] === (journal.remote?.[branch] ?? before), `Remote ref changed: ${branch}`);
+    const expected = journal.remote?.[branch] ?? before;
+    if (branch !== plan.graph.target) {
+      requireValue(current.remote[branch] === expected, `Remote ref changed: ${branch}`);
+    }
   }
+  const target = plan.graph.repository.remote ? current.remote[plan.graph.target] : current.local[plan.graph.target];
+  verifyIntegration(ctx, plan, journal, target);
   for (const id of new Set([...Object.keys(plan.facts.prs), ...Object.keys(journal.prs)])) {
     const expected = journal.prs?.[id] ?? plan.facts.prs[id];
-    requireValue(digest(current.prs[id]) === digest(expected), `PR ${id} changed; reconcile and replan.`);
+    requireValue(samePrFacts(ctx, journal.candidate ?? plan.graph, journal,
+      expected, current.prs[id], current.remote[plan.graph.target]),
+    `PR ${id} changed; reconcile and replan.`);
   }
   return current;
 }
@@ -453,9 +611,31 @@ function push(ctx, graph, entries, plan, journal) {
 }
 
 function verifyPr(ctx, graph, node, provider) {
-  const p = provider.get(node.pr.id);
+  let p = provider.get(node.pr.id);
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const stalePreview = provider.kind === "ado" && p.state === "open" &&
+      p.branch === node.branch && p.head === node.head &&
+      p.baseBranch === node.baseBranch && node.baseBranch === graph.target &&
+      typeof p.base === "string" && p.base !== node.base &&
+      git.ancestor(ctx.root, p.base, node.base);
+    if (!stalePreview) break;
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000);
+    p = provider.get(node.pr.id);
+  }
   requireValue(p.state === "open" && p.branch === node.branch && p.head === node.head &&
-    p.baseBranch === node.baseBranch && p.base === node.base, `PR head/base not yet consistent: ${node.id}`);
+    p.baseBranch === node.baseBranch, `PR head/base not yet consistent: ${node.id}`);
+  if (p.base !== node.base && node.baseBranch === graph.target && graph.repository.remote) {
+    requireValue(typeof p.base === "string" && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(p.base),
+      `Invalid PR target snapshot: ${node.id}`);
+    git.out(ctx.root, ["fetch", "--no-tags", "--no-write-fetch-head", "--",
+      graph.repository.remote,
+      `refs/heads/${graph.target}:refs/pr-graph/review-targets/${graph.id}/${p.base}`]);
+    requireValue(git.ancestor(ctx.root, node.base, p.base) &&
+      git.out(ctx.root, ["merge-base", node.head, p.base]) === node.base,
+    `PR target no longer preserves the authored own-change base: ${node.id}`);
+  } else {
+    requireValue(p.base === node.base, `PR head/base not yet consistent: ${node.id}`);
+  }
   const expectedPaths = git.git(ctx.root, ["diff", "--name-only", "--no-renames", "-z", node.base, node.head]).stdout
     .split("\0").filter(Boolean).sort();
   requireValue(digest([...new Set(provider.diffPaths(p.id))]) === digest(expectedPaths),
@@ -468,6 +648,7 @@ function publish(ctx, graph, provider, plan, journal) {
   const active = topological(graph).filter((n) => !n.landing && !n.retired && (plan.action === "publish" || n.pr));
   for (const node of active) {
     if (node.pr && node.requiresDraft && !node.pr.draft) {
+      verifyFacts(ctx, plan, provider, journal);
       journal.providerStarted = true;
       journal.remoteStarted = true;
       saveJournal(ctx, journal);
@@ -477,12 +658,15 @@ function publish(ctx, graph, provider, plan, journal) {
       saveJournal(ctx, journal);
     }
   }
+  verifyFacts(ctx, plan, provider, journal);
   push(ctx, graph, active.flatMap((n) => [
     ...(n.baseBranch !== graph.target ? [[n.baseBranch, n.base]] : []),
     [n.branch, n.head],
   ]), plan, journal);
   if (provider.kind === "local") return;
   for (const node of active) {
+    verifyIntegration(ctx, plan, journal,
+      git.remoteRefs(ctx.root, graph.repository.remote)[`refs/heads/${graph.target}`]);
     const body = updateFooter(node.pr?.body ?? node.description, footer(graph, node));
     const found = node.pr ?? provider.find(node.branch);
     if (found && !node.pr) {
@@ -528,9 +712,12 @@ function backup(ctx, graph, plan, journal) {
   graph.backup.head = sha;
 }
 
-function readyChecks(ctx, graph, node, provider, target) {
+function readyChecks(ctx, graph, node, provider, target, action = "merge") {
   requireValue(eligible(graph, node), "All prerequisites must land before review/merge.");
-  requireValue(graph.targetSha === target && node.base === target && node.baseBranch === graph.target,
+  const freshness = snapshotFreshness(ctx, graph, target, node);
+  requireValue((freshness.status === "current" || (action === "ready" && freshness.status === "grace")) &&
+    (action !== "merge" || graph.targetSha === target) &&
+    node.base === graph.targetSha && node.baseBranch === graph.target,
     "Sync onto the current integration branch before ready/merge.");
   requireValue(node.validation?.head === node.head && node.validation.commands === digest(node.validations),
     "Current node validation is missing or stale.");
@@ -562,6 +749,7 @@ function mergeNode(ctx, graph, node, provider, plan, journal, cwd) {
     }
     node.landing = receipt;
     graph.targetSha = journal.remote[graph.target] ?? journal.local[graph.target];
+    graph.integration = { target: graph.target, sha: graph.targetSha, verifiedAt: now(ctx) };
     saveJournal(ctx, journal);
     return;
   }
@@ -611,6 +799,7 @@ function mergeNode(ctx, graph, node, provider, plan, journal, cwd) {
   }
   node.landing = { commit: landing, source: node.head, target: graph.target, strategy: plan.strategy };
   graph.targetSha = journal.remote[graph.target] ?? journal.local[graph.target];
+  graph.integration = { target: graph.target, sha: graph.targetSha, verifiedAt: now(ctx) };
   saveJournal(ctx, journal);
 }
 
@@ -689,7 +878,9 @@ export function applyPlan(ctx, plan, approval, yes) {
     }
     if (journal?.status === "done") {
       requireValue(state.load(ctx, plan.graph.id).lastOperation === journal.id, "Completed operation is no longer current.");
-      return { graph: state.load(ctx, plan.graph.id), operation: journal.id, alreadyDone: true };
+      const graph = state.load(ctx, plan.graph.id);
+      return { graph, operation: journal.id, alreadyDone: true,
+        freshness: freshnessReport(ctx, graph, observe(ctx, graph, getProvider(ctx, graph))) };
     }
     requireValue(!journal || !["aborted", "superseded"].includes(journal.status), "Operation was aborted or superseded.");
     const other = state.journals(ctx).filter((j) => j.id !== plan.approval && j.status === "running");
@@ -729,10 +920,11 @@ export function applyPlan(ctx, plan, approval, yes) {
           "Recorded landing contains a different change; refuse the mapping.");
         node.landing = { commit: plan.landing, source: node.head, target: graph.target, strategy: `recorded-${plan.strategy}` };
         graph.targetSha = target;
+        graph.integration = { target: graph.target, sha: target, verifiedAt: now(ctx) };
         graph.combined = verifyComposition(cwd, graph, target, null, apply);
       }
-      if (SHAPE.has(plan.action) || ["sync", "publish"].includes(plan.action)) {
-        if (["deps", "split-node", "fold"].includes(plan.action)) {
+      if (SHAPE.has(plan.action) || ["sync", "publish", "retarget"].includes(plan.action)) {
+        if (["deps", "split-node", "fold", "retarget"].includes(plan.action)) {
           journal.beforeCombined ??= verifyComposition(cwd, previous, target, null, apply);
           saveJournal(ctx, journal);
         }
@@ -748,10 +940,13 @@ export function applyPlan(ctx, plan, approval, yes) {
         verifyFacts(ctx, plan, provider, journal);
         writeLocal(ctx, graph, plan, journal);
       }
-      if (["sync", "publish"].includes(plan.action)) publish(ctx, graph, provider, plan, journal);
+      if (["sync", "publish", "retarget"].includes(plan.action)) publish(ctx, graph, provider, plan, journal);
       if (plan.action === "ready") {
         const node = nodeById(graph, plan.node);
-        readyChecks(ctx, graph, node, provider, target);
+        const current = verifyFacts(ctx, plan, provider, journal);
+        readyChecks(ctx, graph, node, provider,
+          graph.repository.remote ? current.remote[graph.target] : current.local[graph.target], "ready");
+        verifyFacts(ctx, plan, provider, journal);
         if (provider.kind !== "local") {
           journal.remoteStarted = true;
           journal.providerStarted = true;
@@ -764,27 +959,35 @@ export function applyPlan(ctx, plan, approval, yes) {
       }
       if (plan.action === "merge") mergeNode(ctx, graph, nodeById(graph, plan.node), provider, plan, journal, cwd);
       if (plan.action === "describe") {
-        const node = nodeById(graph, plan.node);
-        requireValue(node.pr && provider.kind !== "local", "Describe requires a hosted PR.");
-        journal.remoteStarted = true;
-        journal.providerStarted = true;
-        saveJournal(ctx, journal);
-        const body = updateFooter(plan.description, footer(graph, node));
-        node.pr = provider.update(node.pr.id, { body });
-        requireValue(node.pr.body === body, "Description update mismatch.");
-        node.description = plan.description;
-        journal.prs[node.id] = node.pr;
+        for (const [id, description] of Object.entries(plan.descriptions ?? { [plan.node]: plan.description })) {
+          const node = nodeById(graph, id);
+          requireValue(node.pr && provider.kind !== "local", "Describe requires a hosted PR.");
+          const current = provider.get(node.pr.id);
+          const expected = journal.prs[id] ?? plan.facts.prs[id];
+          requireValue(["body", "head", "branch", "baseBranch", "draft", "state"].every((key) =>
+            current[key] === expected[key]), `PR changed before description replacement: ${id}`);
+          journal.remoteStarted = true;
+          journal.providerStarted = true;
+          saveJournal(ctx, journal);
+          const body = updateFooter(description, footer(graph, node));
+          node.pr = provider.update(node.pr.id, { body });
+          requireValue(node.pr.body === body, "Description update mismatch.");
+          node.description = description;
+          journal.prs[node.id] = node.pr;
+          saveJournal(ctx, journal);
+        }
       }
       if (SHAPE.has(plan.action)) supersede(ctx, graph, provider, journal);
-      if (["publish", "sync", "ready", "merge"].includes(plan.action)) {
+      if (["publish", "sync", "retarget", "ready", "merge"].includes(plan.action)) {
         refreshFooters(ctx, graph, provider, journal);
       }
+      const freshness = freshnessReport(ctx, graph, observe(ctx, graph, provider));
       graph.revision = plan.graph.revision + 1;
       graph.lastOperation = journal.id;
       journal.candidate = graph;
       saveJournal(ctx, journal);
       graphPins(ctx, graph);
-      if (graph.backup.enabled && ["publish", "sync", "backup", "merge", "ready", "describe"].includes(plan.action)) {
+      if (graph.backup.enabled && ["publish", "sync", "retarget", "backup", "merge", "ready", "describe"].includes(plan.action)) {
         backup(ctx, graph, plan, journal);
       }
       journal.candidate = graph;
@@ -795,7 +998,7 @@ export function applyPlan(ctx, plan, approval, yes) {
       journal.status = "done";
       journal.error = null;
       saveJournal(ctx, journal);
-      return { graph, operation: journal.id,
+      return { graph, operation: journal.id, freshness,
         eligible: graph.nodes.filter((n) => eligible(graph, n)).map((n) => n.id),
         worktree: cwd, cleanup: "Retained; cleanup requires its own approved plan." };
     } catch (error) {
@@ -849,10 +1052,39 @@ function applyRestore(ctx, plan, journal) {
   state.save(ctx, graph);
   journal.status = "done";
   saveJournal(ctx, journal);
-  return { graph, operation: journal.id, warning: "Validation commands cleared. Configure checks, sync, and explicitly ready before review/merge." };
+  return { graph, operation: journal.id,
+    freshness: freshnessReport(ctx, graph, observe(ctx, graph, getProvider(ctx, graph))),
+    warning: "Validation commands cleared. Configure checks, sync, and explicitly ready before review/merge." };
+}
+
+function retainedPublication(ctx, journal, graph) {
+  requireValue(journal.plan.action === "publish" && journal.status === "running" &&
+    !journal.providerStarted && !Object.keys(journal.prs).length && !journal.pendingChange,
+  "Retaining published refs requires a push-only interrupted publication with no provider writes or pending patch.");
+  requireValue(graph && digest(graph) === journal.plan.previousDigest,
+    "Persisted graph changed; cannot retain publication refs.");
+  const candidate = journal.candidate ?? journal.plan.graph;
+  requireValue(candidate.nodes.every((n) => !n.pr), "Retained-ref recovery is only supported before any PR exists.");
+  const provider = getProvider(ctx, candidate);
+  const current = observe(ctx, candidate, provider);
+  requireValue(digest(current.local) === digest(journal.plan.facts.local),
+    "Publication changed local refs; retained-ref abort cannot restore them implicitly.");
+  const allowed = new Map(candidate.nodes.flatMap((n) => [
+    [n.branch, n.head], ...(n.baseBranch !== candidate.target ? [[n.baseBranch, n.base]] : []),
+  ]));
+  for (const [branch, actual] of Object.entries(current.remote)) {
+    requireValue(actual === journal.plan.facts.remote[branch] ||
+      (allowed.has(branch) && actual === allowed.get(branch)),
+    `Unexpected remote ref change: ${branch}; cannot retain publication automatically.`);
+  }
+  for (const node of candidate.nodes) {
+    requireValue(!provider.find(node.branch), `A PR exists for ${node.id}; retained-ref abort is unsafe.`);
+  }
+  return current;
 }
 
 function recoveryPlan(ctx, action, options) {
+  requireValue(!options.retainPublishedRefs || action === "abort", "--retain-published-refs is only valid for abort.");
   const journal = state.readJson(state.journalFile(ctx, options.operation));
   requireValue(journal.id === options.operation, "Operation journal identity mismatch.");
   const graph = state.load(ctx, journal.plan.graph?.id ?? options.graph, true);
@@ -871,7 +1103,13 @@ function recoveryPlan(ctx, action, options) {
     }
     return seal({ version: VERSION, action, repository: ctx.root, common: ctx.common,
       operation: journal.id, journalDigest: digest(journal), current, discovered,
+      freshness: freshnessReport(ctx, candidate, current),
+      ...(permitsForwardTarget(ctx, journal.plan) ? { forwardTarget: candidate.target } : {}),
       effects: ["Accept only observable effects consistent with the original approved candidate; preserve newly observed human PR text. No content or dependency changes are authorized.",
+        ...(permitsForwardTarget(ctx, journal.plan) ? [
+          "Allow subsequent remote integration fast-forwards only; keep the approved local observation fixed and require it to remain on the remote integration history.",
+          "An integration-target PR's preview base may advance only with that history and preserve its authored merge base; all other PR facts remain exact.",
+        ] : []),
         { previous: journal.plan.facts, observed: current, discovered }] });
   }
   if (action === "resolve") {
@@ -889,6 +1127,17 @@ function recoveryPlan(ctx, action, options) {
   }
   if (action === "abort") {
     requireValue(journal.status === "running", "Operation is not running.");
+    if (options.retainPublishedRefs) {
+      const retained = retainedPublication(ctx, journal, graph);
+      return seal({ version: VERSION, action, repository: ctx.root, common: ctx.common,
+        operation: journal.id, journalDigest: digest(journal), retainedPublication: retained,
+        effects: [
+          "Stop this publication while retaining the exact observed candidate refs, all local branches, snapshots, and worktree. No Git ref writes, deletion, PR changes, or graph-state adoption.",
+          { retainedRemoteRefs: Object.fromEntries(Object.entries(retained.remote)
+            .filter(([branch, sha]) => sha !== journal.plan.facts.remote[branch])) },
+          "A separate approved graph plan and publication are required to resume with different helper names.",
+        ] });
+    }
     let remoteOriginal = null;
     if (journal.remoteStarted) {
       requireValue(!journal.providerStarted, "Provider effects may exist. Inspect and use a compensating plan; automatic abort is unsafe.");
@@ -913,7 +1162,7 @@ function recoveryPlan(ctx, action, options) {
     git.checkBranch(ctx.root, branch);
     const retired = graph?.nodes.some((n) => n.retired && n.branch === branch);
     const obsolete = graph?.nodes.some((n) =>
-      branch === `pr-graph/${graph.id}/bases/${n.id}` && (n.retired || n.baseBranch === graph.target || n.landing));
+      branch === helperBranch(graph, n.id) && (n.retired || n.baseBranch === graph.target || n.landing));
     requireValue(retired || obsolete, `Not an obsolete tool-owned graph branch: ${branch}`);
     requireValue(!git.occupied(ctx.root, branch), `Branch is occupied: ${branch}`);
   }
@@ -945,8 +1194,19 @@ function applyRecovery(ctx, plan) {
   if (plan.action === "reconcile") {
     const candidate = structuredClone(journal.candidate ?? journal.plan.graph);
     const provider = getProvider(ctx, candidate);
-    requireValue(digest(observe(ctx, candidate, provider)) === digest(plan.current), "Observed state changed after reconciliation approval.");
-    const observedPrs = { ...plan.current.prs, ...plan.discovered };
+    const current = observe(ctx, candidate, provider);
+    const comparison = structuredClone(current);
+    if (permitsForwardTarget(ctx, journal.plan) && plan.forwardTarget === candidate.target) {
+      forwardTarget(ctx, candidate, journal, plan.current.remote[candidate.target], current.remote[candidate.target]);
+      comparison.remote[candidate.target] = plan.current.remote[candidate.target];
+      for (const [id, before] of Object.entries(plan.current.prs)) {
+        if (samePrFacts(ctx, candidate, journal, before, current.prs[id], current.remote[candidate.target])) {
+          comparison.prs[id] = before;
+        }
+      }
+    }
+    requireValue(digest(comparison) === digest(plan.current), "Observed state changed after reconciliation approval.");
+    const observedPrs = { ...current.prs, ...plan.discovered };
     if (journal.plan.action === "merge") {
       const node = nodeById(candidate, journal.plan.node);
       const actual = observedPrs[node.id];
@@ -963,9 +1223,21 @@ function applyRecovery(ctx, plan) {
     if (journal.mergeReceipt) allowed.set(candidate.target, journal.mergeReceipt.commit);
     if (journal.backupCommit) allowed.set(candidate.backup.branch, journal.backupCommit);
     for (const side of ["local", "remote"]) {
-      for (const [branch, actual] of Object.entries(plan.current[side])) {
-        const expected = journal[side][branch] ?? journal.plan.facts[side][branch] ?? null;
+      for (const [branch, actual] of Object.entries(current[side])) {
+        const expected = journal[side][branch] ??
+          (side === "local" ? journal.observedLocal?.[branch] : null) ?? journal.plan.facts[side][branch] ?? null;
         if (actual === expected) continue;
+        if (permitsForwardTarget(ctx, journal.plan) && branch === candidate.target &&
+          (side === "remote" || (actual && current.remote[branch] &&
+            git.ancestor(ctx.root, actual, current.remote[branch])))) {
+          forwardTarget(ctx, candidate, journal, expected, actual);
+          if (side === "local") {
+            journal.observedLocal ??= {};
+            Object.setPrototypeOf(journal.observedLocal, null);
+            journal.observedLocal[branch] = actual;
+          } else journal.remote[branch] = actual;
+          continue;
+        }
         requireValue(actual === allowed.get(branch),
           `Unexpected ${side} ref change: ${branch}; cannot adopt content automatically.`);
         journal[side][branch] = actual;
@@ -974,6 +1246,10 @@ function applyRecovery(ctx, plan) {
     for (const [id, actual] of Object.entries(observedPrs)) {
       const node = nodeById(candidate, id);
       const baseline = journal.prs[id] ?? journal.plan.facts.prs[id];
+      if (journal.plan.action === "describe" && baseline) {
+        requireValue(samePrFacts(ctx, candidate, journal, baseline, actual, current.remote[candidate.target]),
+          `Description inputs changed for ${id}; abort and replan without discarding human edits.`);
+      }
       if (baseline && digest(baseline) === digest(actual)) continue;
       if (journal.plan.action === "merge" && id === journal.plan.node && actual.state === "merged" &&
         actual.landing === journal.mergeReceipt?.commit) {
@@ -1008,6 +1284,16 @@ function applyRecovery(ctx, plan) {
     return { resolved: sha, resume: journal.id };
   }
   if (plan.action === "abort") {
+    if (plan.retainedPublication) {
+      const graph = state.load(ctx, journal.plan.graph.id);
+      requireValue(digest(retainedPublication(ctx, journal, graph)) === digest(plan.retainedPublication),
+        "Publication state changed after retained-ref abort approval.");
+      journal.status = "aborted";
+      journal.retainedPublication = plan.retainedPublication;
+      journal.error = null;
+      saveJournal(ctx, journal);
+      return { aborted: journal.id, retained: cwd, retainedPublication: plan.retainedPublication };
+    }
     if (plan.remoteOriginal) {
       const candidate = journal.candidate ?? journal.plan.graph;
       const remote = git.remoteRefs(ctx.root, candidate.repository.remote);
@@ -1060,10 +1346,15 @@ export function inspect(ctx, id) {
   const graph = state.load(ctx, id, true);
   return {
     graph,
+    freshness: graph ? freshnessReport(ctx, graph, observe(ctx, graph, getProvider(ctx, graph))) : {},
     eligible: graph?.nodes.filter((n) => eligible(graph, n)).map((n) => n.id) ?? [],
     operations: state.journals(ctx).filter((j) => j.plan.graph?.id === id).map((j) => ({
       id: j.id, status: j.status, error: j.error, pending: j.pendingChange,
       worktree: path.join(ctx.dir, "trees", j.id),
+      ...(j.status === "running" ? {
+        freshness: freshnessReport(ctx, j.candidate ?? j.plan.graph,
+          observe(ctx, j.candidate ?? j.plan.graph, getProvider(ctx, j.candidate ?? j.plan.graph))),
+      } : {}),
     })),
     uncommitted: Boolean(git.out(ctx.root, ["status", "--porcelain", "--untracked-files=all"])),
     backup: graph?.backup ?? null,
