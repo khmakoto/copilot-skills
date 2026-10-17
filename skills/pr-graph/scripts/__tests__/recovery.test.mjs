@@ -134,6 +134,62 @@ test("hook rewrites are errors rather than success-shaped source changes", (t) =
   assert.equal(git(f.root, "rev-parse", "HEAD"), f.head);
 });
 
+test("partial publication can retain verified pushes and replan permitted helper names without changing node heads", (t) => {
+  const f = fixture({ names: ["a", "b", "c"], remote: true });
+  t.after(() => f.dispose());
+  const before = f.apply("split", { spec: f.spec }).graph;
+  git(f.root, `--git-dir=${f.bare}`, "config", "receive.advertiseAtomic", "false");
+  fs.writeFileSync(path.join(f.bare, "hooks", "update"),
+    "#!/bin/sh\ncase \"$1\" in refs/heads/pr-graph/*/bases/*) echo namespace-rejected >&2; exit 1;; esac\nexit 0\n",
+    { mode: 0o755 });
+  const publication = createPlan(f.ctx, "publish", { graph: "example", allowNonAtomic: true });
+  assert.throws(() => applyPlan(f.ctx, publication, publication.approval, true), /namespace-rejected/);
+  const remote = git(f.root, "ls-remote", "--heads", "upstream");
+  assert.ok(remote.includes("pr-graph/example/nodes/a"));
+  assert.throws(() => createPlan(f.ctx, "abort", { operation: publication.approval }), /Remote refs changed/);
+  const abort = createPlan(f.ctx, "abort", { operation: publication.approval, retainPublishedRefs: true });
+  applyPlan(f.ctx, abort, abort.approval, true);
+  assert.equal(git(f.root, "ls-remote", "--heads", "upstream"), remote);
+  assert.deepEqual(load(f.ctx, "example"), before);
+  f.spec.helperBranchPrefix = "user/test/example-bases";
+  const replanned = f.apply("deps", { graph: "example", spec: f.spec }).graph;
+  assert.deepEqual(replanned.nodes.map((n) => n.head), before.nodes.map((n) => n.head));
+  const c = replanned.nodes.find((n) => n.id === "c");
+  assert.equal(c.baseBranch, "user/test/example-bases/c");
+  assert.equal(refId(f.root, `refs/heads/${c.baseBranch}`), c.base);
+  assert.equal(refId(f.root, "refs/heads/pr-graph/example/bases/c"), c.base);
+  assert.equal(tree(f.root, replanned.combined), tree(f.root, f.head));
+  f.apply("publish", { graph: "example", allowNonAtomic: true });
+  assert.ok(git(f.root, "ls-remote", "--heads", "upstream", c.baseBranch).includes(c.base));
+});
+
+test("retained-ref abort rejects unknown remote content, PR creation, and changed readback", (t) => {
+  const f = fixture({ names: ["a", "b"], remote: true });
+  t.after(() => f.dispose());
+  f.apply("split", { spec: f.spec });
+  git(f.root, `--git-dir=${f.bare}`, "config", "receive.advertiseAtomic", "false");
+  fs.writeFileSync(path.join(f.bare, "hooks", "update"),
+    "#!/bin/sh\ncase \"$1\" in */nodes/b) echo rejected >&2; exit 1;; esac\nexit 0\n", { mode: 0o755 });
+  const publication = createPlan(f.ctx, "publish", { graph: "example", allowNonAtomic: true });
+  assert.throws(() => applyPlan(f.ctx, publication, publication.approval, true), /rejected/);
+  const options = { operation: publication.approval, retainPublishedRefs: true };
+  const abort = createPlan(f.ctx, "abort", options);
+  const ref = "refs/heads/pr-graph/example/nodes/a";
+  const expected = git(f.root, `--git-dir=${f.bare}`, "rev-parse", ref);
+  git(f.root, `--git-dir=${f.bare}`, "update-ref", ref, f.base, expected);
+  assert.throws(() => createPlan(f.ctx, "abort", options), /Unexpected remote ref change/);
+  assert.throws(() => applyPlan(f.ctx, abort, abort.approval, true), /Unexpected remote ref change/);
+  git(f.root, `--git-dir=${f.bare}`, "update-ref", ref, expected, f.base);
+  f.ctx.providerFactory = () => ({ kind: "local", find: () => ({ id: 99 }) });
+  assert.throws(() => createPlan(f.ctx, "abort", options), /A PR exists/);
+  delete f.ctx.providerFactory;
+  const b = load(f.ctx, "example").nodes.find((n) => n.id === "b");
+  git(f.root, `--git-dir=${f.bare}`, "fetch", "-q", f.root, `${b.head}:refs/heads/${b.branch}`);
+  assert.throws(() => applyPlan(f.ctx, abort, abort.approval, true), /state changed after retained-ref abort approval/);
+  assert.equal(inspect(f.ctx, "example").operations.find((operation) =>
+    operation.id === publication.approval).status, "running");
+});
+
 test("a landing snapshot restores even before descendants have been synced", (t) => {
   const f = fixture({ names: ["a", "b"], remote: true });
   t.after(() => f.dispose());
@@ -155,4 +211,6 @@ test("a landing snapshot restores even before descendants have been synced", (t)
   const result = applyPlan(ctx, restore, restore.approval, true);
   assert.ok(result.graph.nodes.find((n) => n.id === "b").landing);
   assert.ok(result.graph.nodes.every((n) => n.ready === false));
+  assert.equal(result.graph.integration.verifiedAt, undefined);
+  assert.ok(result.graph.nodes.every((n) => n.integration.verifiedAt === undefined));
 });

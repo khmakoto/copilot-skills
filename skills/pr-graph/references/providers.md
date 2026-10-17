@@ -64,6 +64,20 @@ description update; an ignored update is a failure. ADO descriptions are
 bounded at 4000 characters by the adapter. Propose a shorter body explicitly;
 do not truncate human text.
 
+ADO rejects a retarget request when the PR already targets that branch.
+Read the current target and omit that field for unchanged targets; still
+apply and verify requested description/draft changes. Commit diffs include
+directory entries: exclude trees from own-file comparisons, retain both rename
+paths (including `sourceServerItem`) and submodule entries, and paginate using
+the unfiltered server entry count.
+
+For an open ADO PR, `lastMergeCommit` is a synthetic preview, not a landing
+receipt. Expose a landing only for completed PRs. A hosting target SHA can
+advance beyond the authored base: verify that it still descends from that base
+and has exactly that merge base with the node head, then verify own-only changed
+paths. Helper-base SHAs remain exact. This does not relax ready/merge's
+current-integration-snapshot requirement.
+
 Policy checks paginate evaluation results, require enabled blocking policies to
 pass, check required reviewer votes, and require successful merge status.
 Completion explicitly disables policy bypass and source-branch deletion.

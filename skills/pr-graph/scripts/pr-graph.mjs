@@ -16,7 +16,7 @@ Read-only:
 Prepare a concrete mutation plan:
   plan <action> --graph <id> [--spec <json>] --out <file>
   Actions: init, split, add, deps, split-node, fold, remove,
-           publish, sync, ready, merge, describe, backup,
+           publish, sync, retarget, ready, merge, describe, backup,
            fetch-backup, restore, resolve, reconcile, abort, cleanup, unlock,
            record-landing
   --node <id>                 Select ready/merge/describe node
@@ -25,6 +25,7 @@ Prepare a concrete mutation plan:
   --remote <name>             Backup download/restore remote
   --backup-ref <sha>          Downloaded snapshot to restore
   --operation <digest>        Resolve/abort/cleanup operation
+  --retain-published-refs     Abort push-only publication without deleting its verified candidate refs
   --body-file <file>          Explicit describe replacement
   --allow-non-atomic          Approve fallback when atomic push is unsupported
 
@@ -33,13 +34,15 @@ After user approval of the exact plan:
   continue --operation <digest> --yes --approve <original-digest>
 
 All commands accept --repo <working-tree-path>. No command auto-installs tools.
+Node freshness is reported separately from branch identity and validation.
+Only main/master integration snapshots have a one-hour grace; merge is strict.
 Plans contain code/payloads; keep them outside the product working tree.
 `;
 
 function args(argv) {
   const flags = {};
   const positional = [];
-  const boolean = new Set(["yes", "allow-non-atomic"]);
+  const boolean = new Set(["yes", "allow-non-atomic", "retain-published-refs"]);
   const known = new Set(["repo", "graph", "spec", "out", "node", "strategy", "remote",
     "backup-ref", "backup-branch", "operation", "body-file", "plan", "approve", "base", "head", "landing"]);
   for (let i = 0; i < argv.length; i++) {
@@ -90,7 +93,7 @@ export function main(argv) {
     }
     if (command === "view") {
       requireValue(result.graph, "Graph not found.");
-      return process.stdout.write(`${render(result.graph)}\n`);
+      return process.stdout.write(`${render(result.graph, result.freshness)}\n`);
     }
   } else if (command === "plan") {
     const spec = flags.spec ? state.readJson(path.resolve(flags.spec)) : undefined;
@@ -99,6 +102,7 @@ export function main(argv) {
       landing: flags.landing,
       remote: flags.remote, backupRef: flags["backup-ref"], backupBranch: flags["backup-branch"],
       operation: flags.operation, allowNonAtomic: flags["allow-non-atomic"],
+      retainPublishedRefs: flags["retain-published-refs"],
       body: flags["body-file"] ? fs.readFileSync(path.resolve(flags["body-file"]), "utf8") : undefined,
     });
     if (flags.out) {

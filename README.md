@@ -102,12 +102,24 @@ approval boundaries. The skill supports same-file splitting, graph reshaping,
 merge/squash/rebase strategies, and opt-in committed snapshot recovery across
 machines.
 
+Per-node reports distinguish integration freshness, branch identity, and
+validation status. Integration branches named `main` or `master` allow a
+one-hour freshness grace for verified forward movement outside merging, avoiding
+repeated source rewrites during review. Merge always requires the current
+integration tip; other integration branch names have no grace.
+
+Whole-graph retargeting reconstructs unlanded work on another integration branch
+while preserving change ownership and existing PR identities. Batch description
+updates leave source branches and draft states unchanged. Custom helper-branch
+prefixes accommodate namespace restrictions, and explicitly approved recovery
+can retain verified pushes after a partial first-publication failure.
+
 Each PR description ends with a rendered Mermaid DAG image highlighting its own
 node. The skill workflow refreshes these snapshots as graph state changes and
 requires an approved local renderer and supported provider attachment mechanism.
 
 ```text
-/pr-graph [split | view | add | sync | ready | merge | reshape | backup | restore]
+/pr-graph [split | view | add | sync | retarget | ready | merge | describe | reshape | backup | restore]
 ```
 
 The self-contained helper requires Node.js 22+ and Git 2.31+, with authenticated
@@ -123,8 +135,8 @@ Run the helper's local Git and provider-fixture tests:
 node skills/pr-graph/scripts/test.mjs
 ```
 
-For cross-platform validation, run this suite on Linux, macOS, and Windows with
-Node.js 22 and 24. Fixture coverage does not imply live hosting certification.
+The `pr-graph` workflow runs this suite on Linux, macOS, and Windows with Node.js
+22 and 24. Fixture coverage does not imply live hosting certification.
 
 ### `session-distill`
 
@@ -160,9 +172,15 @@ maintenance:
 - `update-pr-stack.md` refreshes the base branch, checks a pull request stack for
   stale local branches, and updates the stack after one pull request changes.
   Replace `[PR-NUMBER]`, `[updated/merged]`, and `[PR-STACK]` before using it.
+- `update-pr-graph.md` updates a PR DAG after a pull request changes or merges,
+  using the PR itself to recover DAG context when needed. Replace `[PR-NUMBER]`
+  and `[updated/merged]` before using it.
+- `check-dag-for-changes.md` checks whether session changes already exist
+  elsewhere in the current branch's DAG and whether any new changes belong in
+  another node.
 - `commit-and-push.md` commits and pushes changes, resolves active review comments
   addressed by those changes, and replies to any resolved threads without
-  referencing specific commits.
+  referencing specific commits, then updates the DAG for the changed branch/PR.
 
 ## Installation
 

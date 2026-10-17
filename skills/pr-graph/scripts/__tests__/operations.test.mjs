@@ -47,6 +47,21 @@ test("stale source and ref changes invalidate the exact operation approval", (t)
   assert.throws(() => applyPlan(f.ctx, plan, plan.approval, true), /Local ref changed/);
 });
 
+test("custom helper prefixes reject invalid refs and product branch collisions", (t) => {
+  const f = fixture({ names: ["a", "b"] });
+  t.after(() => f.dispose());
+  f.spec.helperBranchPrefix = "user/test/bases/";
+  assert.throws(() => createPlan(f.ctx, "split", { spec: f.spec }), /Invalid helper branch prefix/);
+  f.spec.helperBranchPrefix = "user/test/../bases";
+  assert.throws(() => createPlan(f.ctx, "split", { spec: f.spec }), /check-ref-format/);
+  f.spec.helperBranchPrefix = "user/test/bases";
+  f.spec.nodes[1].branch = "user/test/bases/a";
+  assert.throws(() => createPlan(f.ctx, "split", { spec: f.spec }), /Product\/helper branch collision/);
+  delete f.spec.nodes[1].branch;
+  git(f.root, "update-ref", "refs/heads/user/test/bases/a", f.base);
+  assert.throws(() => createPlan(f.ctx, "split", { spec: f.spec }), /existing refs are not implicitly adopted/);
+});
+
 test("graph over ten nodes and CLI help need no hosting tooling", (t) => {
   const f = fixture({ names: Array.from({ length: 11 }, (_, i) => `n${i}`) });
   t.after(() => f.dispose());

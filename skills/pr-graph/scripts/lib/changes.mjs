@@ -1,4 +1,4 @@
-import { digest, requireValue, prerequisites, topological } from "./graph.mjs";
+import { digest, requireValue, prerequisites, topological, helperBranch } from "./graph.mjs";
 import * as git from "./git.mjs";
 
 export function normalizeChange(cwd, change) {
@@ -40,7 +40,9 @@ export function realize(cwd, graph, target, previous, onNode, apply = applyChang
   const results = [];
   for (const node of topological(graph)) {
     if (node.landing || node.retired) continue;
+    node.integration = graph.integration ? { ...graph.integration } : { target: graph.target, sha: target };
     const deps = prerequisites(graph, node.id);
+    const baseBranch = deps.some((n) => !n.landing) ? helperBranch(graph, node.id) : graph.target;
     const signature = digest({
       target, own: node.change, deps: deps.filter((n) => !n.landing).map((n) => [n.id, n.change]),
     });
@@ -50,7 +52,11 @@ export function realize(cwd, graph, target, previous, onNode, apply = applyChang
       node.head = old.head;
       node.signature = signature;
       node.validation = old.validation;
-      node.baseBranch = old.baseBranch;
+      node.baseBranch = baseBranch;
+      if (baseBranch !== old.baseBranch) {
+        node.ready = false;
+        node.requiresDraft = true;
+      }
       results.push(node);
       onNode(node);
       continue;
@@ -60,9 +66,7 @@ export function realize(cwd, graph, target, previous, onNode, apply = applyChang
     node.base = base;
     node.head = head;
     node.signature = signature;
-    node.baseBranch = deps.some((n) => !n.landing)
-      ? `pr-graph/${graph.id}/bases/${node.id}`
-      : graph.target;
+    node.baseBranch = baseBranch;
     node.validation = null;
     node.ready = false;
     node.requiresDraft = true;

@@ -26,7 +26,7 @@ export function adoProvider(config, cwd, runner = run) {
       head: p.lastMergeSourceCommit?.commitId ?? null,
       baseBranch: p.targetRefName.replace(/^refs\/heads\//, ""),
       base: p.lastMergeTargetCommit?.commitId ?? null,
-      landing: p.lastMergeCommit?.commitId ?? null,
+      landing: p.status === "completed" ? p.lastMergeCommit?.commitId ?? null : null,
       updated: p.closedDate ?? p.creationDate,
     };
   }
@@ -61,11 +61,14 @@ export function adoProvider(config, cwd, runner = run) {
     update(id, fields) {
       requireValue(fields.body === undefined || fields.body.length <= 4000, "ADO description exceeds 4000 characters.");
       const body = {};
+      const before = fields.baseBranch === undefined ? null : get(id);
       if (fields.body !== undefined) body.description = fields.body;
-      if (fields.baseBranch !== undefined) body.targetRefName = `refs/heads/${fields.baseBranch}`;
+      if (fields.baseBranch !== undefined && before.baseBranch !== fields.baseBranch) {
+        body.targetRefName = `refs/heads/${fields.baseBranch}`;
+      }
       if (fields.draft !== undefined) body.isDraft = fields.draft;
       if (fields.state !== undefined) body.status = fields.state === "closed" ? "abandoned" : "active";
-      rest(uri(id), "PATCH", body);
+      if (Object.keys(body).length) rest(uri(id), "PATCH", body);
       const current = get(id);
       requireValue(fields.baseBranch === undefined || current.baseBranch === fields.baseBranch,
         "ADO retargeting unavailable or ignored. Stop; enable retargeting before continuing.");
@@ -80,7 +83,10 @@ export function adoProvider(config, cwd, runner = run) {
       for (;;) {
         const result = rest(`${root}/diffs/commits?baseVersion=${p.base}&baseVersionType=commit&targetVersion=${p.head}&targetVersionType=commit&diffCommonCommit=true&$top=100&$skip=${skip}&api-version=7.1`);
         requireValue(Array.isArray(result.changes), "ADO diff is unavailable.");
-        paths.push(...result.changes.flatMap((c) => [c.originalPath, c.item?.path].filter(Boolean).map((s) => s.replace(/^\//, ""))));
+        paths.push(...result.changes
+          .filter((c) => c.item?.isFolder !== true && c.item?.gitObjectType !== "tree")
+          .flatMap((c) => [c.originalPath, c.sourceServerItem, c.item?.path]
+            .filter(Boolean).map((s) => s.replace(/^\//, ""))));
         if (result.allChangesIncluded === true || result.changes.length < 100) break;
         skip += 100;
       }

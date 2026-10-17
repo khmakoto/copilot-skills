@@ -19,10 +19,44 @@ and exit nonzero. Errors include the retained operation ID when applicable.
 Before invoking any repository inspection or mutation command, complete the
 skill's [branch freshness preflight](../SKILL.md#0-mandatory-branch-freshness-preflight).
 Check local DAG branches, the actual target, and existing `main`/`master`
-branches against freshly fetched tips, and obtain approval for any required
-fast-forwards. Block on divergence or unsafe worktree updates. This prerequisite
+branches against freshly fetched tips, and obtain approval for required
+fast-forwards. An integration target named exactly `main` or `master` may
+remain behind during the documented one-hour grace outside merging; do not
+advance it repeatedly during that window. Block on divergence or unsafe worktree updates. This prerequisite
 is a skill workflow; these CLI commands do not automatically fetch or advance
-branches. Changed observations invalidate existing plans.
+branches. Local ref changes invalidate plans unless explicitly reconciled;
+only documented remote-target fast-forwards are tolerated.
+
+### Freshness reports
+
+`status`, `check`, and `doctor` include a `freshness` map keyed by node ID;
+`view` shows each node's integration, branch, and validation status. Plans and
+graph operation results also include freshness, and status exposes running
+candidate reports separately. These are live read-only observations, not
+automatic fetches, branch updates, or renewed verification timestamps.
+
+Each integration report includes `status` (`current`, `grace`, `stale`, or
+`unknown`), `snapshot`, `observedTip`, `verifiedAt`, `ageMs`, `thresholdMs`,
+`expiresAt`, `observedAt`, `scope`, and `mergeCurrent`. Timestamps are epoch milliseconds.
+Branch reports compare recorded/local/remote heads and distinguish unpublished
+and local-only scope. Validation is independently `current`, `stale`, or
+`missing`; none of these imply dependency eligibility or provider-policy success.
+
+Only `main`/`master` integration snapshots have a one-hour grace, measured from
+the last recorded exact-target observation during an approved operation.
+Later target observations must be verified fast-forwards; they never extend
+the clock while the authored snapshot is behind. At exactly one hour grace
+expires. Legacy/restored snapshots without verification evidence get no grace,
+and neither do rewinds, future-dated evidence, or other target branch names.
+Unchanged exact-current snapshots remain current regardless of age.
+
+During grace, shape plans and publication preserve the authored snapshot and
+`ready` may promote an otherwise eligible, validated node. Grace is rechecked
+on apply/continue and does not relax source/helper/PR identity checks. Explicit
+`sync` still adopts its approved current snapshot. `merge` always requires the
+actual current integration tip; a node readied within grace may need sync and
+another ready operation before it can merge. Metadata-only description
+updates can report stale integration freshness without rewriting branches.
 
 ## Plan, approve, apply
 
@@ -82,6 +116,12 @@ as JSON; persist it unchanged before applying.
 
 Replace all placeholders; `patch` must be a real full-index Git patch, not
 `diff --git ...`. See [change representation](graph-and-changes.md).
+For repositories restricting branch namespaces, set `helperBranchPrefix` in
+the complete graph spec, for example `"user/alias/feature-bases"`. Prerequisite
+bases use `<prefix>/<node-id>`; the default remains `pr-graph/<graph-id>/bases`.
+Changing the prefix requires an approved shape plan (such as `deps`) and
+separate publication. It preserves unchanged node commits and retains old
+helper refs; it does not rename or delete them.
 When no remote exists, omit it and supply a target. Multiple remotes need an
 explicit selection. The target need not be `main`.
 
@@ -151,6 +191,7 @@ base branches.
 ```text
 node "<helper>" plan publish --repo "<repo>" --graph feature --out "<plan>"
 node "<helper>" plan sync --repo "<repo>" --graph feature --out "<plan>"
+node "<helper>" plan retarget --repo "<repo>" --graph feature --spec "<target.json>" --out "<plan>"
 node "<helper>" plan ready --repo "<repo>" --graph feature --node model --out "<plan>"
 node "<helper>" plan merge --repo "<repo>" --graph feature --node model --strategy squash --out "<plan>"
 node "<helper>" plan describe --repo "<repo>" --graph feature --node model --body-file "<body>" --out "<plan>"
@@ -161,12 +202,45 @@ Apply each separately approved plan. `publish` creates all missing drafts;
 `sync` only publishes already-published nodes. In local-provider mode, publish
 pushes branches but creates no pretend PRs. Sync never promotes a draft.
 
+`retarget` migrates a fully realized, unlanded graph to another integration
+branch. Its spec contains only `{"id":"feature","target":"main"}`. The new
+snapshot must contain the old integration snapshot. It preserves IDs, edges,
+own changes and PR identities, reconstructs every active branch and prerequisite
+base, verifies the combined tree, reruns configured validation, then publishes
+already-hosted nodes using the normal leased sync workflow. Rewritten non-draft
+PRs return to draft before pushes; it never promotes or merges. Old integration
+refs and source provenance remain untouched.
+
+This full reconstruction pins the approved source snapshot even if the new
+remote target advances during execution. Only fast-forward target movement is
+accepted; source/helper refs remain exact guarded inputs, and target rewinds or
+rewrites stop the operation. The recorded `targetSha` remains the authored
+snapshot, not a claim that it equals the latest main. Ready uses the bounded
+main/master grace when applicable; merge remains strictly current-target.
+Graphs with landing receipts need a separate graph.
+
 Shape changes preserve local snapshots; hosted changed content is not published
 until a separate publish/sync. Superseded PRs are marked draft with an explicit
 footer; cleanup controls closing and deletion separately.
 
 `describe` replaces only the selected node's body with approved text plus the
 managed footer. Routine operations preserve existing human bodies.
+Description-only plans tolerate verified remote integration fast-forwards and
+corresponding PR preview-base advances while preserving the authored merge base.
+They do not reconstruct, rebase, push, retarget, or promote source changes.
+Source/helper refs, PR heads, human text, target branches and draft states remain
+exact guarded inputs; ready still requires current/grace freshness and merge
+requires the current integration snapshot.
+Reconciliation cannot adopt changed human bodies under an old description
+payload; abort and replan those replacements explicitly.
+
+To approve several exact description replacements in one operation, omit
+`--node`/`--body-file` and provide `--spec` containing only the graph `id` and a
+`descriptions` object mapping existing active node IDs to full approved bodies.
+The helper validates all entries before applying, rechecks each current PR
+immediately before replacing its body, preserves source refs and draft states,
+and journals each successful update. This is still a separate `describe` plan,
+not an implicit body rewrite during sync. Include the terminal diagram block.
 
 For an ambiguous external local squash/rebase, `record-landing` requires an
 explicit node-to-commit mapping. It verifies that the commit is in the intended
@@ -193,6 +267,7 @@ node "<helper>" plan resolve --repo "<repo>" --operation "<operation-id>" --out 
 node "<helper>" plan reconcile --repo "<repo>" --operation "<operation-id>" --out "<reconciliation-plan>"
 node "<helper>" continue --repo "<repo>" --operation "<operation-id>" --yes --approve "<original-digest>"
 node "<helper>" plan abort --repo "<repo>" --operation "<operation-id>" --out "<abort-plan>"
+node "<helper>" plan abort --repo "<repo>" --operation "<operation-id>" --retain-published-refs --out "<retained-ref-abort-plan>"
 node "<helper>" plan unlock --repo "<repo>" --out "<unlock-plan>"
 ```
 

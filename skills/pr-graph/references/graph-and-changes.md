@@ -15,6 +15,21 @@ landing are separate facts. A draft can be eligible. A published draft can be
 blocked. An eligible node may still fail checks. Nothing is merged merely
 because it is eligible.
 
+Integration freshness is another independent fact. Each realized node records
+`integration: { target, sha, verifiedAt }`; the graph records the verification
+used for its authored snapshot too. `verifiedAt` is a live exact-target
+observation in epoch milliseconds, not an author/committer date. Nodes retain
+their own snapshot evidence after landing or retirement, rather than inheriting
+the apparent freshness of a later graph revision. Restoring clears verification
+times, just as it clears validation evidence.
+
+Reports distinguish exact-current integration snapshots, a strictly
+less-than-one-hour `main`/`master` fast-forward grace, stale snapshots, and
+unknown evidence. Source branch identity and validation are reported
+independently. Legacy nodes can be exact-current but cannot claim grace without
+recorded evidence. Ready may use grace; merge never does. A new observation of
+an already-ahead integration branch does not refresh the authored snapshot.
+
 ## Pinned own changes
 
 A node owns a delta against an immutable base, not a whole accumulated branch:
@@ -66,6 +81,15 @@ retargets its PR, and keeps it a draft. `ready` is a separate operation.
 Retargeting can change review/check behavior. Treat previous policy facts as
 stale. Never use helper-target policies as evidence that final-target policies
 passed.
+
+An approved `retarget` reconstructs an entirely unlanded graph on a new
+integration snapshot using these same own-change and prerequisite-closure rules.
+It is not a target-only metadata migration. The old source remains provenance;
+the combined-tree preservation comparison composes the unchanged owned deltas
+onto the new snapshot. Publication returns rewritten non-draft PRs to draft.
+Forward movement of the new remote target does not change the approved authored
+snapshot or make it exact-current. Only the bounded main/master grace can
+permit readiness on that older snapshot; it never permits merging.
 
 ## Preservation and validation
 
