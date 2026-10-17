@@ -39,6 +39,9 @@ export function fixture({ remote = false, names = ["a", "b", "c", "d", "e", "f"]
     bare = path.join(dir, "remote.git");
     fs.mkdirSync(bare);
     git(bare, "init", "--bare", "-q", "-b", "trunk");
+    git(bare, "config", "user.name", "Graph Test");
+    git(bare, "config", "user.email", "graph@example.invalid");
+    git(bare, "config", "commit.gpgsign", "false");
     git(root, "remote", "add", "upstream", bare);
     git(root, "push", "-q", "upstream", "trunk");
   }
