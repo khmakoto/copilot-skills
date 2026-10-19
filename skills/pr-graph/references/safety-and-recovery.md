@@ -23,6 +23,18 @@ Each plan includes a digest, exact changes/commands, local/remote observations,
 and provider payload inputs. The helper verifies approval and freshness.
 Tool permissions and a generic `--yes` are not approval of a changed plan.
 
+The skill's explicit, invocation-scoped
+[`--auto` mode](../SKILL.md#invocation-scoped-auto-mode) authorizes the agent to
+review and approve exact routine in-scope plans and preflight commands without
+repeated human prompts. The helper's digest and all safety checks remain
+mandatory. This exception does not authorize merging, removal/deletion/cleanup,
+backup upload/download (including backup effects embedded in routine plans), or
+restore. Conflicts, failed checks, unexpected changes, and uncertain remote
+effects require a pause and a human-approved resolution/recovery plan. After
+that resolution, recheck inputs and resume auto mode only for the original task.
+Never treat auto mode as permission to resolve conflicts or retry ambiguous
+writes automatically.
+
 ## Freshness before inspection or mutation
 
 The skill's mandatory preflight checks all local DAG node branches, the actual
@@ -36,6 +48,9 @@ checking live history, and do not repeatedly fast-forward it during grace.
 Minimal safety and branch-discovery reads are necessary to perform this check;
 they do not authorize examining changes or executing the requested operation
 against stale branches. Fetches and fast-forwards require concrete approval.
+In auto mode, review those exact commands under the invocation's authorization
+instead of prompting; expired main/master grace permits necessary safe updates,
+sync/replanning, and revalidation, not skipping freshness or extending the clock.
 Use explicit private fetch refspecs and compare-and-swap local updates; never
 trust cached tracking refs or arbitrary configured fetch mappings.
 

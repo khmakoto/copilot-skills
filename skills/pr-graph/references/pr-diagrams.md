@@ -70,6 +70,11 @@ actual graph to an image; do not paste this example unchanged into descriptions.
    an undisclosed upload or body replacement. Use the target provider's verified
    native attachment workflow and configured authentication; never extract tokens.
    Verify attachment access is appropriate for the repository.
+   In the skill's explicit [auto mode](../SKILL.md#invocation-scoped-auto-mode),
+   inspect and approve these exact routine in-scope effects without a human
+   prompt. Renderer setup, unsupported upload/access mechanisms, and unexpected
+   concurrent body changes remain blockers; auto mode does not authorize setup
+   or overriding another skill's approval requirements.
 5. Upload and embed the image, preserving the current PR description. A
    filesystem path, base64 payload, expiring preview URL, or unauthenticated
    external rendering URL is not an acceptable attachment. If the host cannot

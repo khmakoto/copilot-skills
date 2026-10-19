@@ -102,6 +102,16 @@ approval boundaries. The skill supports same-file splitting, graph reshaping,
 merge/squash/rebase strategies, and opt-in committed snapshot recovery across
 machines.
 
+Use invocation-scoped `--auto` to approve routine in-scope plans, safe freshness
+fetches/fast-forwards, expired-grace sync and revalidation, and diagram updates
+without repeated prompts. Conflicts and other safety blockers pause for an
+approved resolution, then auto mode resumes. Merges, removal/deletion/cleanup,
+backup transfers, and restore still require confirmation; helper plan digests
+and safety checks remain mandatory. An unambiguous instruction such as "Split
+this branch using auto mode" enables the same behavior for the current task, even
+when the agent selects pr-graph automatically. Merely mentioning or asking about
+auto mode does not enable it.
+
 Per-node reports distinguish integration freshness, branch identity, and
 validation status. Integration branches named `main` or `master` allow a
 one-hour freshness grace for verified forward movement outside merging, avoiding
@@ -119,7 +129,7 @@ node. The skill workflow refreshes these snapshots as graph state changes and
 requires an approved local renderer and supported provider attachment mechanism.
 
 ```text
-/pr-graph [split | view | add | sync | retarget | ready | merge | describe | reshape | backup | restore]
+/pr-graph [--auto] [split | view | add | sync | retarget | ready | merge | describe | reshape | backup | restore]
 ```
 
 The self-contained helper requires Node.js 22+ and Git 2.31+, with authenticated
