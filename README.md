@@ -183,14 +183,15 @@ maintenance:
   stale local branches, and updates the stack after one pull request changes.
   Replace `[PR-NUMBER]`, `[updated/merged]`, and `[PR-STACK]` before using it.
 - `update-pr-graph.md` updates a PR DAG after a pull request changes or merges,
-  using the PR itself to recover DAG context when needed. Replace `[PR-NUMBER]`
-  and `[updated/merged]` before using it.
+  using `pr-graph` auto mode and the PR itself to recover DAG context when needed.
+  Replace `[PR-NUMBER]` and `[updated/merged]` before using it.
 - `check-dag-for-changes.md` checks whether session changes already exist
   elsewhere in the current branch's DAG and whether any new changes belong in
   another node.
 - `commit-and-push.md` commits and pushes changes, resolves active review comments
   addressed by those changes, and replies to any resolved threads without
-  referencing specific commits, then updates the DAG for the changed branch/PR.
+  referencing specific commits, then updates the DAG for the changed branch/PR
+  using `pr-graph` auto mode.
 
 ## Installation
 
