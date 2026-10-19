@@ -27,6 +27,31 @@ is a skill workflow; these CLI commands do not automatically fetch or advance
 branches. Local ref changes invalidate plans unless explicitly reconciled;
 only documented remote-target fast-forwards are tolerated.
 
+### Skill auto mode (not a helper flag)
+
+```text
+/pr-graph --auto split [repository, graph, or constraints]
+/pr-graph --auto ready [repository, graph, and node]
+```
+
+An unambiguous user instruction such as "Split this branch using auto mode"
+also enables the same task-scoped behavior when the agent selects pr-graph
+automatically. A mention, quotation, or question about auto mode does not.
+The agent consumes this authorization for the current invocation/task only;
+the helper does not accept `--auto`.
+Follow the [auto-mode policy](../SKILL.md#invocation-scoped-auto-mode):
+review and save exact routine in-scope plans, then use the normal digest-based
+apply commands without repeated human prompts. Preflight fetches, safe
+fast-forwards, expired-grace sync/replanning and validation, and routine diagram
+updates are included. No freshness or helper safety check is bypassed.
+
+Merging, removal/deletion/cleanup, backup upload/download, restore, and recovery
+decisions still require human approval. A routine plan containing an enabled
+backup upload also requires approval. Blockers pause the workflow; after an
+approved resolution and rechecks, auto mode resumes for the original task.
+Without an explicit flag or unambiguous direct user instruction, all existing
+interactive approvals apply.
+
 ### Freshness reports
 
 `status`, `check`, and `doctor` include a `freshness` map keyed by node ID;
@@ -66,7 +91,9 @@ node "<helper>" apply --repo "<repo>" --plan "<plan.json>" --yes --approve "<dig
 ```
 
 The plan's `approval` field is a digest of the full payload. The agent must
-obtain human approval before using it. This is an integrity check and workflow
+obtain human approval before using it, except for reviewed routine in-scope
+plans authorized by the skill's explicit `--auto` mode. The helper always
+requires `--yes --approve <digest>`. This is an integrity check and workflow
 contract, not cryptographic evidence that a human clicked Approve.
 
 Plans contain code and descriptions. Keep them outside the product working
