@@ -184,6 +184,7 @@ maintenance:
   Replace `[PR-NUMBER]`, `[updated/merged]`, and `[PR-STACK]` before using it.
 - `update-pr-graph.md` updates a PR DAG after a pull request changes or merges,
   using `pr-graph` auto mode and the PR itself to recover DAG context when needed.
+  Diagrams retain already-landed PRs even after they leave the internal DAG model.
   Replace `[PR-NUMBER]` and `[updated/merged]` before using it.
 - `check-dag-for-changes.md` checks whether session changes already exist
   elsewhere in the current branch's DAG and whether any new changes belong in
@@ -191,7 +192,8 @@ maintenance:
 - `commit-and-push.md` commits and pushes changes, resolves active review comments
   addressed by those changes, and replies to any resolved threads without
   referencing specific commits, then updates the DAG for the changed branch/PR
-  using `pr-graph` auto mode.
+  using `pr-graph` auto mode. Diagrams retain already-landed PRs even after they
+  leave the internal DAG model.
 
 ## Installation
 
