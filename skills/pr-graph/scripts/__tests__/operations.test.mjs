@@ -47,6 +47,100 @@ test("stale source and ref changes invalidate the exact operation approval", (t)
   assert.throws(() => applyPlan(f.ctx, plan, plan.approval, true), /Local ref changed/);
 });
 
+for (const target of ["main", "master"]) {
+  test(`${target} grace starts before a slow fetch, including initial planning against a moving target`, (t) => {
+    const f = fixture({ remote: true, names: ["a"] });
+    t.after(() => f.dispose());
+    const startedAt = Date.UTC(2026, 9, 21);
+    let clock = startedAt;
+    f.ctx.now = () => clock;
+    git(f.root, "branch", target, f.base);
+    git(f.root, "push", "-q", "upstream", target);
+    f.spec.target = target;
+    const fetchObservation = { target, sha: f.base, startedAt };
+    git(f.root, "fetch", "--no-tags", "upstream", `refs/heads/${target}:refs/preflight/target`);
+    const advanced = git(f.root, "commit-tree", `${f.base}^{tree}`, "-p", f.base, "-m", "Target advanced during fetch");
+    git(f.root, "push", "-q", "upstream", `${advanced}:refs/heads/${target}`);
+    clock += 1800000;
+    const split = createPlan(f.ctx, "split", { spec: f.spec, fetchObservation });
+    assert.equal(split.target, f.base);
+    assert.deepEqual(split.fetchObservation, fetchObservation);
+    assert.equal(split.graph.integration.verifiedAt, startedAt);
+    clock += 600000;
+    const result = applyPlan(f.ctx, split, split.approval, true);
+    assert.equal(result.graph.nodes[0].integration.verifiedAt, startedAt);
+    assert.equal(result.freshness.a.integration.ageMs, 2400000);
+    assert.equal(result.freshness.a.integration.expiresAt, startedAt + 5400000);
+    assert.equal(result.freshness.a.integration.status, "grace");
+    const repeated = createPlan(f.ctx, "publish", { graph: f.spec.id,
+      fetchObservation: { ...fetchObservation, startedAt: clock } });
+    assert.equal(repeated.graph.integration.verifiedAt, startedAt);
+    const latest = createPlan(f.ctx, "publish", { graph: f.spec.id,
+      fetchObservation: { target, sha: advanced, startedAt: clock } });
+    assert.equal(latest.target, f.base);
+    assert.equal(latest.graph.integration.verifiedAt, startedAt);
+    clock = startedAt + 5399999;
+    f.apply("ready", { graph: f.spec.id, node: "a" });
+    const ready = createPlan(f.ctx, "ready", { graph: f.spec.id, node: "a" });
+    clock++;
+    assert.throws(() => applyPlan(f.ctx, ready, ready.approval, true), /freshness expired/);
+  });
+}
+
+test("fetch observations reject invalid evidence, expired moving snapshots, and non-current merges", (t) => {
+  const f = fixture({ remote: true, names: ["a"] });
+  t.after(() => f.dispose());
+  const startedAt = Date.UTC(2026, 9, 21);
+  f.ctx.now = () => startedAt + 5400000;
+  git(f.root, "branch", "main", f.base);
+  git(f.root, "push", "-q", "upstream", "main");
+  f.spec.target = "main";
+  const fetchObservation = { target: "main", sha: f.base, startedAt };
+  for (const invalid of [null, {}, { ...fetchObservation, target: "master" },
+    { ...fetchObservation, sha: "main" }, { ...fetchObservation, startedAt: -1 },
+    { ...fetchObservation, startedAt: startedAt + 5400001 }]) {
+    assert.throws(() => createPlan(f.ctx, "split", { spec: f.spec, fetchObservation: invalid }),
+      /Fetch observation requires/);
+  }
+  const graph = f.apply("split", { spec: f.spec, fetchObservation }).graph;
+  const later = createPlan(f.ctx, "publish", { graph: graph.id });
+  assert.equal(later.graph.integration.verifiedAt, startedAt);
+  const refreshed = createPlan(f.ctx, "publish", { graph: graph.id,
+    fetchObservation: { ...fetchObservation, startedAt: startedAt + 5400000 } });
+  assert.equal(refreshed.graph.integration.verifiedAt, startedAt + 5400000);
+  const advanced = git(f.root, "commit-tree", `${f.base}^{tree}`, "-p", f.base, "-m", "Main advanced");
+  git(f.root, "push", "-q", "upstream", `${advanced}:refs/heads/main`);
+  assert.throws(() => createPlan(f.ctx, "split", { spec: { ...f.spec, id: "expired" }, fetchObservation }),
+    /Fetch observation freshness expired/);
+  assert.throws(() => createPlan(f.ctx, "merge", { graph: graph.id, node: "a", fetchObservation }),
+    /Merge requires the current/);
+  assert.throws(() => createPlan(f.ctx, "sync", { graph: graph.id,
+    fetchObservation: { ...fetchObservation, sha: f.head } }), /rewound or rewritten/);
+});
+
+test("CLI pins the fetch-start observation in the approved plan rather than rereading it on apply", (t) => {
+  const f = fixture({ remote: true, names: ["a"] });
+  t.after(() => f.dispose());
+  git(f.root, "branch", "main", f.base);
+  git(f.root, "push", "-q", "upstream", "main");
+  f.spec.target = "main";
+  const startedAt = Date.now() - 60000;
+  const spec = path.join(f.dir, "spec.json");
+  const observation = path.join(f.dir, "fetch.json");
+  const planPath = path.join(f.dir, "plan.json");
+  fs.writeFileSync(spec, JSON.stringify(f.spec));
+  fs.writeFileSync(observation, JSON.stringify({ target: "main", sha: f.base, startedAt }));
+  const planned = cli(f.root, "plan", "split", "--spec", spec,
+    "--fetch-observation", observation, "--out", planPath);
+  assert.equal(planned.status, 0, planned.stderr);
+  const plan = JSON.parse(planned.stdout);
+  assert.equal(plan.graph.integration.verifiedAt, startedAt);
+  fs.writeFileSync(observation, JSON.stringify({ target: "main", sha: f.base, startedAt: Date.now() }));
+  const applied = cli(f.root, "apply", "--plan", planPath, "--yes", "--approve", plan.approval);
+  assert.equal(applied.status, 0, applied.stderr);
+  assert.equal(JSON.parse(applied.stdout).graph.nodes[0].integration.verifiedAt, startedAt);
+});
+
 test("custom helper prefixes reject invalid refs and product branch collisions", (t) => {
   const f = fixture({ names: ["a", "b"] });
   t.after(() => f.dispose());

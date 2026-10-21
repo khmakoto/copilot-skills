@@ -21,7 +21,7 @@ skill's [branch freshness preflight](../SKILL.md#0-mandatory-branch-freshness-pr
 Check local DAG branches, the actual target, and existing `main`/`master`
 branches against freshly fetched tips, and obtain approval for required
 fast-forwards. An integration target named exactly `main` or `master` may
-remain behind during the documented one-hour grace outside merging; do not
+remain behind during the documented 90-minute grace outside merging; do not
 advance it repeatedly during that window. Block on divergence or unsafe worktree updates. This prerequisite
 is a skill workflow; these CLI commands do not automatically fetch or advance
 branches. Local ref changes invalidate plans unless explicitly reconciled;
@@ -67,10 +67,13 @@ Branch reports compare recorded/local/remote heads and distinguish unpublished
 and local-only scope. Validation is independently `current`, `stale`, or
 `missing`; none of these imply dependency eligibility or provider-policy success.
 
-Only `main`/`master` integration snapshots have a one-hour grace, measured from
-the last recorded exact-target observation during an approved operation.
+Only `main`/`master` integration snapshots have a 90-minute grace, measured from
+the start of the last successful fetch for the latest tip, supplied through
+`--fetch-observation`. Fetch completion, planning, and applying do not restart it.
+Without this input, direct helper callers retain the last recorded exact-target
+observation as a compatibility fallback; that is not remote fetch evidence.
 Later target observations must be verified fast-forwards; they never extend
-the clock while the authored snapshot is behind. At exactly one hour grace
+the clock while the authored snapshot is behind. At exactly 90 minutes grace
 expires. Legacy/restored snapshots without verification evidence get no grace,
 and neither do rewinds, future-dated evidence, or other target branch names.
 Unchanged exact-current snapshots remain current regardless of age.
@@ -82,6 +85,39 @@ on apply/continue and does not relax source/helper/PR identity checks. Explicit
 actual current integration tip; a node readied within grace may need sync and
 another ready operation before it can merge. Metadata-only description
 updates can report stale integration freshness without rewriting branches.
+
+### Recording the fetch start
+
+For a remote integration target named exactly `main` or `master`, capture its
+live SHA and epoch-millisecond time immediately before the approved freshness
+fetch starts. After the fetch succeeds and the fetched commit is available
+locally, save the observation outside the product worktree:
+
+```json
+{ "target": "main", "sha": "<full-live-target-SHA-at-fetch-start>", "startedAt": 1792605600000 }
+```
+
+Pass the file to planning, not application:
+
+```text
+node "<helper>" plan split --repo "<repo>" --spec "<spec.json>" --fetch-observation "<fetch.json>" --out "<plan.json>"
+```
+
+The helper validates the target, timestamp, commit, and forward ancestry against
+the live target. The normalized observation is included in the full approval
+digest; apply/continue use that pinned evidence, never reread the file or restart
+the clock. The agent must verify that the recorded SHA was live at fetch start
+and that the fetch succeeded; the helper cannot prove a historical fetch from a
+timestamp alone. Do not supply failed-fetch evidence or cached tracking tips.
+
+If the target advances during a slow fetch or before the first plan, the fetched
+snapshot may still be used for less than 90 minutes from `startedAt`. The time
+spent fetching, planning, waiting for approval, and applying all counts.
+Exactly-current snapshots remain current regardless of age; otherwise expired
+observations, rewinds, divergence, and future timestamps cannot grant grace.
+Reusing an observation or fetching an already-ahead target cannot renew an older
+snapshot's window. A new fetched tip starts its own window only for work authored
+on that tip. Merge always requires the actual current target.
 
 ## Plan, approve, apply
 
@@ -283,6 +319,41 @@ Individual successes are journaled and read back; no remote transaction is
 claimed.
 
 ### Backup and recovery actions
+
+To release an occupied graph node while retaining an exact local source
+checkpoint, prepare `plan checkpoint --graph <id> --spec <json> --out <plan>`.
+Its spec contains `id`, a new local `branch`, and the exact commit `message`.
+Only already-staged content is accepted; unstaged/untracked work is refused.
+It switches this checkout to the new branch and commits through hooks, leaving
+the original graph branch and all remote refs untouched. This preservation
+operation needs separate exact-plan approval and does not establish validation
+or integration freshness. See
+[checkpoint recovery](safety-and-recovery.md#releasing-an-occupied-node-without-stashing).
+
+For externally rewritten or landed existing hosted PRs, use the separately
+approved local-only adoption workflow:
+
+```text
+node "<helper>" plan adopt --repo "<repo>" --graph feature --spec "<adoption.json>" --out "<plan>"
+```
+
+The spec contains `id`, immutable fetched `targetSnapshot`, optional
+`helperBranchPrefix`, and a complete `nodes` list with `id`, `head`, `base`,
+`baseBranch`, and `landing` for merged PRs. It preserves node IDs, branches and
+dependency edges. The plan captures live refs and PRs, proves authored merge
+bases and provider landing reachability, and lists exact expected-SHA local
+branch updates. It preserves the previous manifest and snapshots, refuses
+occupied branch rewrites, and never changes hosting, worktrees or main/master.
+It clears validations/readiness and combined reconstruction caches rather than
+claiming source freshness or lossless prerequisite composition. See
+[external graph recovery](safety-and-recovery.md#adopting-external-graph-recovery)
+for the limited read-only comparison exception and interrupted-apply handling.
+
+Both `adopt` and `checkpoint` require human approval even in auto mode and reject
+`--fetch-observation`; neither extends or bypasses freshness for normal graph
+operations. Apply the saved plan with the normal `--yes --approve <digest>`
+contract. Retry an interrupted preservation/recovery only after inspecting its
+journal, using `continue` with the original operation and approval digest.
 
 See [safety and recovery](safety-and-recovery.md) for complete instructions.
 

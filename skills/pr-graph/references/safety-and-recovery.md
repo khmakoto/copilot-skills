@@ -28,9 +28,10 @@ The skill's explicit, invocation-scoped
 review and approve exact routine in-scope plans and preflight commands without
 repeated human prompts. The helper's digest and all safety checks remain
 mandatory. This exception does not authorize merging, removal/deletion/cleanup,
-backup upload/download (including backup effects embedded in routine plans), or
-restore. Conflicts, failed checks, unexpected changes, and uncertain remote
-effects require a pause and a human-approved resolution/recovery plan. After
+backup upload/download (including backup effects embedded in routine plans),
+restore, adoption, or checkpoint preservation. Conflicts, failed checks,
+unexpected changes, and uncertain remote effects require a pause and a
+human-approved resolution/recovery plan. After
 that resolution, recheck inputs and resume auto mode only for the original task.
 Never treat auto mode as permission to resolve conflicts or retry ambiguous
 writes automatically.
@@ -41,9 +42,14 @@ The skill's mandatory preflight checks all local DAG node branches, the actual
 integration branch, and existing local `main`/`master` branches against freshly
 fetched remote tips before any graph/change inspection or mutation. Before graph
 creation, check the source and intended integration branches instead.
-The integration branch alone may remain behind within the documented one-hour
+The integration branch alone may remain behind within the documented 90-minute
 main/master grace outside merging. Report that status explicitly, keep
 checking live history, and do not repeatedly fast-forward it during grace.
+Record the live target SHA and the start time of the successful fetch for the
+latest tip, then pass `--fetch-observation` when planning. A slow fetch consumes
+the window; its completion and later observations do not restart the clock.
+Verified main/master forward movement during that window is the only moving-tip
+exception, including before initial graph creation.
 
 Minimal safety and branch-discovery reads are necessary to perform this check;
 they do not authorize examining changes or executing the requested operation
@@ -70,6 +76,59 @@ moving any affected branch; do not invalidate an operation merely to pass this
 gate.
 
 ## Failed or interrupted operations
+
+### Releasing an occupied node without stashing
+
+`plan checkpoint --graph <id> --spec <json>` preserves the selected checkout's
+already-staged source on a new local branch before reconstructing its occupied
+graph node. The spec contains the graph `id`, new `branch`, and exact commit
+`message`. This separate preservation operation needs concrete approval and
+does not reconstruct against main/master, publish, or change graph metadata.
+The checkout HEAD must match its recorded node; a stale integration snapshot
+does not prevent preserving work on its original authored base.
+
+The plan refuses unstaged or untracked work rather than staging it implicitly.
+Apply rechecks the exact staged patch, creates and switches only this checkout
+to the approved new branch, and commits through normal hooks/signing. The
+original graph branch remains unchanged. Commit-hook failures preserve the
+checkpoint checkout/index and journal; fix the actual hook blocker before
+retrying the same plan with `continue`. Unknown commits or changed staged
+content block recovery. Keep the checkpoint branch after repartition; its
+cleanup requires separate approval.
+
+### Adopting external graph recovery
+
+`plan adopt --graph <id> --spec <json>` is a separately approved, local-only
+recovery operation, not interrupted-operation `reconcile`. Use it when existing
+hosted PRs were externally reconstructed or landed after the persisted graph
+snapshot. The spec contains `id`, an immutable fetched `targetSnapshot`, an
+optional `helperBranchPrefix`, and every node's `id`, `head`, `base`,
+`baseBranch`, plus `landing` for merged nodes. Node IDs, branches and dependency
+edges are retained.
+
+Establish live source/helper refs and provider receipts before planning.
+Explicitly investigate divergent or deleted branches; approval of adoption
+must cover their exact old/new identities. The plan verifies each authored
+own-change merge base and that provider-confirmed landings reach the pinned
+target snapshot. Previously recorded landing identities remain immutable.
+It does not prove that reconstructed dependency closures compose losslessly.
+
+Application preserves the full previous manifest in its journal, pins old/new
+snapshots, and updates only listed unoccupied local branches in an expected-SHA
+Git transaction. An unchanged occupied branch and its dirty index/worktree are
+left alone. No remote refs, PR metadata, worktrees, or main/master refs change.
+Validation, readiness and combined/reconstruction caches are invalidated.
+The journal supports an identical-plan `continue` if graph finalization was
+interrupted; unknown local/remote/PR changes block it.
+
+This recovery permits read-only comparisons of the adopted, pinned node deltas
+without first reconstructing source against a moving main/master. Report stale
+or unknown authored snapshots explicitly; do not claim current validation or
+verified composition. Moving integration tips and their PR preview bases do
+not change the approved authored snapshot; current-target ancestry is not
+implied by this metadata operation. Publication, sync, readiness and merge
+still require their normal freshness preflight, composition checks and
+separate approvals.
 
 After the freshness preflight, run `status` first. If an interrupted operation
 prevents safe fast-forwarding, limit initial reads to its journal, refs, and
@@ -183,7 +242,7 @@ reconstruction snapshot stays fixed. Other changed local refs are not implicitly
 adopted.
 
 Non-merge source operations and readiness may also tolerate remote main/master
-fast-forwards during their recorded one-hour freshness grace. Reconciliation
+fast-forwards during their recorded 90-minute freshness grace. Reconciliation
 does not renew that clock or change the authored snapshot; apply/continue
 recheck expiry. Source/helper refs, PR content, and validation identities remain
 guarded. A stale readiness/source plan must be aborted or otherwise safely

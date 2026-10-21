@@ -18,7 +18,9 @@ Prepare a concrete mutation plan:
   Actions: init, split, add, deps, split-node, fold, remove,
            publish, sync, retarget, ready, merge, describe, backup,
            fetch-backup, restore, resolve, reconcile, abort, cleanup, unlock,
-           record-landing
+           record-landing, adopt, checkpoint
+  adopt --spec <json>         Local-only adoption of verified external PR rewrites
+  checkpoint --spec <json>    Preserve staged source on a new local branch and release its occupied graph branch
   --node <id>                 Select ready/merge/describe node
   --strategy merge|squash|rebase
   --landing <sha>             Verified external local landing to record
@@ -27,6 +29,7 @@ Prepare a concrete mutation plan:
   --operation <digest>        Resolve/abort/cleanup operation
   --retain-published-refs     Abort push-only publication without deleting its verified candidate refs
   --body-file <file>          Explicit describe replacement
+  --fetch-observation <json>  Main/master live-tip SHA and fetch-start time
   --allow-non-atomic          Approve fallback when atomic push is unsupported
 
 After user approval of the exact plan:
@@ -35,7 +38,7 @@ After user approval of the exact plan:
 
 All commands accept --repo <working-tree-path>. No command auto-installs tools.
 Node freshness is reported separately from branch identity and validation.
-Only main/master integration snapshots have a one-hour grace; merge is strict.
+Only main/master snapshots have a 90-minute grace from the recorded fetch start; merge is strict.
 Plans contain code/payloads; keep them outside the product working tree.
 `;
 
@@ -44,7 +47,8 @@ function args(argv) {
   const positional = [];
   const boolean = new Set(["yes", "allow-non-atomic", "retain-published-refs"]);
   const known = new Set(["repo", "graph", "spec", "out", "node", "strategy", "remote",
-    "backup-ref", "backup-branch", "operation", "body-file", "plan", "approve", "base", "head", "landing"]);
+    "backup-ref", "backup-branch", "operation", "body-file", "plan", "approve", "base", "head", "landing",
+    "fetch-observation"]);
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (!a.startsWith("--")) { positional.push(a); continue; }
@@ -103,6 +107,7 @@ export function main(argv) {
       remote: flags.remote, backupRef: flags["backup-ref"], backupBranch: flags["backup-branch"],
       operation: flags.operation, allowNonAtomic: flags["allow-non-atomic"],
       retainPublishedRefs: flags["retain-published-refs"],
+      fetchObservation: flags["fetch-observation"] ? state.readJson(path.resolve(flags["fetch-observation"])) : undefined,
       body: flags["body-file"] ? fs.readFileSync(path.resolve(flags["body-file"]), "utf8") : undefined,
     });
     if (flags.out) {

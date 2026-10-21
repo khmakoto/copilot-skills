@@ -114,8 +114,10 @@ auto mode does not enable it.
 
 Per-node reports distinguish integration freshness, branch identity, and
 validation status. Integration branches named `main` or `master` allow a
-one-hour freshness grace for verified forward movement outside merging, avoiding
-repeated source rewrites during review. Merge always requires the current
+90-minute freshness grace for verified forward movement outside merging, avoiding
+repeated source rewrites during review. The window starts when the last
+successful fetch for the latest tip started, not when it finished or the plan
+was applied. Merge always requires the current
 integration tip; other integration branch names have no grace.
 
 Whole-graph retargeting reconstructs unlanded work on another integration branch
@@ -124,12 +126,18 @@ updates leave source branches and draft states unchanged. Custom helper-branch
 prefixes accommodate namespace restrictions, and explicitly approved recovery
 can retain verified pushes after a partial first-publication failure.
 
+Separately approved `adopt` recovery imports verified externally rewritten PRs
+and landings into local graph state without publishing or claiming validation.
+`checkpoint` preserves already-staged work on a new local branch to release an
+occupied graph node, using normal hooks and signing. Both require human approval
+even in auto mode.
+
 Each PR description ends with a rendered Mermaid DAG image highlighting its own
 node. The skill workflow refreshes these snapshots as graph state changes and
 requires an approved local renderer and supported provider attachment mechanism.
 
 ```text
-/pr-graph [--auto] [split | view | add | sync | retarget | ready | merge | describe | reshape | backup | restore]
+/pr-graph [--auto] [split | view | add | sync | retarget | ready | merge | describe | reshape | adopt | checkpoint | backup | restore]
 ```
 
 The self-contained helper requires Node.js 22+ and Git 2.31+, with authenticated

@@ -16,9 +16,10 @@ legend and identify the graph and snapshot revision.
 
 Also show each node's integration freshness (`current`, `grace`, `stale`, or
 `unknown`) independently of eligibility and readiness. Include the snapshot's
-verification time and any grace expiry in the diagram or its legend, with an
-explicit observation time. A grace label is not a merge-ready claim; main/master
-grace lasts less than one hour and never applies to merging. Refresh a depicted
+verification time (the recorded fetch start when supplied) and any grace expiry
+in the diagram or its legend, with an explicit observation time. A grace label
+is not a merge-ready claim; main/master
+grace lasts less than 90 minutes and never applies to merging. Refresh a depicted
 freshness transition rather than reusing an image that still claims grace after
 expiry. Retain landed/superseded nodes' own snapshot evidence.
 

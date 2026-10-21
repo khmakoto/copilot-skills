@@ -17,14 +17,17 @@ because it is eligible.
 
 Integration freshness is another independent fact. Each realized node records
 `integration: { target, sha, verifiedAt }`; the graph records the verification
-used for its authored snapshot too. `verifiedAt` is a live exact-target
-observation in epoch milliseconds, not an author/committer date. Nodes retain
+used for its authored snapshot too. With `--fetch-observation`, `verifiedAt` is
+the epoch-millisecond start time of the successful fetch for the latest live
+target SHA, not fetch completion, planning/application time, or an
+author/committer date. Direct helper callers without fetch evidence retain the
+last recorded exact-target observation as a compatibility fallback. Nodes retain
 their own snapshot evidence after landing or retirement, rather than inheriting
 the apparent freshness of a later graph revision. Restoring clears verification
 times, just as it clears validation evidence.
 
 Reports distinguish exact-current integration snapshots, a strictly
-less-than-one-hour `main`/`master` fast-forward grace, stale snapshots, and
+less-than-90-minute `main`/`master` fast-forward grace, stale snapshots, and
 unknown evidence. Source branch identity and validation are reported
 independently. Legacy nodes can be exact-current but cannot claim grace without
 recorded evidence. Ready may use grace; merge never does. A new observation of
