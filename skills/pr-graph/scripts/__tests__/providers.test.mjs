@@ -7,6 +7,7 @@ import { adoProvider } from "../lib/providers/ado.mjs";
 import { resolveProvider } from "../lib/providers/index.mjs";
 import { fixture, git, cli } from "./fixtures.mjs";
 import { createPlan, applyPlan, inspect } from "../lib/operations.mjs";
+import { git as gitResult } from "../lib/git.mjs";
 
 test("provider detection handles GitHub, GHES, ADO SSH/HTTPS and local Git", () => {
   assert.equal(resolveProvider("git@github.com:me/repo.git").kind, "github");
@@ -15,6 +16,10 @@ test("provider detection handles GitHub, GHES, ADO SSH/HTTPS and local Git", () 
     kind: "ado", host: "dev.azure.com", organization: "org", project: "project", repo: "repo",
   });
   assert.equal(resolveProvider("https://org.visualstudio.com/project/_git/repo").organization, "org");
+  assert.deepEqual(resolveProvider("https://org.visualstudio.com/DefaultCollection/project/_git/repo"),
+    resolveProvider("https://org.visualstudio.com/project/_git/repo"));
+  assert.throws(() => resolveProvider("https://org.visualstudio.com/OtherCollection/project/_git/repo"),
+    /Invalid ADO remote/);
   assert.equal(resolveProvider("/tmp/remote.git").kind, "local");
   assert.throws(() => resolveProvider("https://unknown.example/a/b"), /Unknown hosting/);
 });
@@ -54,6 +59,37 @@ test("GitHub native adapter paginates, uses host-specific APIs and fails closed 
   assert.ok(calls.filter((c) => c.args[0] === "api").every((c) => c.args.includes("enterprise.example")));
   assert.ok(calls.some((c) => c.args.includes("--paginate") && c.args.includes("--slurp")));
 });
+
+for (const host of ["github.com", "enterprise.example"]) {
+  test(`GitHub ancestry on ${host} compares exact commits and fails closed on unavailable evidence`, () => {
+    const before = "1".repeat(40), after = "2".repeat(40), common = "3".repeat(40);
+    const calls = [];
+    let result = { merge_base_commit: { sha: before } };
+    let status = 0;
+    const provider = githubProvider({ host, owner: "o", repo: "r" }, ".",
+      (command, args) => {
+        calls.push({ command, args });
+        return { status, stdout: JSON.stringify(result), stderr: status ? "Resource not found" : "" };
+      });
+    assert.equal(provider.mergeBase(before, after), before);
+    assert.deepEqual(calls[0], {
+      command: "gh",
+      args: ["api", "--hostname", host, `repos/o/r/compare/${before}...${after}?per_page=1`, "--method", "GET"],
+    });
+    result = { merge_base_commit: { sha: common } };
+    assert.equal(provider.mergeBase(before, after), common);
+    for (result of [null, {}, { merge_base_commit: null }, { merge_base_commit: {} },
+      { merge_base_commit: { sha: "invalid" } }]) {
+      assert.throws(() => provider.mergeBase(before, after), /ancestry is unavailable/);
+    }
+    const count = calls.length;
+    assert.throws(() => provider.mergeBase("main", after), /full commit SHAs/);
+    assert.throws(() => provider.mergeBase(before, "short"), /full commit SHAs/);
+    assert.equal(calls.length, count);
+    status = 1;
+    assert.throws(() => provider.mergeBase(before, after), /GitHub request failed.*Resource not found/);
+  });
+}
 
 test("ADO retarget readback refuses ignored updates and never exports credentials", () => {
   const calls = [];
@@ -115,6 +151,36 @@ test("ADO active merge previews are not landing receipts", () => {
   assert.equal(provider.get(1).landing, "preview-or-landing");
 });
 
+test("ADO ancestry compares exact commits and rejects unavailable or malformed evidence", () => {
+  const before = "1".repeat(40), after = "2".repeat(40);
+  const calls = [];
+  let result = { commonCommit: before };
+  let status = 0;
+  const provider = adoProvider({ host: "dev.azure.com", organization: "o", project: "p", repo: "r" }, ".",
+    (command, args) => {
+      calls.push({ command, args });
+      return { status, stdout: JSON.stringify(result), stderr: status ? "Access denied" : "" };
+    });
+  assert.equal(provider.mergeBase(before, after), before);
+  const { command, args } = calls[0];
+  assert.equal(command, "az");
+  assert.equal(args[args.indexOf("--method") + 1], "GET");
+  const url = new URL(args[args.indexOf("--url") + 1]);
+  assert.equal(url.searchParams.get("baseVersion"), before);
+  assert.equal(url.searchParams.get("targetVersion"), after);
+  assert.equal(url.searchParams.get("baseVersionType"), "commit");
+  assert.equal(url.searchParams.get("targetVersionType"), "commit");
+  assert.equal(url.searchParams.get("diffCommonCommit"), "true");
+  result = { commonCommit: null };
+  assert.equal(provider.mergeBase(before, after), null);
+  for (result of [{}, { commonCommit: "invalid" }]) {
+    assert.throws(() => provider.mergeBase(before, after), /ancestry is unavailable/);
+  }
+  assert.throws(() => provider.mergeBase("main", after), /full commit SHAs/);
+  status = 1;
+  assert.throws(() => provider.mergeBase(before, after), /ADO request failed.*Access denied/);
+});
+
 test("ADO own-change paths exclude folder entries, retain rename sources and submodules, and paginate unfiltered entries", () => {
   const pages = [];
   const runner = (command, args) => {
@@ -162,6 +228,9 @@ function hostedFixture(f) {
     kind: "github",
     capabilities: () => ({ drafts: true, retarget: true, strategies: ["merge", "squash", "rebase"] }),
     get,
+    mergeBase(before, after) {
+      return bare("merge-base", before, after);
+    },
     find: (branch) => {
       const item = [...records.values()].find((n) => n.branch === branch && n.state === "open");
       return item ? get(item.id) : null;
@@ -198,6 +267,112 @@ function hostedFixture(f) {
   };
   f.ctx.providerFactory = () => p;
   return { p, records, loseResponse: () => { loseResponse = true; } };
+}
+
+test("server ancestry preserves fetch-start grace without fetching remote-only main or preview commits", (t) => {
+  const f = fixture({ remote: true, names: ["a"] });
+  t.after(() => f.dispose());
+  const startedAt = Date.UTC(2026, 9, 21);
+  let clock = startedAt + 600000;
+  f.ctx.now = () => clock;
+  git(f.root, "branch", "main", f.base);
+  git(f.root, "push", "-q", "upstream", "main");
+  f.spec.target = "main";
+  const host = hostedFixture(f);
+  const bare = (...args) => git(f.root, `--git-dir=${f.bare}`, ...args);
+  const advance = (parent, title) => {
+    const sha = bare("commit-tree", `${f.base}^{tree}`, "-p", parent, "-m", title);
+    bare("update-ref", "refs/heads/main", sha, parent);
+    return sha;
+  };
+  const present = (sha) =>
+    gitResult(f.root, ["cat-file", "-e", sha], undefined, true).status === 0;
+  const remoteOnly = advance(f.base, "Remote-only main");
+  assert.equal(present(remoteOnly), false);
+  const observation = { target: "main", sha: f.base, startedAt };
+  const split = createPlan(f.ctx, "split", { spec: f.spec, fetchObservation: observation });
+  assert.equal(split.target, f.base);
+  assert.equal(split.graph.integration.verifiedAt, startedAt);
+  applyPlan(f.ctx, split, split.approval, true);
+  const publication = createPlan(f.ctx, "publish", { graph: "example" });
+  const latest = advance(remoteOnly, "Remote-only preview");
+  const result = applyPlan(f.ctx, publication, publication.approval, true);
+  assert.equal(result.graph.targetSha, f.base);
+  assert.equal(result.graph.nodes[0].pr.base, latest);
+  assert.equal(result.freshness.a.integration.status, "grace");
+  assert.equal(result.freshness.a.integration.verifiedAt, startedAt);
+  assert.equal(result.freshness.a.integration.expiresAt, startedAt + 5400000);
+  assert.equal(present(remoteOnly), false);
+  assert.equal(present(latest), false);
+  assert.equal(git(f.root, "rev-parse", "main"), f.base);
+  const source = result.graph.nodes[0];
+  const ready = createPlan(f.ctx, "ready", { graph: "example", node: "a" });
+  host.records.get(source.pr.id).body = "Concurrent human edit";
+  assert.throws(() => applyPlan(f.ctx, ready, ready.approval, true), /changed; reconcile and replan/);
+  host.records.get(source.pr.id).body = source.pr.body;
+  f.apply("abort", { operation: ready.approval });
+  clock = startedAt + 5400000;
+  assert.equal(inspect(f.ctx, "example").freshness.a.integration.status, "stale");
+});
+
+for (const hostname of ["github.com", "enterprise.example"]) {
+  test(`GitHub ancestry on ${hostname} preserves grace without fetching a remote-only target`, (t) => {
+    const f = fixture({ remote: true, names: ["a"] });
+    t.after(() => f.dispose());
+    const startedAt = Date.UTC(2026, 9, 21);
+    f.ctx.now = () => startedAt + 1000;
+    git(f.root, "branch", "main", f.base);
+    git(f.root, "push", "-q", "upstream", "main");
+    f.spec.target = "main";
+    const host = hostedFixture(f);
+    const bare = (...args) => git(f.root, `--git-dir=${f.bare}`, ...args);
+    let comparisons = 0;
+    host.p.mergeBase = githubProvider({ host: hostname, owner: "o", repo: "r" }, ".",
+      (command, args) => {
+        assert.equal(command, "gh");
+        assert.equal(args[2], hostname);
+        const match = /^repos\/o\/r\/compare\/([a-f0-9]{40})\.\.\.([a-f0-9]{40})\?per_page=1$/.exec(args[3]);
+        assert.ok(match);
+        comparisons++;
+        return { status: 0, stdout: JSON.stringify({
+          merge_base_commit: { sha: bare("merge-base", match[1], match[2]) },
+        }), stderr: "" };
+      }).mergeBase;
+    const target = bare("commit-tree", `${f.base}^{tree}`, "-p", f.base, "-m", "Remote-only main");
+    bare("update-ref", "refs/heads/main", target, f.base);
+    const split = f.apply("split", { spec: f.spec,
+      fetchObservation: { target: "main", sha: f.base, startedAt } });
+    const published = f.apply("publish", { graph: split.graph.id });
+    const ready = f.apply("ready", { graph: split.graph.id, node: "a" });
+    assert.ok(comparisons > 0);
+    assert.equal(published.graph.nodes[0].pr.base, target);
+    assert.equal(ready.graph.nodes[0].pr.draft, false);
+    assert.equal(ready.freshness.a.integration.status, "grace");
+    assert.equal(ready.freshness.a.integration.expiresAt, startedAt + 5400000);
+    assert.equal(git(f.root, "rev-parse", "main"), f.base);
+    assert.notEqual(gitResult(f.root, ["cat-file", "-e", target], undefined, true).status, 0);
+  });
+}
+
+for (const movement of ["rewind", "divergence"]) {
+  test(`server ancestry rejects remote-only target ${movement} without granting grace`, (t) => {
+    const f = fixture({ remote: true, names: ["a"] });
+    t.after(() => f.dispose());
+    const startedAt = Date.UTC(2026, 9, 21);
+    f.ctx.now = () => startedAt + 1000;
+    git(f.root, "branch", "main", f.head);
+    git(f.root, "push", "-q", "upstream", "main");
+    f.spec.target = "main";
+    hostedFixture(f);
+    const bare = (...args) => git(f.root, `--git-dir=${f.bare}`, ...args);
+    const target = movement === "rewind" ? f.base :
+      bare("commit-tree", `${f.base}^{tree}`, "-p", f.base, "-m", "Divergent target");
+    bare("update-ref", "refs/heads/main", target, f.head);
+    assert.throws(() => createPlan(f.ctx, "init", {
+      spec: { ...f.spec, source: undefined },
+      fetchObservation: { target: "main", sha: f.head, startedAt },
+    }), /rewound or rewritten/);
+  });
 }
 
 for (const target of ["main", "master"]) {

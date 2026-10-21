@@ -160,6 +160,11 @@ operations may precede this gate. `help` does not inspect a repository.
    evidence to planning with `--fetch-observation` as documented in the command
    reference. Recheck the remote tips before updating local branches; verified
    forward movement may retain the fetched snapshot within its original window.
+   During an existing main/master grace window, keep observing the live target
+   but do not refetch it merely because it advanced when the pinned snapshot is
+   local and the GitHub/GHES or ADO adapter can verify exact ancestry server-side.
+   This does not renew the window or waive other branch checks; providers without
+   server-side ancestry still need local Git evidence and fetches.
 4. Compare each local tip with its freshly fetched counterpart. Equal tips are
    current; a local tip ahead of the remote needs no fast-forward. If the local
    tip is an ancestor of the remote tip, present and approve the exact
@@ -331,6 +336,14 @@ workflow; the helper does not perform these steps automatically.
 
 Write the complete active-node spec and operation plan outside the product
 working tree, preferably in the agent's session artifact directory.
+
+If applicable instructions require commit trailers, save their exact single-line
+`Key: value` strings as a nonempty JSON array outside the product worktree and
+pass `--commit-trailers-file "<trailers.json>"` when planning each reconstruction
+operation. The plan pins those lines for approval, apply, and conflict recovery;
+PR titles stay unchanged. The option is operation-scoped, not a persistent
+graph policy. Do not change Git configuration or rely on trailers from a prior
+operation; see [commands](references/commands.md) for supported actions.
 
 ```text
 node "<skill-directory>/scripts/pr-graph.mjs" plan split --repo "<repo>" --spec "<spec.json>" --out "<plan.json>"

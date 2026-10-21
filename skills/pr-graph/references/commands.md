@@ -86,6 +86,11 @@ actual current integration tip; a node readied within grace may need sync and
 another ready operation before it can merge. Metadata-only description
 updates can report stale integration freshness without rewriting branches.
 
+GitHub/GHES and ADO verify ancestry server-side when target or PR-target commits
+are unavailable locally. With the pinned authored snapshot present, they can
+observe forward movement during grace without refetching main/master. Live refs
+and PR identities remain checked, and server observations never renew the window.
+
 ### Recording the fetch start
 
 For a remote integration target named exactly `main` or `master`, capture its
@@ -121,9 +126,31 @@ on that tip. Merge always requires the actual current target.
 
 ## Plan, approve, apply
 
+For reconstruction actions, `--commit-trailers-file <json>` accepts a nonempty
+JSON array of single-line `Key: value` strings. Planning includes those exact
+lines in its digest and effects. Apply and conflict recovery append the pinned
+trailers to reconstruction commit messages, without changing PR titles or
+rereading the file. Supply the option again when planning a new operation; it
+does not alter Git configuration or persist a graph-wide commit policy.
+Supported actions are `init`, `split`, `add`, `deps`, `split-node`, `fold`,
+`remove`, `sync`, `publish`, `retarget`, and `record-landing`; other actions reject
+the option. Without it, reconstruction messages retain their existing behavior.
+
 ```text
 node "<helper>" plan split --repo "<repo>" --spec "<spec.json>" --out "<plan.json>"
 node "<helper>" apply --repo "<repo>" --plan "<plan.json>" --yes --approve "<digest>"
+```
+
+For example, save the required trailer lines outside the product worktree:
+
+```json
+["Co-authored-by: Contributor <contributor@example.invalid>", "Session: example"]
+```
+
+Then include them in the reconstruction plan:
+
+```text
+node "<helper>" plan split --repo "<repo>" --spec "<spec.json>" --commit-trailers-file "<trailers.json>" --out "<plan.json>"
 ```
 
 The plan's `approval` field is a digest of the full payload. The agent must

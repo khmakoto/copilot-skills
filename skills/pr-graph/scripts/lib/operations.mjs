@@ -20,13 +20,29 @@ const ACTIONS = new Set([...SHAPE, "publish", "sync", "retarget", "ready", "merg
 
 const now = (ctx) => ctx.now?.() ?? Date.now();
 
+function mergeBase(ctx, graph, before, after) {
+  requireValue([before, after].every((sha) => /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(sha)),
+    "Ancestry requires full commit SHAs.");
+  const available = [before, after].every((sha) =>
+    git.git(ctx.root, ["rev-parse", "--verify", "--quiet", `${sha}^{commit}`], undefined, true).status === 0);
+  const provider = graph.repository.remote ? getProvider(ctx, graph) : null;
+  if (!available && provider?.mergeBase) return provider.mergeBase(before, after);
+  const result = git.git(ctx.root, ["merge-base", before, after], undefined, true);
+  requireValue([0, 1].includes(result.status), result.stderr);
+  return result.status === 0 ? result.stdout.trim() : null;
+}
+
+function ancestor(ctx, graph, before, after) {
+  return mergeBase(ctx, graph, before, after) === before;
+}
+
 function snapshotFreshness(ctx, graph, target, node) {
   const observedAt = now(ctx);
   const freshness = integrationFreshness(graph, node, target, observedAt);
   if (freshness.status !== "stale" || freshness.target !== graph.target || !freshness.thresholdMs ||
     freshness.ageMs === null || freshness.ageMs >= freshness.thresholdMs) return freshness;
   return integrationFreshness(graph, node, target, observedAt,
-    git.ancestor(ctx.root, freshness.snapshot, target));
+    ancestor(ctx, graph, freshness.snapshot, target));
 }
 
 function fetchObservation(ctx, graph, input, target, observedAt) {
@@ -35,7 +51,7 @@ function fetchObservation(ctx, graph, input, target, observedAt) {
     input.target === graph.target && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(input.sha) &&
     Number.isSafeInteger(input.startedAt) && input.startedAt >= 0 && input.startedAt <= observedAt,
   "Fetch observation requires a remote main/master target, its full SHA, and a non-future startedAt in epoch milliseconds.");
-  requireValue(git.commitId(ctx.root, input.sha) === input.sha && git.ancestor(ctx.root, input.sha, target),
+  requireValue(git.commitId(ctx.root, input.sha) === input.sha && ancestor(ctx, graph, input.sha, target),
     "Fetch observation target was rewound or rewritten; fetch and replan.");
   return { target: input.target, sha: input.sha, startedAt: input.startedAt };
 }
@@ -238,6 +254,13 @@ function warnings(ctx, graph) {
 
 export function createPlan(ctx, action, options = {}) {
   requireValue(ACTIONS.has(action), `Unknown action: ${action}`);
+  if (options.commitTrailers !== undefined) {
+    requireValue((SHAPE.has(action) || ["sync", "publish", "retarget", "record-landing"].includes(action)) &&
+      Array.isArray(options.commitTrailers) && options.commitTrailers.length > 0 &&
+      options.commitTrailers.every((line) => typeof line === "string" &&
+        /^[A-Za-z0-9-]+: [^\r\n\0]+$/.test(line)),
+    "Commit trailers require reconstruction and a nonempty array of single-line Key: value strings.");
+  }
   if (action === "adopt" || action === "checkpoint") {
     requireValue(options.fetchObservation === undefined,
       "Adoption and checkpoint recovery do not accept fetch-start observations.");
@@ -423,6 +446,7 @@ export function createPlan(ctx, action, options = {}) {
   const plan = {
     version: VERSION, action, repository: ctx.root, common: ctx.common,
     graph, previousDigest: previous ? digest(previous) : null, landing,
+    ...(options.commitTrailers ? { commitTrailers: [...options.commitTrailers] } : {}),
     facts, target, source, node: options.node ?? null, strategy,
     ...(fetched ? { fetchObservation: fetched } : {}),
     freshness: freshnessReport(ctx, graph, facts),
@@ -440,6 +464,7 @@ export function createPlan(ctx, action, options = {}) {
         : `Fetch configured remote ${graph.repository.remote} and recheck pinned refs before writes; integration fast-forwards are allowed only under the recorded freshness policy.`] : []),
       ...(!FORWARD_TARGET.has(action) && permitsForwardTarget(ctx, { action, graph, target })
         ? [`Permit forward-only movement of ${graph.target} until ${new Date(graph.integration.verifiedAt + MAIN_FRESHNESS_MS).toISOString()}; retain the approved authored snapshot and local target ref. Merge never uses this grace.`] : []),
+      ...(options.commitTrailers ? [`Append these exact trailers to reconstruction commit messages, not PR titles:\n${options.commitTrailers.join("\n")}`] : []),
       ...(["merge", "ready", "describe", "backup"].includes(action) ? [] :
         ["Build/validate candidate own changes and integration bases in an isolated worktree; update only unoccupied graph branches."]),
       ...plans,
@@ -492,14 +517,18 @@ function fetchRemote(ctx, graph, journal) {
   const remote = git.remoteRefs(ctx.root, graph.repository.remote);
   const unique = new Map();
   for (const branch of graphRefs(graph)) {
+    if (branch === graph.target && getProvider(ctx, graph).mergeBase &&
+      permitsForwardTarget(ctx, journal.plan) &&
+      git.git(ctx.root, ["rev-parse", "--verify", "--quiet", `${journal.plan.target}^{commit}`],
+        undefined, true).status === 0) continue;
     const sha = remote[`refs/heads/${branch}`];
     if (sha) unique.set(sha, branch);
   }
   const refspecs = [...unique].map(([sha, branch]) =>
-    `refs/heads/${branch}:refs/pr-graph/${journal.id}/fetched/${sha}`);
+    `${sha}:refs/pr-graph/${journal.id}/fetched/${sha}`);
   if (refspecs.length) {
     const startedAt = now(ctx);
-    git.out(ctx.root, ["fetch", "--no-tags", "--no-write-fetch-head", "--",
+    git.out(ctx.root, ["fetch", "--refmap=", "--no-tags", "--no-write-fetch-head", "--",
       graph.repository.remote, ...refspecs]);
     return startedAt;
   }
@@ -512,8 +541,8 @@ function localCurrent(ctx, plan) {
 
 function forwardTarget(ctx, graph, journal, before, actual) {
   requireValue(before && actual, "Integration branch disappeared during observation.");
-  fetchRemote(ctx, graph, journal);
-  requireValue(git.ancestor(ctx.root, before, actual),
+  if (!getProvider(ctx, graph).mergeBase) fetchRemote(ctx, graph, journal);
+  requireValue(ancestor(ctx, graph, before, actual),
     "Integration history was rewound or rewritten during observation; stop and replan.");
 }
 
@@ -527,9 +556,9 @@ function samePrFacts(ctx, graph, journal, before, actual, target) {
   const node = graph.nodes.find((n) => n.pr?.id === actual.id);
   if (!node) return false;
   forwardTarget(ctx, graph, journal, before.base, actual.base);
-  return git.ancestor(ctx.root, node.base, actual.base) &&
-    git.ancestor(ctx.root, actual.base, target) &&
-    git.out(ctx.root, ["merge-base", node.head, actual.base]) === node.base;
+  return ancestor(ctx, graph, node.base, actual.base) &&
+    ancestor(ctx, graph, actual.base, target) &&
+    mergeBase(ctx, graph, node.head, actual.base) === node.base;
 }
 
 function verifyIntegration(ctx, plan, journal, target) {
@@ -576,15 +605,18 @@ function verifyFacts(ctx, plan, provider, journal) {
 
 function applyOwned(ctx, journal, cwd, change, title) {
   const before = git.commitId(cwd, "HEAD");
-  const key = digest({ before, patch: change.patch });
+  const message = journal.plan.commitTrailers?.length
+    ? `${title}\n\n${journal.plan.commitTrailers.join("\n")}` : title;
+  const key = digest({ before, patch: change.patch,
+    ...(journal.plan.commitTrailers?.length ? { message } : {}) });
   const cached = journal.commits[key];
   if (cached) {
     git.checkoutClean(cwd, cached);
     return cached;
   }
-  journal.pendingChange = { key, before, title, worktree: cwd };
+  journal.pendingChange = { key, before, title: message, worktree: cwd };
   saveJournal(ctx, journal);
-  const sha = applyChange(cwd, change, title);
+  const sha = applyChange(cwd, change, message);
   git.pin(ctx.root, journal.id, `commits/${key}`, sha);
   journal.commits[key] = sha;
   journal.pendingChange = null;
@@ -656,7 +688,7 @@ function verifyPr(ctx, graph, node, provider) {
       p.branch === node.branch && p.head === node.head &&
       p.baseBranch === node.baseBranch && node.baseBranch === graph.target &&
       typeof p.base === "string" && p.base !== node.base &&
-      git.ancestor(ctx.root, p.base, node.base);
+      ancestor(ctx, graph, p.base, node.base);
     if (!stalePreview) break;
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000);
     p = provider.get(node.pr.id);
@@ -666,11 +698,13 @@ function verifyPr(ctx, graph, node, provider) {
   if (p.base !== node.base && node.baseBranch === graph.target && graph.repository.remote) {
     requireValue(typeof p.base === "string" && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(p.base),
       `Invalid PR target snapshot: ${node.id}`);
-    git.out(ctx.root, ["fetch", "--no-tags", "--no-write-fetch-head", "--",
-      graph.repository.remote,
-      `refs/heads/${graph.target}:refs/pr-graph/review-targets/${graph.id}/${p.base}`]);
-    requireValue(git.ancestor(ctx.root, node.base, p.base) &&
-      git.out(ctx.root, ["merge-base", node.head, p.base]) === node.base,
+    if (!provider.mergeBase) {
+      git.out(ctx.root, ["fetch", "--refmap=", "--no-tags", "--no-write-fetch-head", "--",
+        graph.repository.remote,
+        `${p.base}:refs/pr-graph/review-targets/${graph.id}/${p.base}`]);
+    }
+    requireValue(ancestor(ctx, graph, node.base, p.base) &&
+      mergeBase(ctx, graph, node.head, p.base) === node.base,
     `PR target no longer preserves the authored own-change base: ${node.id}`);
   } else {
     requireValue(p.base === node.base, `PR head/base not yet consistent: ${node.id}`);

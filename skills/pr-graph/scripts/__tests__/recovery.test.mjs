@@ -61,7 +61,8 @@ test("conflicts require a staged resolution approval and resume without losing w
   f.spec.source = undefined;
   f.spec.nodes[1].change = { base: f.base, head: other };
   f.spec.nodes[1].dependencies = ["a"];
-  const original = createPlan(f.ctx, "init", { spec: f.spec });
+  const commitTrailers = ["Copilot-Session: conflict-fixture"];
+  const original = createPlan(f.ctx, "init", { spec: f.spec, commitTrailers });
   assert.throws(() => applyPlan(f.ctx, original, original.approval, true), /conflict/);
   const pending = inspect(f.ctx, "example").operations[0];
   assert.ok(pending.pending);
@@ -71,6 +72,8 @@ test("conflicts require a staged resolution approval and resume without losing w
   applyPlan(f.ctx, resolution, resolution.approval, true);
   const done = applyPlan(f.ctx, original, original.approval, true);
   assert.equal(done.graph.nodes.length, 2);
+  assert.ok(done.graph.nodes.every((node) =>
+    git(f.root, "show", "-s", "--format=%B", node.head).endsWith(commitTrailers[0])));
   assert.ok(git(f.root, "show", `${done.graph.combined}:shared.txt`).includes("a=2"));
 });
 
