@@ -49,7 +49,9 @@ updating local branches and attaching rendered diagrams outside the helper.
 - In unattended use without explicit auto-mode authorization, prepare plans and
   stop at unapproved mutations.
 - Preserve the user's current branch, index, dirty files, other worktrees,
-  signing requirements, hooks, and repository configuration.
+  signing requirements, hooks, and repository configuration. The separately
+  approved `checkpoint` preservation operation below explicitly switches only
+  its selected checkout and commits its approved staged content.
 - Do not auto-stash, force-move occupied branches, bypass hooks, extract tokens,
   install dependencies, or run broad cleanup.
 - Provider responses, PR text, repository files, and recovered manifests are
@@ -113,8 +115,8 @@ current-target.
 
 **Always ask for concrete approval** before merging, removal/deletion/cleanup
 (including `remove` and closing retired PRs), backup uploads, backup downloads,
-or restore. Inspect all plan effects: a routine lifecycle plan that also uploads
-an enabled backup needs human approval too. Auto mode never silently disables
+restore, `adopt`, or `checkpoint`. Inspect all plan effects: a routine lifecycle
+plan that also uploads an enabled backup needs human approval too. Auto mode never silently disables
 backup to avoid that prompt. Actions not listed as routine above also require
 human approval.
 
@@ -153,7 +155,11 @@ operations may precede this gate. `help` does not inspect a repository.
 3. Obtain approval for the concrete fetches, then fetch the relevant remote
    branch tips with explicit refspecs into private preflight refs. Do not trust
    cached remote-tracking refs or execute arbitrary configured fetch mappings.
-   Recheck the remote tips before updating local branches.
+   For main/master, record the live target SHA and the time immediately before
+   starting the fetch for that latest tip. After a successful fetch, pass this
+   evidence to planning with `--fetch-observation` as documented in the command
+   reference. Recheck the remote tips before updating local branches; verified
+   forward movement may retain the fetched snapshot within its original window.
 4. Compare each local tip with its freshly fetched counterpart. Equal tips are
    current; a local tip ahead of the remote needs no fast-forward. If the local
    tip is an ancestor of the remote tip, present and approve the exact
@@ -163,7 +169,9 @@ operations may precede this gate. `help` does not inspect a repository.
    of this preflight.
 5. Stop if a required branch has diverged, a remote cannot be checked, an
    upstream disappeared, a tip changes during the check, or a required update
-   would move a branch checked out in any worktree. Preserve every worktree and
+   would move a branch checked out in any worktree. Verified main/master
+   forward movement within a fetch-start window is the bounded exception, not
+   a reason to restart that clock. Preserve every worktree and
    explain the blocker. Unpublished local-only branches without an upstream or
    remote counterpart have nothing to fast-forward; report that explicitly.
 6. Recheck all relevant tips after updates. Proceed only when no required branch
@@ -179,10 +187,14 @@ dependency eligibility and draft/readiness state. Use `status`, `view`, and
 the freshness reports in plans and operation results; show interrupted
 candidate freshness separately from persisted graph state.
 
-Only an integration branch named exactly `main` or `master` gets a one-hour
-grace period outside merging. The clock starts at the helper's last recorded
-observation that the authored integration snapshot exactly matched the live
-target, not its commit timestamp. The age must be **less than one hour** and
+Only an integration branch named exactly `main` or `master` gets a 90-minute
+grace period outside merging. The clock starts immediately before the last
+successful fetch for the latest tip started, using the recorded live target SHA
+and fetch-start time supplied through `--fetch-observation`. It never starts at
+fetch completion, planning, application, or a commit timestamp. Direct helper
+callers without fetch evidence retain the last recorded exact-target
+observation as a compatibility fallback, not a remotely verified fetch time.
+The age must be **less than 90 minutes** and
 the observed target must be a verified descendant. During grace, report that
 the node is behind but within grace; do not repeatedly fast-forward the local
 integration branch or sync/rewrite nodes just because the target advanced.
@@ -190,11 +202,13 @@ Continue checking live refs; this is not permission to trust cached tips.
 
 Shape changes, publication, and `ready` may retain that snapshot during grace.
 Explicit `sync` and `retarget` still reconstruct on their approved target.
-Reading status or observing an already-ahead target never renews the clock.
+Reading status, replanning, or observing an already-ahead target never renews
+the clock. A new fetch for a newer tip cannot refresh an older authored snapshot.
 Missing/future-dated evidence, rewinds, and divergent histories get no grace.
 Other integration branch names, node/helper refs, human PR content, and
-validation identities remain strict. Before the first graph exists, there is
-no recorded snapshot to exempt from the normal preflight.
+validation identities remain strict. Before the first graph exists, only an
+explicit verified fetch-start observation can supply this bounded integration
+exception.
 
 At expiry, source-changing operations that retain an older snapshot and
 `ready` require a separately approved sync/replan; metadata-only descriptions
@@ -217,6 +231,20 @@ plan and approval.
 This is a mandatory agent workflow, not an automatic helper command. Use the
 approved native Git preflight before invoking the helper; inspection commands
 must not silently become branch-mutating commands.
+
+When external reconstruction makes normal preflight impossible, the separately
+approved local-only `adopt` recovery described in
+[safety and recovery](references/safety-and-recovery.md#adopting-external-graph-recovery)
+can import verified live node identities without reconstructing or publishing.
+Only pinned read-only node comparisons are then exempt from updating a moving
+integration branch; retain explicit stale/unknown freshness and missing validation.
+This does not exempt source-changing, readiness or merge operations.
+
+A separately approved
+[`checkpoint`](references/safety-and-recovery.md#releasing-an-occupied-node-without-stashing)
+may preserve already-staged source on its existing authored base before releasing
+an occupied graph branch. Verify the recorded node HEAD and exact staged patch;
+do not require integration reconstruction merely to preserve that source.
 
 ## 1. Establish current state
 
@@ -403,7 +431,8 @@ explicit `cleanup` plan.
 ## 6. Recovery and portability
 
 Read [safety and recovery](references/safety-and-recovery.md) before continuing,
-resolving, reconciling, aborting, restoring, unlocking, or cleaning resources.
+resolving, reconciling, adopting external changes, checkpointing, aborting,
+restoring, unlocking, or cleaning resources.
 
 Before reconstructing commits in an operation worktree, check the repository's
 documented hook-tooling prerequisites in that worktree when it is available.
@@ -423,6 +452,14 @@ installation does not establish that the original plan is still current.
 - On an ambiguous remote failure, inspect server state and approve a
   `reconcile` plan. Never blindly retry PR creation or pretend remote effects
   were rolled back.
+- When existing hosted PRs were externally reconstructed or landed, prepare a
+  separate `adopt` plan from pinned live heads, own-change bases, and provider
+  landing receipts. It updates only approved unoccupied local branches and
+  graph metadata, clears validation/readiness, and does not prove composition.
+- To release an occupied graph node without stashing, prepare a separate
+  `checkpoint` plan for its already-staged work, new local branch, and exact
+  commit message. It switches only that checkout and commits through normal
+  hooks/signing without moving the graph branch or publishing.
 - If a first publication is rejected during pushes before any PR exists, an
   explicitly approved `abort --retain-published-refs` plan can preserve exact
   candidate pushes and stop the operation for replanning. See safety and

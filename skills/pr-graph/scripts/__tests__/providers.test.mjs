@@ -215,6 +215,10 @@ for (const target of ["main", "master"]) {
     const advanced = git(f.root, "commit-tree", `${f.base}^{tree}`, "-p", f.base, "-m", "Main advanced");
     git(f.root, "push", "-q", "upstream", `${advanced}:refs/heads/${target}`);
     clock += 1800000;
+    const description = createPlan(f.ctx, "describe", { graph: "example", node: "a",
+      body: "Approved description", fetchObservation: { target, sha: advanced, startedAt: clock } });
+    assert.deepEqual(description.graph.integration, before.integration);
+    assert.deepEqual(description.graph.nodes.map((n) => n.integration), before.nodes.map((n) => n.integration));
     const result = f.apply("ready", { graph: "example", node: "a" });
     assert.equal(host.p.get(result.graph.nodes[0].pr.id).draft, false);
     assert.equal(result.graph.targetSha, f.base);
@@ -236,7 +240,7 @@ for (const target of ["main", "master"]) {
     assert.throws(() => applyPlan(f.ctx, merge, merge.approval, true), /Sync onto the current/);
     f.apply("abort", { operation: merge.approval });
     const ready = createPlan(f.ctx, "ready", { graph: "example", node: "b" });
-    clock = before.integration.verifiedAt + 3600000;
+    clock = before.integration.verifiedAt + 5400000;
     assert.equal(inspect(f.ctx, "example").freshness.b.integration.status, "stale");
     assert.throws(() => createPlan(f.ctx, "deps", { graph: "example",
       spec: { id: f.spec.id, nodes: f.spec.nodes } }), /Integration target moved/);

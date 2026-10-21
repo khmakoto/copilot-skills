@@ -9,11 +9,14 @@ import * as git from "./git.mjs";
 import * as state from "./state.mjs";
 import { normalizeChange, applyChange, realize, verifyComposition } from "./changes.mjs";
 import { resolveProvider, identity, providerFor } from "./providers/index.mjs";
+import { createAdoptionPlan, applyAdoptionPlan } from "./adoption.mjs";
+import { createCheckpointPlan, applyCheckpointPlan } from "./checkpoint.mjs";
 
 const SHAPE = new Set(["init", "split", "add", "deps", "split-node", "fold", "remove"]);
 const FORWARD_TARGET = new Set(["retarget", "describe"]);
 const ACTIONS = new Set([...SHAPE, "publish", "sync", "retarget", "ready", "merge", "backup",
-  "fetch-backup", "restore", "resolve", "abort", "cleanup", "describe", "reconcile", "unlock", "record-landing"]);
+  "fetch-backup", "restore", "resolve", "abort", "cleanup", "describe", "reconcile", "unlock",
+  "record-landing", "adopt", "checkpoint"]);
 
 const now = (ctx) => ctx.now?.() ?? Date.now();
 
@@ -24,6 +27,17 @@ function snapshotFreshness(ctx, graph, target, node) {
     freshness.ageMs === null || freshness.ageMs >= freshness.thresholdMs) return freshness;
   return integrationFreshness(graph, node, target, observedAt,
     git.ancestor(ctx.root, freshness.snapshot, target));
+}
+
+function fetchObservation(ctx, graph, input, target, observedAt) {
+  if (input === undefined) return null;
+  requireValue(input && graph.repository.remote && ["main", "master"].includes(graph.target) &&
+    input.target === graph.target && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(input.sha) &&
+    Number.isSafeInteger(input.startedAt) && input.startedAt >= 0 && input.startedAt <= observedAt,
+  "Fetch observation requires a remote main/master target, its full SHA, and a non-future startedAt in epoch milliseconds.");
+  requireValue(git.commitId(ctx.root, input.sha) === input.sha && git.ancestor(ctx.root, input.sha, target),
+    "Fetch observation target was rewound or rewritten; fetch and replan.");
+  return { target: input.target, sha: input.sha, startedAt: input.startedAt };
 }
 
 function permitsForwardTarget(ctx, plan) {
@@ -224,6 +238,11 @@ function warnings(ctx, graph) {
 
 export function createPlan(ctx, action, options = {}) {
   requireValue(ACTIONS.has(action), `Unknown action: ${action}`);
+  if (action === "adopt" || action === "checkpoint") {
+    requireValue(options.fetchObservation === undefined,
+      "Adoption and checkpoint recovery do not accept fetch-start observations.");
+    return action === "adopt" ? createAdoptionPlan(ctx, options) : createCheckpointPlan(ctx, options);
+  }
   if (action === "unlock") {
     const owner = state.readJson(path.join(ctx.dir, "mutation.lock"));
     assertDeadOwner(owner);
@@ -321,10 +340,26 @@ export function createPlan(ctx, action, options = {}) {
   const observedTarget = graph.repository.remote ? facts.remote[graph.target] : facts.local[graph.target];
   requireValue(observedTarget, `Integration branch does not exist: ${graph.target}`);
   const observedAt = now(ctx);
-  const withinGrace = previous && previous.integration?.sha === previous.targetSha && action !== "retarget" &&
-    snapshotFreshness(ctx, previous, observedTarget).status === "grace";
+  const fetched = fetchObservation(ctx, graph, options.fetchObservation, observedTarget, observedAt);
+  requireValue(action !== "merge" || !fetched || fetched.sha === observedTarget,
+    "Merge requires the current integration target; fetch and replan.");
+  const retained = graph.integration;
+  const fetchedIntegration = fetched ? { target: graph.target, sha: fetched.sha,
+    verifiedAt: observedTarget !== fetched.sha && retained?.target === graph.target &&
+      retained.sha === fetched.sha && retained.verifiedAt !== undefined
+      ? Math.min(retained.verifiedAt, fetched.startedAt) : fetched.startedAt } : retained;
+  const snapshot = previous
+    ? { ...previous, integration: fetchedIntegration?.target === previous.target &&
+      fetchedIntegration.sha === previous.targetSha ? fetchedIntegration : previous.integration }
+    : { ...graph, targetSha: fetched?.sha, integration: fetchedIntegration };
+  const withinGrace = snapshot.integration?.sha === snapshot.targetSha && action !== "retarget" &&
+    snapshotFreshness(ctx, snapshot, observedTarget).status === "grace";
   const target = withinGrace && (SHAPE.has(action) || ["publish", "ready"].includes(action))
-    ? previous.targetSha : observedTarget;
+    ? snapshot.targetSha : fetched?.sha ?? observedTarget;
+  const integration = target === snapshot.targetSha ? snapshot.integration : fetchedIntegration;
+  requireValue(!fetched || target !== fetched.sha || target === observedTarget ||
+    snapshotFreshness(ctx, { ...graph, integration }, observedTarget).status === "grace",
+  "Fetch observation freshness expired; fetch the latest target and replan.");
   if (action === "retarget") {
     requireValue(git.ancestor(ctx.root, previous.targetSha, target),
       "New integration target must contain the previous integration snapshot.");
@@ -332,9 +367,10 @@ export function createPlan(ctx, action, options = {}) {
   if (SHAPE.has(action) && previous) {
     requireValue(previous.targetSha === target, "Integration target moved; sync before reshaping the graph.");
   }
-  if (target === observedTarget && (SHAPE.has(action) || ["sync", "publish", "retarget"].includes(action) ||
+  if ((target === observedTarget || target === fetched?.sha) && (SHAPE.has(action) || ["sync", "publish", "retarget"].includes(action) ||
     graph.targetSha === target)) {
-    graph.integration = { target: graph.target, sha: target, verifiedAt: observedAt };
+    graph.integration = integration?.target === graph.target && integration.sha === target
+      ? integration : { target: graph.target, sha: target, verifiedAt: observedAt };
     for (const node of graph.nodes) {
       if (node.integration?.target === graph.target && node.integration.sha === target) {
         node.integration = { ...graph.integration };
@@ -388,6 +424,7 @@ export function createPlan(ctx, action, options = {}) {
     version: VERSION, action, repository: ctx.root, common: ctx.common,
     graph, previousDigest: previous ? digest(previous) : null, landing,
     facts, target, source, node: options.node ?? null, strategy,
+    ...(fetched ? { fetchObservation: fetched } : {}),
     freshness: freshnessReport(ctx, graph, facts),
     description: action === "describe" ? options.body : null,
     ...(descriptions ? { descriptions } : {}),
@@ -461,8 +498,10 @@ function fetchRemote(ctx, graph, journal) {
   const refspecs = [...unique].map(([sha, branch]) =>
     `refs/heads/${branch}:refs/pr-graph/${journal.id}/fetched/${sha}`);
   if (refspecs.length) {
+    const startedAt = now(ctx);
     git.out(ctx.root, ["fetch", "--no-tags", "--no-write-fetch-head", "--",
       graph.repository.remote, ...refspecs]);
+    return startedAt;
   }
 }
 
@@ -729,6 +768,7 @@ function readyChecks(ctx, graph, node, provider, target, action = "merge") {
 }
 
 function mergeNode(ctx, graph, node, provider, plan, journal, cwd) {
+  let verifiedAt;
   if (journal.mergeReceipt) {
     const receipt = journal.mergeReceipt;
     requireValue(receipt.source === node.head && receipt.target === graph.target, "Merge receipt differs from the approved node.");
@@ -742,14 +782,14 @@ function mergeNode(ctx, graph, node, provider, plan, journal, cwd) {
       requireValue(current.state === "merged" && current.landing === receipt.commit, "Merge receipt is not confirmed by the provider.");
       node.pr = current;
       journal.prs[node.id] = current;
-      fetchRemote(ctx, graph, journal);
+      verifiedAt = fetchRemote(ctx, graph, journal);
       const actual = git.remoteRefs(ctx.root, graph.repository.remote)[`refs/heads/${graph.target}`];
       requireValue(git.ancestor(ctx.root, receipt.commit, actual), "Landing left the integration branch.");
       journal.remote[graph.target] = actual;
     }
     node.landing = receipt;
     graph.targetSha = journal.remote[graph.target] ?? journal.local[graph.target];
-    graph.integration = { target: graph.target, sha: graph.targetSha, verifiedAt: now(ctx) };
+    graph.integration = { target: graph.target, sha: graph.targetSha, verifiedAt: verifiedAt ?? now(ctx) };
     saveJournal(ctx, journal);
     return;
   }
@@ -792,14 +832,14 @@ function mergeNode(ctx, graph, node, provider, plan, journal, cwd) {
     requireValue(landing, "Provider did not return a landing commit.");
     journal.mergeReceipt = { commit: landing, source: node.head, target: graph.target, strategy: plan.strategy };
     saveJournal(ctx, journal);
-    fetchRemote(ctx, graph, journal);
+    verifiedAt = fetchRemote(ctx, graph, journal);
     const actual = git.remoteRefs(ctx.root, graph.repository.remote)[`refs/heads/${graph.target}`];
     requireValue(git.ancestor(ctx.root, landing, actual), "Landing is not in the integration branch.");
     journal.remote[graph.target] = actual;
   }
   node.landing = { commit: landing, source: node.head, target: graph.target, strategy: plan.strategy };
   graph.targetSha = journal.remote[graph.target] ?? journal.local[graph.target];
-  graph.integration = { target: graph.target, sha: graph.targetSha, verifiedAt: now(ctx) };
+  graph.integration = { target: graph.target, sha: graph.targetSha, verifiedAt: verifiedAt ?? now(ctx) };
   saveJournal(ctx, journal);
 }
 
@@ -858,6 +898,8 @@ export function applyPlan(ctx, plan, approval, yes) {
     return { unlocked: owner };
   }
   return state.lock(ctx, () => {
+    if (plan.action === "adopt") return applyAdoptionPlan(ctx, plan);
+    if (plan.action === "checkpoint") return applyCheckpointPlan(ctx, plan);
     if (["resolve", "abort", "cleanup", "reconcile"].includes(plan.action)) return applyRecovery(ctx, plan);
     if (plan.action === "fetch-backup") {
       const remote = git.remoteConfig(ctx.root, plan.remote.name);
@@ -920,7 +962,8 @@ export function applyPlan(ctx, plan, approval, yes) {
           "Recorded landing contains a different change; refuse the mapping.");
         node.landing = { commit: plan.landing, source: node.head, target: graph.target, strategy: `recorded-${plan.strategy}` };
         graph.targetSha = target;
-        graph.integration = { target: graph.target, sha: target, verifiedAt: now(ctx) };
+        graph.integration = graph.integration?.sha === target
+          ? graph.integration : { target: graph.target, sha: target, verifiedAt: now(ctx) };
         graph.combined = verifyComposition(cwd, graph, target, null, apply);
       }
       if (SHAPE.has(plan.action) || ["sync", "publish", "retarget"].includes(plan.action)) {

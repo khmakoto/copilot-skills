@@ -47,18 +47,19 @@ test("footer replacement preserves human text and is idempotent", () => {
   assert.equal(digest({ a: 1, b: 2 }), digest({ b: 2, a: 1 }));
 });
 
-test("integration freshness uses recorded verification, an exclusive one-hour window, and forward history", () => {
+test("integration freshness uses recorded verification, an exclusive 90-minute window, and forward history", () => {
   const verifiedAt = Date.UTC(2026, 9, 16);
   for (const target of ["main", "master"]) {
     const g = { ...graph(), target, targetSha: "base",
       integration: { target, sha: "base", verifiedAt } };
     const node = { ...g.nodes[0], integration: { ...g.integration } };
     assert.equal(integrationFreshness(g, node, "base", verifiedAt + 7200000).status, "current");
-    const grace = integrationFreshness(g, node, "advanced", verifiedAt + 3599999, true);
+    assert.equal(integrationFreshness(g, node, "advanced", verifiedAt + 3600000, true).status, "grace");
+    const grace = integrationFreshness(g, node, "advanced", verifiedAt + 5399999, true);
     assert.equal(grace.status, "grace");
     assert.equal(grace.mergeCurrent, false);
-    assert.equal(grace.expiresAt, verifiedAt + 3600000);
-    assert.equal(integrationFreshness(g, node, "advanced", verifiedAt + 3600000, true).status, "stale");
+    assert.equal(grace.expiresAt, verifiedAt + 5400000);
+    assert.equal(integrationFreshness(g, node, "advanced", verifiedAt + 5400000, true).status, "stale");
     assert.equal(integrationFreshness(g, node, "rewritten", verifiedAt + 1).status, "stale");
     assert.equal(integrationFreshness(g, node, "advanced", verifiedAt - 1, true).status, "stale");
     delete node.integration.verifiedAt;
