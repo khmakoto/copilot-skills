@@ -26,8 +26,10 @@ export function resolveProvider(url, explicit) {
     return { kind: "ado", host: "dev.azure.com", organization: segments[0], project: segments[1], repo: segments[3] };
   }
   if (parsed.hostname.endsWith(".visualstudio.com")) {
-    requireValue(segments.length === 3 && segments[1] === "_git", "Invalid ADO remote.");
-    return { kind: "ado", host: "dev.azure.com", organization: parsed.hostname.split(".")[0], project: segments[0], repo: segments[2] };
+    const projectPath = segments.length === 4 && segments[0] === "DefaultCollection"
+      ? segments.slice(1) : segments;
+    requireValue(projectPath.length === 3 && projectPath[1] === "_git", "Invalid ADO remote.");
+    return { kind: "ado", host: "dev.azure.com", organization: parsed.hostname.split(".")[0], project: projectPath[0], repo: projectPath[2] };
   }
   if (parsed.hostname === "ssh.dev.azure.com") {
     requireValue(segments.length === 4 && segments[0] === "v3", "Invalid ADO SSH remote.");

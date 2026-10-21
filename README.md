@@ -120,6 +120,17 @@ successful fetch for the latest tip started, not when it finished or the plan
 was applied. Merge always requires the current
 integration tip; other integration branch names have no grace.
 
+For GitHub, GitHub Enterprise Server, and Azure DevOps, exact server-side
+ancestry checks can verify remote-only integration and PR-target commits
+without refetching main/master during that grace window.
+Live refs are still checked and the original expiry is preserved. Legacy
+`visualstudio.com/DefaultCollection` repository URLs are also supported.
+
+Reconstruction plans accept `--commit-trailers-file <json>` to pin required commit
+trailers into the approved payload and generated commit messages, including
+conflict recovery, without changing PR titles. This helper option is scoped to
+each operation and does not change Git configuration or a graph-wide policy.
+
 Whole-graph retargeting reconstructs unlanded work on another integration branch
 while preserving change ownership and existing PR identities. Batch description
 updates leave source branches and draft states unchanged. Custom helper-branch

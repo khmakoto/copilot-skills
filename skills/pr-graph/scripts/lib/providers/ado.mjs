@@ -39,6 +39,14 @@ export function adoProvider(config, cwd, runner = run) {
         strategies: ["merge", "squash", "rebase"] };
     },
     get,
+    mergeBase(before, after) {
+      requireValue([before, after].every((sha) => /^[a-f0-9]{40}$/.test(sha)),
+        "ADO ancestry requires full commit SHAs.");
+      const result = rest(`${root}/diffs/commits?baseVersion=${before}&baseVersionType=commit&targetVersion=${after}&targetVersionType=commit&diffCommonCommit=true&$top=1&api-version=7.1`);
+      requireValue(result && (result.commonCommit === null || /^[a-f0-9]{40}$/.test(result.commonCommit)),
+        "ADO ancestry is unavailable.");
+      return result.commonCommit;
+    },
     find(branch) {
       const all = [];
       for (let skip = 0; ; skip += 100) {

@@ -61,6 +61,14 @@ export function githubProvider(config, cwd, runner = run) {
       };
     },
     get,
+    mergeBase(before, after) {
+      requireValue([before, after].every((sha) => /^[a-f0-9]{40}$/.test(sha)),
+        "GitHub ancestry requires full commit SHAs.");
+      const result = api(`repos/${repo}/compare/${before}...${after}?per_page=1`);
+      requireValue(result && /^[a-f0-9]{40}$/.test(result.merge_base_commit?.sha),
+        "GitHub ancestry is unavailable.");
+      return result.merge_base_commit.sha;
+    },
     find(branch) {
       const prs = api(`repos/${repo}/pulls?state=all&head=${encodeURIComponent(`${config.owner}:${branch}`)}&per_page=100`, "GET", undefined, true);
       const matches = prs.filter((p) => p.head.ref === branch && p.head.repo?.full_name === repo && p.state === "open");

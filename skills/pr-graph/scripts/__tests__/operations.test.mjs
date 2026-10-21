@@ -8,6 +8,42 @@ import { tree, context } from "../lib/git.mjs";
 import { load, lock } from "../lib/state.mjs";
 import { createPlan, applyPlan } from "../lib/operations.mjs";
 
+test("CLI pins reconstruction trailers without changing PR titles or rereading the input", (t) => {
+  const f = fixture({ names: ["a", "b"] });
+  t.after(() => f.dispose());
+  const spec = path.join(f.dir, "spec.json");
+  const trailersFile = path.join(f.dir, "trailers.json");
+  const planFile = path.join(f.dir, "plan.json");
+  const trailers = ["Co-authored-by: Copilot <copilot@example.invalid>", "Copilot-Session: fixture"];
+  fs.writeFileSync(spec, JSON.stringify(f.spec));
+  fs.writeFileSync(trailersFile, JSON.stringify(trailers));
+  const planned = cli(f.root, "plan", "split", "--spec", spec,
+    "--commit-trailers-file", trailersFile, "--out", planFile);
+  assert.equal(planned.status, 0, planned.stderr);
+  const plan = JSON.parse(planned.stdout);
+  assert.deepEqual(plan.commitTrailers, trailers);
+  fs.writeFileSync(trailersFile, JSON.stringify(["Other: changed"]));
+  const applied = cli(f.root, "apply", "--plan", planFile, "--yes", "--approve", plan.approval);
+  assert.equal(applied.status, 0, applied.stderr);
+  const { graph } = JSON.parse(applied.stdout);
+  for (const node of graph.nodes) {
+    assert.equal(node.title, `Implement ${node.id}`);
+    assert.equal(git(f.root, "show", "-s", "--format=%B", node.head),
+      `${node.title}\n\n${trailers.join("\n")}`);
+  }
+});
+
+test("reconstruction trailer input rejects injected messages and unsupported actions", (t) => {
+  const f = fixture({ names: ["a"] });
+  t.after(() => f.dispose());
+  for (const trailers of [null, [], "Other: value", ["Other: value\nInjected: line"], ["not a trailer"]]) {
+    assert.throws(() => createPlan(f.ctx, "split", { spec: f.spec, commitTrailers: trailers }),
+      /Commit trailers require/);
+  }
+  assert.throws(() => createPlan(f.ctx, "checkpoint", { commitTrailers: ["Other: value"] }),
+    /Commit trailers require/);
+});
+
 test("fold, split-node, dependency edits and removal preserve explicit ownership", (t) => {
   const f = fixture({ names: ["a", "b"] });
   t.after(() => f.dispose());

@@ -30,6 +30,7 @@ Prepare a concrete mutation plan:
   --retain-published-refs     Abort push-only publication without deleting its verified candidate refs
   --body-file <file>          Explicit describe replacement
   --fetch-observation <json>  Main/master live-tip SHA and fetch-start time
+  --commit-trailers-file <json>  Exact trailer lines for reconstruction commits
   --allow-non-atomic          Approve fallback when atomic push is unsupported
 
 After user approval of the exact plan:
@@ -48,7 +49,7 @@ function args(argv) {
   const boolean = new Set(["yes", "allow-non-atomic", "retain-published-refs"]);
   const known = new Set(["repo", "graph", "spec", "out", "node", "strategy", "remote",
     "backup-ref", "backup-branch", "operation", "body-file", "plan", "approve", "base", "head", "landing",
-    "fetch-observation"]);
+    "fetch-observation", "commit-trailers-file"]);
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (!a.startsWith("--")) { positional.push(a); continue; }
@@ -108,6 +109,7 @@ export function main(argv) {
       operation: flags.operation, allowNonAtomic: flags["allow-non-atomic"],
       retainPublishedRefs: flags["retain-published-refs"],
       fetchObservation: flags["fetch-observation"] ? state.readJson(path.resolve(flags["fetch-observation"])) : undefined,
+      commitTrailers: flags["commit-trailers-file"] ? state.readJson(path.resolve(flags["commit-trailers-file"])) : undefined,
       body: flags["body-file"] ? fs.readFileSync(path.resolve(flags["body-file"]), "utf8") : undefined,
     });
     if (flags.out) {
