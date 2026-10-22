@@ -97,7 +97,10 @@ for (const change of ["HEAD", "untracked", "repository"]) {
     else {
       const foreign = fixture({ names: ["b"] });
       t.after(() => foreign.dispose());
-      fs.writeFileSync(path.join(original.worktree, ".git"), `gitdir: ${foreign.ctx.common}\n`);
+      const gitFile = path.join(original.worktree, ".git");
+      // Git hides this file on Windows, where opening it with "w" fails.
+      fs.truncateSync(gitFile, 0);
+      fs.writeFileSync(gitFile, `gitdir: ${foreign.ctx.common}\n`, { flag: "r+" });
     }
     assert.throws(() => applyPlan(f.ctx, plan, plan.approval, true),
       change === "HEAD" ? /HEAD changed/ : change === "untracked" ? /has changes/ : /another repository/);
