@@ -72,7 +72,9 @@ export function adoProvider(config, cwd, runner = run) {
       const before = fields.baseBranch === undefined ? null : get(id);
       if (fields.body !== undefined) body.description = fields.body;
       if (fields.baseBranch !== undefined && before.baseBranch !== fields.baseBranch) {
-        body.targetRefName = `refs/heads/${fields.baseBranch}`;
+        rest(uri(id), "PATCH", { targetRefName: `refs/heads/${fields.baseBranch}` });
+        requireValue(get(id).baseBranch === fields.baseBranch,
+          "ADO retargeting unavailable or ignored. Stop; enable retargeting before continuing.");
       }
       if (fields.draft !== undefined) body.isDraft = fields.draft;
       if (fields.state !== undefined) body.status = fields.state === "closed" ? "abandoned" : "active";

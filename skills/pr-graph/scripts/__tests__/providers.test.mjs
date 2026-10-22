@@ -152,6 +152,79 @@ test("ADO active merge previews are not landing receipts", () => {
   assert.equal(provider.get(1).landing, "preview-or-landing");
 });
 
+test("ADO verifies retargeting before separately applying description and draft updates", () => {
+  const patches = [];
+  let target = "refs/heads/old-helper", description = "Human", draft = false;
+  let verifiedTarget = false;
+  const runner = (command, args) => {
+    if (args[0] === "rest") {
+      const body = JSON.parse(args[args.indexOf("--body") + 1]);
+      patches.push(body);
+      if (body.targetRefName !== undefined) {
+        target = body.targetRefName;
+      } else {
+        assert.equal(verifiedTarget, true);
+        if (body.description !== undefined) description = body.description;
+        if (body.isDraft !== undefined) draft = body.isDraft;
+      }
+    } else if (target === "refs/heads/new-helper") {
+      verifiedTarget = true;
+    }
+    return { status: 0, stderr: "", stdout: JSON.stringify({
+      pullRequestId: 1, sourceRefName: "refs/heads/feature", targetRefName: target,
+      description, isDraft: draft, status: "active",
+    }) };
+  };
+  const provider = adoProvider({ host: "dev.azure.com", organization: "o", project: "p", repo: "r" }, ".", runner);
+  const result = provider.update(1, { baseBranch: "new-helper", body: "Approved body", draft: true });
+  assert.equal(result.baseBranch, "new-helper");
+  assert.equal(result.body, "Approved body");
+  assert.equal(result.draft, true);
+  assert.deepEqual(patches, [
+    { targetRefName: "refs/heads/new-helper" },
+    { description: "Approved body", isDraft: true },
+  ]);
+});
+
+test("ADO refuses metadata writes after an ignored retarget", () => {
+  const patches = [];
+  const runner = (command, args) => {
+    if (args[0] === "rest") patches.push(JSON.parse(args[args.indexOf("--body") + 1]));
+    return { status: 0, stderr: "", stdout: JSON.stringify({
+      pullRequestId: 1, sourceRefName: "refs/heads/feature",
+      targetRefName: "refs/heads/old-helper", description: "Human", isDraft: false, status: "active",
+    }) };
+  };
+  const provider = adoProvider({ host: "dev.azure.com", organization: "o", project: "p", repo: "r" }, ".", runner);
+  assert.throws(() => provider.update(1, {
+    baseBranch: "new-helper", body: "Approved body", draft: true,
+  }), /retargeting unavailable/);
+  assert.deepEqual(patches, [{ targetRefName: "refs/heads/new-helper" }]);
+});
+
+for (const ignored of ["description", "isDraft"]) {
+  test(`ADO still refuses an ignored ${ignored} update after a successful retarget`, () => {
+    let target = "refs/heads/old-helper", description = "Human", draft = false;
+    const runner = (command, args) => {
+      if (args[0] === "rest") {
+        const body = JSON.parse(args[args.indexOf("--body") + 1]);
+        if (body.targetRefName !== undefined) target = body.targetRefName;
+        if (body.description !== undefined && ignored !== "description") description = body.description;
+        if (body.isDraft !== undefined && ignored !== "isDraft") draft = body.isDraft;
+      }
+      return { status: 0, stderr: "", stdout: JSON.stringify({
+        pullRequestId: 1, sourceRefName: "refs/heads/feature", targetRefName: target,
+        description, isDraft: draft, status: "active",
+      }) };
+    };
+    const provider = adoProvider({ host: "dev.azure.com", organization: "o", project: "p", repo: "r" }, ".", runner);
+    assert.throws(() => provider.update(1, {
+      baseBranch: "new-helper", body: "Approved body", draft: true,
+    }), ignored === "description" ? /description update was not applied/ : /draft update was not applied/);
+    assert.equal(target, "refs/heads/new-helper");
+  });
+}
+
 test("ADO ancestry compares exact commits and rejects unavailable or malformed evidence", () => {
   const before = "1".repeat(40), after = "2".repeat(40);
   const calls = [];
@@ -425,8 +498,7 @@ for (const target of ["main", "master"]) {
     const sync = f.apply("sync", { graph: "example" });
     assert.equal(sync.graph.targetSha, advanced);
     assert.equal(sync.freshness.a.integration.status, "current");
-    assert.equal(sync.graph.nodes[0].pr.draft, true);
-    f.apply("ready", { graph: "example", node: "a" });
+    assert.equal(sync.graph.nodes[0].pr.draft, false);
     const merged = f.apply("merge", { graph: "example", node: "a" });
     assert.ok(merged.graph.nodes[0].landing);
     assert.equal(merged.graph.integration.sha, merged.graph.targetSha);
@@ -514,12 +586,12 @@ test("freshness is visible in read-only CLI output without refreshing its record
 });
 
 test("retarget fully reconstructs and publishes the same ownership on a new integration snapshot", (t) => {
-  const f = fixture({ remote: true, names: ["a", "b", "c"] });
+  const f = fixture({ remote: true, names: ["a", "b", "c", "e"] });
   t.after(() => f.dispose());
   const host = hostedFixture(f);
   f.apply("split", { spec: f.spec });
   const before = f.apply("publish", { graph: "example" }).graph;
-  for (const node of before.nodes.filter((n) => !n.dependencies.length)) {
+  for (const node of before.nodes.filter((n) => ["a", "b"].includes(n.id))) {
     host.p.update(node.pr.id, { draft: false, body: `User text for ${node.id}\n${node.pr.body}` });
   }
   git(f.root, "checkout", "-qb", "new-main", f.base);
@@ -535,7 +607,7 @@ test("retarget fully reconstructs and publishes the same ownership on a new inte
   assert.equal(result.graph.targetSha, target);
   assert.equal(git(f.root, "rev-parse", "trunk"), f.base);
   assert.equal(git(f.root, "show", `${result.graph.combined}:upstream.txt`), "new integration content");
-  assert.equal(git(f.root, "show", `${result.graph.combined}:shared.txt`), f.text(["a", "b", "c"]).trim());
+  assert.equal(git(f.root, "show", `${result.graph.combined}:shared.txt`), f.text(["a", "b", "c", "e"]).trim());
   for (const node of result.graph.nodes) {
     const old = before.nodes.find((n) => n.id === node.id);
     assert.equal(node.pr.id, old.pr.id);
@@ -544,11 +616,11 @@ test("retarget fully reconstructs and publishes the same ownership on a new inte
     assert.notEqual(node.head, old.head);
     assert.equal(node.validation.head, node.head);
     assert.equal(node.ready, false);
-    assert.equal(node.pr.draft, true);
+    assert.equal(node.pr.draft, !["a", "b"].includes(node.id));
     assert.equal(node.pr.baseBranch, node.dependencies.length ? old.baseBranch : "new-main");
-    if (!node.dependencies.length) assert.ok(node.pr.body.startsWith(`User text for ${node.id}`));
+    if (["a", "b"].includes(node.id)) assert.ok(node.pr.body.startsWith(`User text for ${node.id}`));
   }
-  assert.equal(host.records.size, 3);
+  assert.equal(host.records.size, 4);
 });
 
 for (const settles of [true, false]) {
@@ -894,6 +966,84 @@ test("hosted lifecycle publishes all drafts, preserves human text, and gates rea
   assert.ok(progress.some((event) => event.type === "done" && event.label.startsWith("Pushing ")));
   assert.ok(progress.some((event) => event.type === "done" && event.label === "Checking eligibility and marking ready" && event.node === "b"));
   assert.ok(progress.some((event) => event.type === "done" && event.label === "Merging and verifying landing" && event.node === "b"));
+});
+
+for (const action of ["sync", "publish"]) {
+  test(`${action} preserves live PR states through reconstruction and unchanged publication`, (t) => {
+    const f = fixture({ remote: true, names: ["a", "b", "c", "e"] });
+    t.after(() => f.dispose());
+    const host = hostedFixture(f);
+    f.apply("split", { spec: f.spec });
+    const before = f.apply("publish", { graph: "example" }).graph;
+    const a = before.nodes.find((n) => n.id === "a");
+    const b = before.nodes.find((n) => n.id === "b");
+    const e = before.nodes.find((n) => n.id === "e");
+    f.apply("ready", { graph: "example", node: "a" });
+    host.p.update(b.pr.id, { draft: false });
+    const advanced = git(f.root, "commit-tree", `${f.base}^{tree}`, "-p", f.base, "-m", "Target advanced");
+    git(f.root, "push", "-q", "upstream", `${advanced}:refs/heads/trunk`);
+    const draftWrites = [];
+    const update = host.p.update;
+    host.p.update = (id, fields) => {
+      if (fields.draft !== undefined) draftWrites.push({ id, draft: fields.draft });
+      return update(id, fields);
+    };
+    const result = f.apply(action, { graph: "example" });
+    assert.equal(result.graph.targetSha, advanced);
+    for (const node of result.graph.nodes) {
+      assert.notEqual(node.head, before.nodes.find((n) => n.id === node.id).head);
+      assert.equal(node.validation.head, node.head);
+      assert.equal(node.pr.draft, !["a", "b"].includes(node.id));
+      assert.equal(host.p.get(node.pr.id).draft, node.pr.draft);
+    }
+    assert.ok(draftWrites.every((write) => write.draft && write.id === before.nodes.find((n) => n.id === "c").pr.id));
+    host.p.update(a.pr.id, { draft: true });
+    host.p.update(e.pr.id, { draft: false });
+    draftWrites.length = 0;
+    const unchanged = f.apply(action, { graph: "example" });
+    assert.deepEqual(unchanged.graph.nodes.map((n) => n.head), result.graph.nodes.map((n) => n.head));
+    for (const node of unchanged.graph.nodes) {
+      assert.equal(node.pr.draft, !["b", "e"].includes(node.id));
+    }
+    assert.ok(draftWrites.every((write) => write.draft && write.id === before.nodes.find((n) => n.id === "c").pr.id));
+  });
+}
+
+test("reshaping demotes a manually promoted PR only when newly blocked and never auto-promotes it", (t) => {
+  const f = fixture({ remote: true, names: ["a", "b"] });
+  t.after(() => f.dispose());
+  const host = hostedFixture(f);
+  f.apply("split", { spec: f.spec });
+  const before = f.apply("publish", { graph: "example" }).graph;
+  const a = before.nodes.find((n) => n.id === "a");
+  host.p.update(a.pr.id, { draft: false });
+  f.apply("ready", { graph: "example", node: "b" });
+  const blocked = f.apply("deps", { graph: "example", spec: {
+    id: "example", nodes: f.spec.nodes.map((n) => n.id === "a" ? { ...n, dependencies: ["b"] } : n),
+  } });
+  assert.equal(blocked.graph.nodes.find((n) => n.id === "a").pr.draft, true);
+  assert.equal(blocked.graph.nodes.find((n) => n.id === "b").pr.draft, false);
+  f.apply("publish", { graph: "example" });
+  f.apply("deps", { graph: "example", spec: { id: "example", nodes: f.spec.nodes } });
+  const unblocked = f.apply("publish", { graph: "example" });
+  assert.equal(unblocked.graph.nodes.find((n) => n.id === "a").pr.draft, true);
+  assert.equal(unblocked.graph.nodes.find((n) => n.id === "b").pr.draft, false);
+});
+
+test("a live draft change after approval still requires a fresh sync plan", (t) => {
+  const f = fixture({ remote: true, names: ["a"] });
+  t.after(() => f.dispose());
+  const host = hostedFixture(f);
+  f.apply("split", { spec: f.spec });
+  const before = f.apply("publish", { graph: "example" }).graph;
+  const node = before.nodes[0];
+  const plan = createPlan(f.ctx, "sync", { graph: "example" });
+  host.p.update(node.pr.id, { draft: false });
+  assert.throws(() => applyPlan(f.ctx, plan, plan.approval, true), /PR a changed; reconcile and replan/);
+  assert.equal(host.p.get(node.pr.id).draft, false);
+  f.apply("abort", { operation: plan.approval });
+  const result = f.apply("sync", { graph: "example" });
+  assert.equal(result.graph.nodes[0].pr.draft, false);
 });
 
 test("batch describe updates approved bodies together without moving refs or draft states", (t) => {

@@ -424,12 +424,17 @@ product PR into a helper base or create a product PR for a helper branch.
 Use explicit `sync` when target freshness requires it or nodes land. It reconstructs
 affected work, verifies clean diffs, retargets newly eligible nodes, and reports
 eligibility. It does **not** promote drafts or merge anything.
+Preserve the live draft/non-draft state of eligible existing PRs, whether changed
+by the graph or manually, even when sync reconstructs their branches. Return
+blocked or superseded PRs to draft; never infer freshness or validation from
+non-draft status. Status changes after planning require a fresh approved plan.
 
 To change the integration branch of an entirely unlanded graph, use a separately
 approved `retarget` plan with an id/target-only spec. This is a full reconstruction,
-validation and leased publication, not a metadata-only target edit. Rewritten
-non-draft PRs return to draft, existing PR identities and own-change ownership
-are retained, and diagrams must be refreshed. See [commands](references/commands.md)
+validation and leased publication, not a metadata-only target edit. Eligible
+PRs retain their live draft/non-draft state, existing PR identities and own-change
+ownership are retained, and diagrams must be refreshed. See
+[lifecycle commands](references/lifecycle-commands.md)
 for its fixed-source-snapshot and forward-moving-target semantics.
 
 When asked to publish existing PRs or take them out of draft, distinguish hosting
@@ -486,6 +491,13 @@ documented hook-tooling prerequisites in that worktree when it is available.
 Do not infer availability from the primary checkout or another operation's
 worktree. Prefer read-only checks; do not install dependencies or alter hooks
 automatically.
+
+For `sync`, `publish`, or `retarget`, an exact plan may explicitly reuse a clean
+detached worktree from a completed or separately approved aborted operation via
+`--reuse-worktree <operation-digest>`. Review the pinned source identity, HEAD,
+and ownership transfer. Its path and tooling remain intact; old owners cannot
+recover or clean the transferred worktree. Reuse never skips validation or
+freshness checks. See [commands](references/commands.md#reusing-a-retained-operation-worktree).
 
 If the worktree is created only during apply, disclose any unverified tooling
 prerequisite before execution. If a hook fails because tooling is missing, report

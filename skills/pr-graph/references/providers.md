@@ -77,7 +77,11 @@ do not truncate human text.
 
 ADO rejects a retarget request when the PR already targets that branch.
 Read the current target and omit that field for unchanged targets; still
-apply and verify requested description/draft changes. Commit diffs include
+apply and verify requested description/draft changes. For changed targets,
+send and verify the retarget separately before sending description/draft
+updates: a combined request can apply the target while ignoring other fields.
+Every requested field still requires exact readback; partial effects require
+approved reconciliation before resuming. Commit diffs include
 directory entries: exclude trees from own-file comparisons, retain both rename
 paths (including `sourceServerItem`) and submodule entries, and paginate using
 the unfiltered server entry count.

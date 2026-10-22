@@ -237,7 +237,7 @@ function reconcile(ctx, graph, facts, target, previous) {
       requireValue(current.head === node.pr.head, `External PR content change: ${node.id}; adopt explicitly.`);
       requireValue(current.baseBranch === node.pr.baseBranch, `External PR retarget: ${node.id}; reconcile explicitly.`);
       const intentionallyInvalidated = previous?.nodes.some((n) =>
-        n.id === node.id && eligible(previous, n) && n.pr?.draft === false);
+        n.id === node.id && eligible(previous, n));
       requireValue(current.draft || eligible(graph, node) || intentionallyInvalidated,
         `Blocked node made ready externally: ${node.id}`);
     } else {
@@ -258,8 +258,79 @@ function warnings(ctx, graph) {
   return items;
 }
 
+function worktreePath(ctx, journal) {
+  const dir = journal.plan.reuseWorktree?.path ?? path.join(ctx.dir, "trees", journal.id);
+  requireValue(path.dirname(dir) === path.join(ctx.dir, "trees") &&
+    /^[0-9a-f]{64}$/.test(path.basename(dir)), "Invalid operation worktree path.");
+  return dir;
+}
+
+function reusableOperation(ctx, operation, graphId) {
+  const source = state.readJson(state.journalFile(ctx, operation));
+  requireValue(source.id === operation && source.plan.common === ctx.common &&
+    source.plan.graph?.id === graphId, "Reuse source belongs to another repository or graph.");
+  requireValue(["done", "aborted"].includes(source.status) && !source.pendingChange,
+    "Reuse requires a completed or explicitly aborted operation without a pending change.");
+  requireValue(!source.worktreeReusedBy,
+    `Operation worktree was transferred to ${source.worktreeReusedBy}; select its latest owner.`);
+  return source;
+}
+
+function planWorktreeReuse(ctx, operation, graphId) {
+  const source = reusableOperation(ctx, operation, graphId);
+  const info = git.operationWorktreeInfo(ctx, worktreePath(ctx, source));
+  requireValue(!git.out(info.path, ["status", "--porcelain", "--untracked-files=all"]),
+    "Retained operation worktree has changes; preserve and handle them explicitly.");
+  return { operation, journalDigest: digest(source), ...info };
+}
+
+function requireWorktreeOwner(ctx, journal) {
+  requireValue(!journal.worktreeReusedBy,
+    `Operation worktree was transferred to ${journal.worktreeReusedBy}; recover or clean its latest owner instead.`);
+  const reuse = journal.plan.reuseWorktree;
+  if (!reuse) return;
+  const source = state.readJson(state.journalFile(ctx, reuse.operation));
+  requireValue(journal.worktreeReuseClaimed && source.worktreeReusedBy === journal.id,
+    "Operation has not claimed this retained worktree; recover or clean its actual owner instead.");
+  requireValue(git.operationWorktreeInfo(ctx, worktreePath(ctx, journal)).gitDir === reuse.gitDir,
+    "Reuse worktree identity changed after approval.");
+}
+
+function prepareWorktree(ctx, journal, target) {
+  const reuse = journal.plan.reuseWorktree;
+  if (!reuse) return git.createWorktree(ctx, journal.id, target);
+  return step("Claiming approved retained operation worktree", () => {
+    const source = state.readJson(state.journalFile(ctx, reuse.operation));
+    // A crash may leave the transfer recorded before this journal acknowledges it.
+    const original = { ...source };
+    if (original.worktreeReusedBy === journal.id) delete original.worktreeReusedBy;
+    requireValue(digest(original) === reuse.journalDigest,
+      "Reuse source operation changed after approval.");
+    requireValue(!source.worktreeReusedBy || source.worktreeReusedBy === journal.id,
+      "Retained operation worktree belongs to another operation.");
+    requireValue(!journal.worktreeReuseClaimed || source.worktreeReusedBy === journal.id,
+      "Retained operation worktree ownership changed.");
+    requireValue(worktreePath(ctx, source) === reuse.path, "Reuse worktree path changed.");
+    const info = git.operationWorktreeInfo(ctx, reuse.path);
+    requireValue(info.gitDir === reuse.gitDir, "Reuse worktree identity changed after approval.");
+    requireValue(journal.worktreeReuseClaimed || info.head === reuse.head,
+      "Reuse worktree HEAD changed after approval.");
+    requireValue(!git.out(reuse.path, ["status", "--porcelain", "--untracked-files=all"]),
+      "Retained operation worktree has changes; preserve and handle them explicitly.");
+    if (!journal.worktreeReuseClaimed) {
+      source.worktreeReusedBy = journal.id;
+      saveJournal(ctx, source);
+      journal.worktreeReuseClaimed = true;
+      saveJournal(ctx, journal);
+    }
+    return reuse.path;
+  });
+}
+
 export function createPlan(ctx, action, options = {}) {
   requireValue(ACTIONS.has(action), `Unknown action: ${action}`);
+  requireValue(options.reuseWorktree === undefined || ["sync", "publish", "retarget"].includes(action),
+    "Worktree reuse is supported only for sync, publish, and retarget.");
   if (options.commitTrailers !== undefined) {
     requireValue((SHAPE.has(action) || ["sync", "publish", "retarget", "record-landing"].includes(action)) &&
       Array.isArray(options.commitTrailers) && options.commitTrailers.length > 0 &&
@@ -449,10 +520,13 @@ export function createPlan(ctx, action, options = {}) {
     base: n.dependencies.length ? `${helperBranch(graph, n.id)} until all prerequisites land` : graph.target,
     validations: n.validations, validationReason: n.validationReason,
   }));
+  const reuseWorktree = options.reuseWorktree === undefined ? null :
+    planWorktreeReuse(ctx, options.reuseWorktree, graph.id);
   const plan = {
     version: VERSION, action, repository: ctx.root, common: ctx.common,
     graph, previousDigest: previous ? digest(previous) : null, landing,
     ...(options.commitTrailers ? { commitTrailers: [...options.commitTrailers] } : {}),
+    ...(reuseWorktree ? { reuseWorktree } : {}),
     facts, target, source, node: options.node ?? null, strategy,
     ...(fetched ? { fetchObservation: fetched } : {}),
     freshness: freshnessReport(ctx, graph, facts),
@@ -471,18 +545,23 @@ export function createPlan(ctx, action, options = {}) {
       ...(!FORWARD_TARGET.has(action) && permitsForwardTarget(ctx, { action, graph, target })
         ? [`Permit forward-only movement of ${graph.target} until ${new Date(graph.integration.verifiedAt + MAIN_FRESHNESS_MS).toISOString()}; retain the approved authored snapshot and local target ref. Merge never uses this grace.`] : []),
       ...(options.commitTrailers ? [`Append these exact trailers to reconstruction commit messages, not PR titles:\n${options.commitTrailers.join("\n")}`] : []),
+      ...(reuseWorktree ? [
+        `Transfer ownership of clean detached worktree ${reuseWorktree.path} at ${reuseWorktree.head} from stopped operation ${reuseWorktree.operation}; retain its path and hook tooling without creating a new worktree.`,
+        "Record the transfer in both operation journals. The previous owner can no longer reuse or clean this worktree; all freshness, hooks, cleanliness checks, and validation remain required.",
+      ] : []),
       ...(["merge", "ready", "describe", "backup"].includes(action) ? [] :
         ["Build/validate candidate own changes and integration bases in an isolated worktree; update only unoccupied graph branches."]),
       ...plans,
       ...(action === "retarget" ? [
         `Reconstruct every active node and prerequisite base on ${graph.target}@${target}; preserve own-change ownership and existing PR identities.`,
         "Permit only fast-forward advancement of the new remote integration branch during this operation; keep the approved reconstruction snapshot fixed. Ready/merge still require a subsequent current-target check.",
-        `Return rewritten non-draft PRs to draft before pushing: ${Object.values(facts.prs).filter((p) => p.state === "open" && !p.draft).map((p) => p.id).join(", ") || "none"}. No promotions or merges.`,
+        "Preserve each eligible PR's observed draft/non-draft state through reconstruction and retargeting. No promotions or merges.",
         "Preserve the previous integration branch and original source snapshots; verify the combined tree against the unchanged own changes composed on the new snapshot.",
       ] : []),
       ...(["publish", "sync", "retarget"].includes(action) ? [
         action === "publish" ? "Push all active nodes; create missing PRs as drafts." : "Push already-published nodes; never promote drafts.",
         "Push tool-owned integration bases; preserve human PR bodies except the managed graph footer.",
+        "Preserve observed draft/non-draft state for eligible existing PRs, including manual changes; blocked PRs must remain draft. Readiness does not waive freshness, validation, or merge checks.",
       ] : []),
       ...(action === "ready" ? [`Promote only ${options.node}, after dependency, target, diff, and validation checks.`] : []),
       ...(["publish", "sync", "retarget", "ready", "merge"].includes(action) ? ["Refresh managed graph footers, including landed nodes; preserve human text."] : []),
@@ -496,7 +575,7 @@ export function createPlan(ctx, action, options = {}) {
         ? [`Publish graph manifest and reachable committed snapshots to ${graph.backup.branch}.`] : []),
       ...graph.nodes.filter((n) => n.retired && n.pr && n.pr.state === "open")
         .map((n) => `Mark superseded PR ${n.pr.url} as draft; retain all branches and snapshots.`),
-      ...(SHAPE.has(action) ? ["Mark affected existing review-ready PRs draft when changed content or dependencies invalidate their realization."] : []),
+      ...(SHAPE.has(action) ? ["Preserve observed draft/non-draft state for eligible existing PRs; mark blocked or superseded PRs draft."] : []),
     ],
     warnings: warnings(ctx, graph),
   };
@@ -743,13 +822,13 @@ function publish(ctx, graph, provider, plan, journal) {
   const active = topological(graph).filter((n) => !n.landing && !n.retired && (plan.action === "publish" || n.pr));
   for (const node of active) {
     if (node.pr && node.requiresDraft && !node.pr.draft) {
-      step("Returning rewritten PR to draft", () => {
+      step("Returning blocked PR to draft", () => {
         verifyFacts(ctx, plan, provider, journal);
         journal.providerStarted = true;
         journal.remoteStarted = true;
         saveJournal(ctx, journal);
         node.pr = provider.update(node.pr.id, { draft: true });
-        requireValue(node.pr.draft, "Cannot publish rewritten content until the PR is draft.");
+        requireValue(node.pr.draft, "Cannot publish blocked content until the PR is draft.");
         journal.prs[node.id] = node.pr;
         saveJournal(ctx, journal);
       }, nodeDetails(graph, node));
@@ -781,6 +860,8 @@ function publish(ctx, graph, provider, plan, journal) {
       saveJournal(ctx, journal);
       node.pr = verifyPr(ctx, graph, node, provider);
       requireValue(node.pr.body === body, `PR description readback mismatch: ${node.id}`);
+      requireValue(node.pr.draft === (node.requiresDraft ? true : found?.draft ?? true),
+        `PR draft state readback mismatch: ${node.id}`);
       node.requiresDraft = false;
       journal.prs[node.id] = node.pr;
       saveJournal(ctx, journal);
@@ -909,7 +990,7 @@ function supersede(ctx, graph, provider, journal) {
   if (provider.kind === "local") return;
   for (const node of graph.nodes.filter((n) => n.pr?.state === "open" &&
     (n.retired || (n.requiresDraft && !n.pr.draft)))) {
-    step("Updating superseded or rewritten draft PR", () => {
+    step("Updating superseded or blocked draft PR", () => {
       journal.remoteStarted = true;
       journal.providerStarted = true;
       saveJournal(ctx, journal);
@@ -1018,7 +1099,7 @@ export function applyPlan(ctx, plan, approval, yes) {
       const target = git.commitId(ctx.root, plan.target);
       const previous = state.load(ctx, graph.id, true);
       reconcile(ctx, graph, facts, target, SHAPE.has(plan.action) ? previous : null);
-      const cwd = git.createWorktree(ctx, journal.id, target);
+      const cwd = prepareWorktree(ctx, journal, target);
       const apply = (dir, change, title) => applyOwned(ctx, journal, dir, change, title);
       if (plan.action === "record-landing") {
         const node = nodeById(graph, plan.node);
@@ -1212,8 +1293,10 @@ function recoveryPlan(ctx, action, options) {
   requireValue(!options.retainPublishedRefs || action === "abort", "--retain-published-refs is only valid for abort.");
   const journal = state.readJson(state.journalFile(ctx, options.operation));
   requireValue(journal.id === options.operation, "Operation journal identity mismatch.");
+  requireValue(!journal.worktreeReusedBy,
+    `Operation worktree was transferred to ${journal.worktreeReusedBy}; recover or clean its latest owner instead.`);
   const graph = state.load(ctx, journal.plan.graph?.id ?? options.graph, true);
-  const cwd = path.join(ctx.dir, "trees", journal.id);
+  const cwd = worktreePath(ctx, journal);
   if (action === "reconcile") {
     requireValue(journal.status === "running", "Only running operations can be reconciled.");
     const candidate = journal.candidate ?? journal.plan.graph;
@@ -1239,6 +1322,7 @@ function recoveryPlan(ctx, action, options) {
   }
   if (action === "resolve") {
     requireValue(journal.status === "running" && journal.pendingChange, "No pending change to resolve.");
+    requireWorktreeOwner(ctx, journal);
     requireValue(journal.pendingChange.worktree === cwd, "Unexpected operation worktree path.");
     requireValue(!git.out(cwd, ["diff", "--name-only", "--diff-filter=U"]), "Unmerged index entries remain.");
     requireValue(git.git(cwd, ["diff", "--quiet"], undefined, true).status === 0, "Stage the approved resolution; unstaged changes remain.");
@@ -1279,6 +1363,7 @@ function recoveryPlan(ctx, action, options) {
   }
   requireValue(["done", "aborted"].includes(journal.status), "Cannot clean an unfinished operation.");
   requireValue(options.spec && Array.isArray(options.spec.branches), "Cleanup requires spec.branches (possibly empty) and spec.worktree.");
+  if (options.spec.worktree) requireWorktreeOwner(ctx, journal);
   const branches = options.spec.branches;
   const remoteBranches = options.spec.remoteBranches ?? [];
   const closeRetired = options.spec.closeRetired ?? [];
@@ -1315,7 +1400,7 @@ function recoveryPlan(ctx, action, options) {
 function applyRecovery(ctx, plan) {
   const journal = state.readJson(state.journalFile(ctx, plan.operation));
   requireValue(digest(journal) === plan.journalDigest, "Operation changed after recovery approval.");
-  const cwd = path.join(ctx.dir, "trees", journal.id);
+  const cwd = worktreePath(ctx, journal);
   if (plan.action === "reconcile") {
     const candidate = structuredClone(journal.candidate ?? journal.plan.graph);
     const provider = getProvider(ctx, candidate);
@@ -1398,6 +1483,7 @@ function applyRecovery(ctx, plan) {
     return { reconciled: journal.id, next: "Continue the original approved operation." };
   }
   if (plan.action === "resolve") {
+    requireWorktreeOwner(ctx, journal);
     requireValue(git.commitId(cwd, "HEAD") === plan.head &&
       git.git(cwd, ["diff", "--cached", "--binary", "--full-index"]).stdout === plan.patch,
     "Resolution changed after approval.");
@@ -1433,6 +1519,7 @@ function applyRecovery(ctx, plan) {
     saveJournal(ctx, journal);
     return { aborted: journal.id, retained: cwd };
   }
+  if (plan.worktree) requireWorktreeOwner(ctx, journal);
   for (const [branch, expected] of Object.entries(plan.branches)) {
     requireValue(!git.occupied(ctx.root, branch), `Branch became occupied: ${branch}`);
     requireValue(git.refId(ctx.root, `refs/heads/${branch}`) === expected, `Cleanup branch changed: ${branch}`);
@@ -1475,7 +1562,8 @@ export function inspect(ctx, id) {
     eligible: graph?.nodes.filter((n) => eligible(graph, n)).map((n) => n.id) ?? [],
     operations: state.journals(ctx).filter((j) => j.plan.graph?.id === id).map((j) => ({
       id: j.id, status: j.status, error: j.error, pending: j.pendingChange,
-      worktree: path.join(ctx.dir, "trees", j.id),
+      worktree: worktreePath(ctx, j),
+      ...(j.worktreeReusedBy ? { worktreeReusedBy: j.worktreeReusedBy } : {}),
       ...(j.status === "running" ? {
         freshness: freshnessReport(ctx, j.candidate ?? j.plan.graph,
           observe(ctx, j.candidate ?? j.plan.graph, getProvider(ctx, j.candidate ?? j.plan.graph))),
