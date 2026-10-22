@@ -11,6 +11,7 @@ import { normalizeChange, applyChange, realize, verifyComposition } from "./chan
 import { resolveProvider, identity, providerFor } from "./providers/index.mjs";
 import { createAdoptionPlan, applyAdoptionPlan } from "./adoption.mjs";
 import { createCheckpointPlan, applyCheckpointPlan } from "./checkpoint.mjs";
+import { nodeDetails, step } from "./progress.mjs";
 
 const SHAPE = new Set(["init", "split", "add", "deps", "split-node", "fold", "remove"]);
 const FORWARD_TARGET = new Set(["retarget", "describe"]);
@@ -64,24 +65,27 @@ function permitsForwardTarget(ctx, plan) {
 }
 
 function freshnessReport(ctx, graph, facts) {
-  const target = graph.repository.remote ? facts.remote[graph.target] : facts.local[graph.target];
-  return Object.fromEntries(graph.nodes.map((node) => {
-    const local = facts.local[node.branch];
-    const remote = facts.remote[node.branch];
-    return [node.id, {
-      integration: { ...snapshotFreshness(ctx, graph, target, node),
-        scope: graph.repository.remote ? "remote" : "local-only" },
-      branch: {
-        status: !node.head ? "unknown" : !local || (node.pr && graph.repository.remote && !remote) ? "missing" :
-          local !== node.head ? "changed" :
-          graph.repository.remote && remote && remote !== node.head ? "changed" : "current",
-        expected: node.head ?? null, local: local ?? null, remote: remote ?? null,
-        scope: graph.repository.remote ? remote ? "remote" : "unpublished" : "local-only",
-      },
-      validation: !node.validation ? "missing" :
-        node.validation.head === node.head && node.validation.commands === digest(node.validations) ? "current" : "stale",
-    }];
-  }));
+  return step("Inspecting integration freshness, branch identity, and validation status", () => {
+    const target = graph.repository.remote ? facts.remote[graph.target] : facts.local[graph.target];
+    return Object.fromEntries(graph.nodes.map((node) =>
+      step("Inspecting node freshness", () => {
+        const local = facts.local[node.branch];
+        const remote = facts.remote[node.branch];
+        return [node.id, {
+          integration: { ...snapshotFreshness(ctx, graph, target, node),
+            scope: graph.repository.remote ? "remote" : "local-only" },
+          branch: {
+            status: !node.head ? "unknown" : !local || (node.pr && graph.repository.remote && !remote) ? "missing" :
+              local !== node.head ? "changed" :
+              graph.repository.remote && remote && remote !== node.head ? "changed" : "current",
+            expected: node.head ?? null, local: local ?? null, remote: remote ?? null,
+            scope: graph.repository.remote ? remote ? "remote" : "unpublished" : "local-only",
+          },
+          validation: !node.validation ? "missing" :
+            node.validation.head === node.head && node.validation.commands === digest(node.validations) ? "current" : "stale",
+        }];
+      }, nodeDetails(graph, node))));
+  });
 }
 
 function getProvider(ctx, graph) {
@@ -104,17 +108,19 @@ function graphRefs(graph) {
 }
 
 function observe(ctx, graph, provider) {
-  const branches = graphRefs(graph);
-  const remote = git.remoteRefs(ctx.root, graph.repository.remote);
-  const prs = {};
-  for (const node of graph.nodes) {
-    if (node.pr) prs[node.id] = provider.get(node.pr.id);
-  }
-  return {
-    local: Object.fromEntries(branches.map((b) => [b, git.refId(ctx.root, `refs/heads/${b}`)])),
-    remote: Object.fromEntries(branches.map((b) => [b, remote[`refs/heads/${b}`] ?? null])),
-    prs,
-  };
+  return step("Observing local refs, remote refs, and PR state", () => {
+    const branches = graphRefs(graph);
+    const remote = git.remoteRefs(ctx.root, graph.repository.remote);
+    const prs = {};
+    for (const node of graph.nodes) {
+      if (node.pr) prs[node.id] = step("Reading PR state", () => provider.get(node.pr.id), nodeDetails(graph, node));
+    }
+    return {
+      local: Object.fromEntries(branches.map((b) => [b, git.refId(ctx.root, `refs/heads/${b}`)])),
+      remote: Object.fromEntries(branches.map((b) => [b, remote[`refs/heads/${b}`] ?? null])),
+      prs,
+    };
+  });
 }
 
 function normalizeSpec(ctx, spec, previous) {
@@ -514,24 +520,26 @@ function saveJournal(ctx, journal) {
 
 function fetchRemote(ctx, graph, journal) {
   if (!graph.repository.remote) return;
-  const remote = git.remoteRefs(ctx.root, graph.repository.remote);
-  const unique = new Map();
-  for (const branch of graphRefs(graph)) {
-    if (branch === graph.target && getProvider(ctx, graph).mergeBase &&
-      permitsForwardTarget(ctx, journal.plan) &&
-      git.git(ctx.root, ["rev-parse", "--verify", "--quiet", `${journal.plan.target}^{commit}`],
-        undefined, true).status === 0) continue;
-    const sha = remote[`refs/heads/${branch}`];
-    if (sha) unique.set(sha, branch);
-  }
-  const refspecs = [...unique].map(([sha, branch]) =>
-    `${sha}:refs/pr-graph/${journal.id}/fetched/${sha}`);
-  if (refspecs.length) {
-    const startedAt = now(ctx);
-    git.out(ctx.root, ["fetch", "--refmap=", "--no-tags", "--no-write-fetch-head", "--",
-      graph.repository.remote, ...refspecs]);
-    return startedAt;
-  }
+  return step("Fetching pinned remote snapshots", () => {
+    const remote = git.remoteRefs(ctx.root, graph.repository.remote);
+    const unique = new Map();
+    for (const branch of graphRefs(graph)) {
+      if (branch === graph.target && getProvider(ctx, graph).mergeBase &&
+        permitsForwardTarget(ctx, journal.plan) &&
+        git.git(ctx.root, ["rev-parse", "--verify", "--quiet", `${journal.plan.target}^{commit}`],
+          undefined, true).status === 0) continue;
+      const sha = remote[`refs/heads/${branch}`];
+      if (sha) unique.set(sha, branch);
+    }
+    const refspecs = [...unique].map(([sha, branch]) =>
+      `${sha}:refs/pr-graph/${journal.id}/fetched/${sha}`);
+    if (refspecs.length) {
+      const startedAt = now(ctx);
+      git.out(ctx.root, ["fetch", "--refmap=", "--no-tags", "--no-write-fetch-head", "--",
+        graph.repository.remote, ...refspecs]);
+      return startedAt;
+    }
+  });
 }
 
 function localCurrent(ctx, plan) {
@@ -628,17 +636,25 @@ function validateNodes(ctx, graph, journal, cwd) {
   for (const node of graph.nodes.filter((n) => !n.landing && !n.retired)) {
     requireValue(node.validations.length || node.validationReason,
       `Validation configuration required for restored node ${node.id}; approve repository-specific checks first.`);
-    if (node.validation?.head === node.head && node.validation.commands === digest(node.validations)) continue;
-    git.checkoutClean(cwd, node.head);
-    for (const check of node.validations) {
-      const result = git.run(check.command, check.args, cwd);
-      requireValue(result.status === 0, `Validation failed for ${node.id}: ${result.stderr}\n${result.stdout}`);
-      requireValue(!git.out(cwd, ["status", "--porcelain"]), `Validation changed ${cwd}; inspect generated files and replan.`);
+    const details = nodeDetails(graph, node);
+    if (node.validation?.head === node.head && node.validation.commands === digest(node.validations)) {
+      step("Reusing current validation (checks not rerun)", () => {}, details);
+      continue;
     }
-    node.validation = { head: node.head, commands: digest(node.validations), reason: node.validationReason };
-    journal.validated ??= {};
-    journal.validated[node.id] = node.validation;
-    saveJournal(ctx, journal);
+    step(node.validations.length ? "Validating node" : `No automated validation: ${node.validationReason}`, () => {
+      git.checkoutClean(cwd, node.head);
+      for (const check of node.validations) {
+        step(`Validation ${JSON.stringify([check.command, ...check.args])}`, () => {
+          const result = git.run(check.command, check.args, cwd);
+          requireValue(result.status === 0, `Validation failed for ${node.id}: ${result.stderr}\n${result.stdout}`);
+          requireValue(!git.out(cwd, ["status", "--porcelain"]), `Validation changed ${cwd}; inspect generated files and replan.`);
+        }, { ...details, success: "passed" });
+      }
+      node.validation = { head: node.head, commands: digest(node.validations), reason: node.validationReason };
+      journal.validated ??= {};
+      journal.validated[node.id] = node.validation;
+      saveJournal(ctx, journal);
+    }, details);
   }
 }
 
@@ -649,9 +665,12 @@ function writeLocal(ctx, graph, plan, journal) {
     if (node.baseBranch !== graph.target) values.set(node.baseBranch, node.base);
   }
   for (const [branch, sha] of values) {
-    git.writeBranch(ctx.root, branch, sha, journal.local[branch] ?? plan.facts.local[branch] ?? null);
-    journal.local[branch] = sha;
-    saveJournal(ctx, journal);
+    const node = graph.nodes.find((n) => n.branch === branch || n.baseBranch === branch);
+    step(`Updating local branch ${branch}`, () => {
+      git.writeBranch(ctx.root, branch, sha, journal.local[branch] ?? plan.facts.local[branch] ?? null);
+      journal.local[branch] = sha;
+      saveJournal(ctx, journal);
+    }, node ? nodeDetails(graph, node) : {});
   }
 }
 
@@ -660,25 +679,28 @@ function push(ctx, graph, entries, plan, journal) {
   requireValue(graph.repository.remote, "Publishing requires a remote.");
   const pending = entries.filter(([branch, sha]) => (journal.remote[branch] ?? plan.facts.remote[branch] ?? null) !== sha);
   if (!pending.length) return;
-  const leases = pending.map(([b]) => `--force-with-lease=refs/heads/${b}:${journal.remote[b] ?? plan.facts.remote[b] ?? ""}`);
-  const refs = pending.map(([b, sha]) => `${sha}:refs/heads/${b}`);
-  journal.remoteStarted = true;
-  saveJournal(ctx, journal);
-  const result = git.git(ctx.root, ["push", "--atomic", ...leases, "--", graph.repository.remote, ...refs], undefined, true);
-  if (result.status !== 0) {
-    requireValue(/does not support.*atomic|does not support --atomic/i.test(result.stderr) && plan.allowNonAtomic,
-      `Push failed; no success is assumed: ${result.stderr}`);
-    for (let i = 0; i < pending.length; i++) {
-      git.out(ctx.root, ["push", leases[i], "--", graph.repository.remote, refs[i]]);
-      journal.remote[pending[i][0]] = pending[i][1];
+  const nodes = graph.nodes.filter((n) => pending.some(([b]) => b === n.branch || b === n.baseBranch));
+  return step(`Pushing ${pending.length} branch ref(s) and verifying remote readback`, () => {
+    const leases = pending.map(([b]) => `--force-with-lease=refs/heads/${b}:${journal.remote[b] ?? plan.facts.remote[b] ?? ""}`);
+    const refs = pending.map(([b, sha]) => `${sha}:refs/heads/${b}`);
+    journal.remoteStarted = true;
+    saveJournal(ctx, journal);
+    const result = git.git(ctx.root, ["push", "--atomic", ...leases, "--", graph.repository.remote, ...refs], undefined, true);
+    if (result.status !== 0) {
+      requireValue(/does not support.*atomic|does not support --atomic/i.test(result.stderr) && plan.allowNonAtomic,
+        `Push failed; no success is assumed: ${result.stderr}`);
+      for (let i = 0; i < pending.length; i++) {
+        git.out(ctx.root, ["push", leases[i], "--", graph.repository.remote, refs[i]]);
+        journal.remote[pending[i][0]] = pending[i][1];
+        saveJournal(ctx, journal);
+      }
+    } else {
+      for (const [branch, sha] of pending) journal.remote[branch] = sha;
       saveJournal(ctx, journal);
     }
-  } else {
-    for (const [branch, sha] of pending) journal.remote[branch] = sha;
-    saveJournal(ctx, journal);
-  }
-  const actual = git.remoteRefs(ctx.root, graph.repository.remote);
-  requireValue(entries.every(([b, sha]) => actual[`refs/heads/${b}`] === sha), "Push readback mismatch.");
+    const actual = git.remoteRefs(ctx.root, graph.repository.remote);
+    requireValue(entries.every(([b, sha]) => actual[`refs/heads/${b}`] === sha), "Push readback mismatch.");
+  }, nodes.length ? nodes.map((n) => nodeDetails(graph, n)) : {});
 }
 
 function verifyPr(ctx, graph, node, provider) {
@@ -721,14 +743,16 @@ function publish(ctx, graph, provider, plan, journal) {
   const active = topological(graph).filter((n) => !n.landing && !n.retired && (plan.action === "publish" || n.pr));
   for (const node of active) {
     if (node.pr && node.requiresDraft && !node.pr.draft) {
-      verifyFacts(ctx, plan, provider, journal);
-      journal.providerStarted = true;
-      journal.remoteStarted = true;
-      saveJournal(ctx, journal);
-      node.pr = provider.update(node.pr.id, { draft: true });
-      requireValue(node.pr.draft, "Cannot publish rewritten content until the PR is draft.");
-      journal.prs[node.id] = node.pr;
-      saveJournal(ctx, journal);
+      step("Returning rewritten PR to draft", () => {
+        verifyFacts(ctx, plan, provider, journal);
+        journal.providerStarted = true;
+        journal.remoteStarted = true;
+        saveJournal(ctx, journal);
+        node.pr = provider.update(node.pr.id, { draft: true });
+        requireValue(node.pr.draft, "Cannot publish rewritten content until the PR is draft.");
+        journal.prs[node.id] = node.pr;
+        saveJournal(ctx, journal);
+      }, nodeDetails(graph, node));
     }
   }
   verifyFacts(ctx, plan, provider, journal);
@@ -738,51 +762,55 @@ function publish(ctx, graph, provider, plan, journal) {
   ]), plan, journal);
   if (provider.kind === "local") return;
   for (const node of active) {
-    verifyIntegration(ctx, plan, journal,
-      git.remoteRefs(ctx.root, graph.repository.remote)[`refs/heads/${graph.target}`]);
-    const body = updateFooter(node.pr?.body ?? node.description, footer(graph, node));
-    const found = node.pr ?? provider.find(node.branch);
-    if (found && !node.pr) {
-      requireValue(found.body.includes(`Graph: \`${graph.id}\` / node: \`${node.id}\``),
-        `Existing PR was not created by this graph: ${found.url}; adopt explicitly.`);
-    }
-    journal.remoteStarted = true;
-    journal.providerStarted = true;
-    saveJournal(ctx, journal);
-    node.pr = found
-      ? provider.update(found.id, { baseBranch: node.baseBranch, body, ...(node.requiresDraft ? { draft: true } : {}) })
-      : provider.create(node, body);
-    journal.prs[node.id] = node.pr;
-    saveJournal(ctx, journal);
-    node.pr = verifyPr(ctx, graph, node, provider);
-    requireValue(node.pr.body === body, `PR description readback mismatch: ${node.id}`);
-    node.requiresDraft = false;
-    journal.prs[node.id] = node.pr;
-    saveJournal(ctx, journal);
+    step(node.pr ? "Updating and verifying PR" : "Creating or locating draft PR and verifying it", () => {
+      verifyIntegration(ctx, plan, journal,
+        git.remoteRefs(ctx.root, graph.repository.remote)[`refs/heads/${graph.target}`]);
+      const body = updateFooter(node.pr?.body ?? node.description, footer(graph, node));
+      const found = node.pr ?? provider.find(node.branch);
+      if (found && !node.pr) {
+        requireValue(found.body.includes(`Graph: \`${graph.id}\` / node: \`${node.id}\``),
+          `Existing PR was not created by this graph: ${found.url}; adopt explicitly.`);
+      }
+      journal.remoteStarted = true;
+      journal.providerStarted = true;
+      saveJournal(ctx, journal);
+      node.pr = found
+        ? provider.update(found.id, { baseBranch: node.baseBranch, body, ...(node.requiresDraft ? { draft: true } : {}) })
+        : provider.create(node, body);
+      journal.prs[node.id] = node.pr;
+      saveJournal(ctx, journal);
+      node.pr = verifyPr(ctx, graph, node, provider);
+      requireValue(node.pr.body === body, `PR description readback mismatch: ${node.id}`);
+      node.requiresDraft = false;
+      journal.prs[node.id] = node.pr;
+      saveJournal(ctx, journal);
+    }, nodeDetails(graph, node));
   }
 }
 
 function backup(ctx, graph, plan, journal) {
-  requireValue(graph.backup.enabled, "Backup is not enabled.");
-  let sha = journal.backupCommit;
-  if (!sha) {
-    const parents = [...new Set([
-      journal.remote[graph.backup.branch] ?? plan.facts.remote[graph.backup.branch],
-      graph.targetSha,
-      ...graph.nodes.flatMap((n) => [n.change.base, n.change.head, n.head, n.base, n.landing?.commit]),
-      graph.combined,
-      graph.source?.base, graph.source?.head,
-    ].filter(Boolean))];
-    const blob = git.out(ctx.root, ["hash-object", "-w", "--stdin"], `${JSON.stringify(graph)}\n`);
-    const tree = git.out(ctx.root, ["mktree"], `100644 blob ${blob}\tgraph.json\n`);
-    sha = git.out(ctx.root, ["commit-tree", tree, ...parents.flatMap((p) => ["-p", p])],
-      `pr-graph ${graph.id} snapshot revision ${graph.revision}\n`);
-    git.pin(ctx.root, journal.id, "metadata", sha);
-    journal.backupCommit = sha;
-    saveJournal(ctx, journal);
-  }
-  push(ctx, graph, [[graph.backup.branch, sha]], plan, journal);
-  graph.backup.head = sha;
+  return step("Saving and publishing approved graph backup", () => {
+    requireValue(graph.backup.enabled, "Backup is not enabled.");
+    let sha = journal.backupCommit;
+    if (!sha) {
+      const parents = [...new Set([
+        journal.remote[graph.backup.branch] ?? plan.facts.remote[graph.backup.branch],
+        graph.targetSha,
+        ...graph.nodes.flatMap((n) => [n.change.base, n.change.head, n.head, n.base, n.landing?.commit]),
+        graph.combined,
+        graph.source?.base, graph.source?.head,
+      ].filter(Boolean))];
+      const blob = git.out(ctx.root, ["hash-object", "-w", "--stdin"], `${JSON.stringify(graph)}\n`);
+      const tree = git.out(ctx.root, ["mktree"], `100644 blob ${blob}\tgraph.json\n`);
+      sha = git.out(ctx.root, ["commit-tree", tree, ...parents.flatMap((p) => ["-p", p])],
+        `pr-graph ${graph.id} snapshot revision ${graph.revision}\n`);
+      git.pin(ctx.root, journal.id, "metadata", sha);
+      journal.backupCommit = sha;
+      saveJournal(ctx, journal);
+    }
+    push(ctx, graph, [[graph.backup.branch, sha]], plan, journal);
+    graph.backup.head = sha;
+  });
 }
 
 function readyChecks(ctx, graph, node, provider, target, action = "merge") {
@@ -881,35 +909,39 @@ function supersede(ctx, graph, provider, journal) {
   if (provider.kind === "local") return;
   for (const node of graph.nodes.filter((n) => n.pr?.state === "open" &&
     (n.retired || (n.requiresDraft && !n.pr.draft)))) {
-    journal.remoteStarted = true;
-    journal.providerStarted = true;
-    saveJournal(ctx, journal);
-    const current = provider.get(node.pr.id);
-    node.pr = provider.update(node.pr.id, {
-      draft: true, body: updateFooter(current.body, footer(graph, { ...node, baseBranch: current.baseBranch })),
-    });
-    journal.prs[node.id] = node.pr;
-    saveJournal(ctx, journal);
+    step("Updating superseded or rewritten draft PR", () => {
+      journal.remoteStarted = true;
+      journal.providerStarted = true;
+      saveJournal(ctx, journal);
+      const current = provider.get(node.pr.id);
+      node.pr = provider.update(node.pr.id, {
+        draft: true, body: updateFooter(current.body, footer(graph, { ...node, baseBranch: current.baseBranch })),
+      });
+      journal.prs[node.id] = node.pr;
+      saveJournal(ctx, journal);
+    }, nodeDetails(graph, node));
   }
 }
 
 function refreshFooters(ctx, graph, provider, journal) {
   if (provider.kind === "local") return;
   for (const node of graph.nodes.filter((n) => n.pr)) {
-    const current = provider.get(node.pr.id);
-    requireValue(current.branch === node.branch && current.head === node.pr.head &&
-      current.baseBranch === node.pr.baseBranch && current.state === node.pr.state,
-    `PR changed during footer refresh: ${node.id}`);
-    const body = updateFooter(current.body, footer(graph, { ...node, baseBranch: current.baseBranch }));
-    if (body !== current.body) {
-      journal.remoteStarted = true;
-      journal.providerStarted = true;
+    step("Refreshing and verifying managed PR footer", () => {
+      const current = provider.get(node.pr.id);
+      requireValue(current.branch === node.branch && current.head === node.pr.head &&
+        current.baseBranch === node.pr.baseBranch && current.state === node.pr.state,
+      `PR changed during footer refresh: ${node.id}`);
+      const body = updateFooter(current.body, footer(graph, { ...node, baseBranch: current.baseBranch }));
+      if (body !== current.body) {
+        journal.remoteStarted = true;
+        journal.providerStarted = true;
+        saveJournal(ctx, journal);
+        node.pr = provider.update(current.id, { body });
+        requireValue(node.pr.body === body, `Footer readback mismatch: ${node.id}`);
+      } else node.pr = current;
+      journal.prs[node.id] = node.pr;
       saveJournal(ctx, journal);
-      node.pr = provider.update(current.id, { body });
-      requireValue(node.pr.body === body, `Footer readback mismatch: ${node.id}`);
-    } else node.pr = current;
-    journal.prs[node.id] = node.pr;
-    saveJournal(ctx, journal);
+    }, nodeDetails(graph, node));
   }
 }
 
@@ -932,9 +964,11 @@ export function applyPlan(ctx, plan, approval, yes) {
     return { unlocked: owner };
   }
   return state.lock(ctx, () => {
-    if (plan.action === "adopt") return applyAdoptionPlan(ctx, plan);
-    if (plan.action === "checkpoint") return applyCheckpointPlan(ctx, plan);
-    if (["resolve", "abort", "cleanup", "reconcile"].includes(plan.action)) return applyRecovery(ctx, plan);
+    if (plan.action === "adopt") return step("Recovering approved external graph identities", () => applyAdoptionPlan(ctx, plan));
+    if (plan.action === "checkpoint") return step("Preserving approved staged work on checkpoint branch", () => applyCheckpointPlan(ctx, plan));
+    if (["resolve", "abort", "cleanup", "reconcile"].includes(plan.action)) {
+      return step(`Recovering operation: ${plan.action}`, () => applyRecovery(ctx, plan));
+    }
     if (plan.action === "fetch-backup") {
       const remote = git.remoteConfig(ctx.root, plan.remote.name);
       requireValue(remote.url === plan.remote.url, "Backup remote changed.");
@@ -1020,38 +1054,46 @@ export function applyPlan(ctx, plan, approval, yes) {
       if (["sync", "publish", "retarget"].includes(plan.action)) publish(ctx, graph, provider, plan, journal);
       if (plan.action === "ready") {
         const node = nodeById(graph, plan.node);
-        const current = verifyFacts(ctx, plan, provider, journal);
-        readyChecks(ctx, graph, node, provider,
-          graph.repository.remote ? current.remote[graph.target] : current.local[graph.target], "ready");
-        verifyFacts(ctx, plan, provider, journal);
-        if (provider.kind !== "local") {
-          journal.remoteStarted = true;
-          journal.providerStarted = true;
-          saveJournal(ctx, journal);
-          node.pr = provider.update(node.pr.id, { draft: false });
-          requireValue(!node.pr.draft, "Provider did not promote the draft.");
-          journal.prs[node.id] = node.pr;
-        }
-        node.ready = true;
+        step("Checking eligibility and marking ready", () => {
+          const current = verifyFacts(ctx, plan, provider, journal);
+          readyChecks(ctx, graph, node, provider,
+            graph.repository.remote ? current.remote[graph.target] : current.local[graph.target], "ready");
+          verifyFacts(ctx, plan, provider, journal);
+          if (provider.kind !== "local") {
+            journal.remoteStarted = true;
+            journal.providerStarted = true;
+            saveJournal(ctx, journal);
+            node.pr = provider.update(node.pr.id, { draft: false });
+            requireValue(!node.pr.draft, "Provider did not promote the draft.");
+            journal.prs[node.id] = node.pr;
+          }
+          node.ready = true;
+        }, nodeDetails(graph, node));
       }
-      if (plan.action === "merge") mergeNode(ctx, graph, nodeById(graph, plan.node), provider, plan, journal, cwd);
+      if (plan.action === "merge") {
+        const node = nodeById(graph, plan.node);
+        step("Merging and verifying landing", () => mergeNode(ctx, graph, node, provider, plan, journal, cwd),
+          nodeDetails(graph, node));
+      }
       if (plan.action === "describe") {
         for (const [id, description] of Object.entries(plan.descriptions ?? { [plan.node]: plan.description })) {
           const node = nodeById(graph, id);
-          requireValue(node.pr && provider.kind !== "local", "Describe requires a hosted PR.");
-          const current = provider.get(node.pr.id);
-          const expected = journal.prs[id] ?? plan.facts.prs[id];
-          requireValue(["body", "head", "branch", "baseBranch", "draft", "state"].every((key) =>
-            current[key] === expected[key]), `PR changed before description replacement: ${id}`);
-          journal.remoteStarted = true;
-          journal.providerStarted = true;
-          saveJournal(ctx, journal);
-          const body = updateFooter(description, footer(graph, node));
-          node.pr = provider.update(node.pr.id, { body });
-          requireValue(node.pr.body === body, "Description update mismatch.");
-          node.description = description;
-          journal.prs[node.id] = node.pr;
-          saveJournal(ctx, journal);
+          step("Updating and verifying PR description", () => {
+            requireValue(node.pr && provider.kind !== "local", "Describe requires a hosted PR.");
+            const current = provider.get(node.pr.id);
+            const expected = journal.prs[id] ?? plan.facts.prs[id];
+            requireValue(["body", "head", "branch", "baseBranch", "draft", "state"].every((key) =>
+              current[key] === expected[key]), `PR changed before description replacement: ${id}`);
+            journal.remoteStarted = true;
+            journal.providerStarted = true;
+            saveJournal(ctx, journal);
+            const body = updateFooter(description, footer(graph, node));
+            node.pr = provider.update(node.pr.id, { body });
+            requireValue(node.pr.body === body, "Description update mismatch.");
+            node.description = description;
+            journal.prs[node.id] = node.pr;
+            saveJournal(ctx, journal);
+          }, nodeDetails(graph, node));
         }
       }
       if (SHAPE.has(plan.action)) supersede(ctx, graph, provider, journal);
@@ -1070,11 +1112,13 @@ export function applyPlan(ctx, plan, approval, yes) {
       journal.candidate = graph;
       journal.finalizing = true;
       saveJournal(ctx, journal);
-      state.save(ctx, graph);
-      journal.candidate = graph;
-      journal.status = "done";
-      journal.error = null;
-      saveJournal(ctx, journal);
+      step("Persisting graph state and recovery journal", () => {
+        state.save(ctx, graph);
+        journal.candidate = graph;
+        journal.status = "done";
+        journal.error = null;
+        saveJournal(ctx, journal);
+      });
       return { graph, operation: journal.id, freshness,
         eligible: graph.nodes.filter((n) => eligible(graph, n)).map((n) => n.id),
         worktree: cwd, cleanup: "Retained; cleanup requires its own approved plan." };
@@ -1092,16 +1136,18 @@ function applyRestore(ctx, plan, journal) {
   const cwd = git.createWorktree(ctx, journal.id, graph.targetSha);
   const apply = (dir, change, title) => applyOwned(ctx, journal, dir, change, title);
   for (const node of graph.nodes) {
-    if (node.landing) {
-      requireValue(node.landing.target === graph.target &&
-        git.ancestor(ctx.root, node.landing.commit, graph.targetSha), "Backup contains an invalid landing receipt.");
-    }
-    if (node.head && node.base) {
-      git.checkoutClean(cwd, node.base);
-      const reproduced = apply(cwd, node.change, node.title);
-      requireValue(git.tree(cwd, reproduced) === git.tree(cwd, node.head),
-        `Backup own-change snapshot mismatch: ${node.id}`);
-    }
+    step("Verifying restored own-change snapshot", () => {
+      if (node.landing) {
+        requireValue(node.landing.target === graph.target &&
+          git.ancestor(ctx.root, node.landing.commit, graph.targetSha), "Backup contains an invalid landing receipt.");
+      }
+      if (node.head && node.base) {
+        git.checkoutClean(cwd, node.base);
+        const reproduced = apply(cwd, node.change, node.title);
+        requireValue(git.tree(cwd, reproduced) === git.tree(cwd, node.head),
+          `Backup own-change snapshot mismatch: ${node.id}`);
+      }
+    }, nodeDetails(graph, node));
   }
   realize(cwd, structuredClone(graph), graph.targetSha, null, (node) => {
     const saved = graph.nodes.find((n) => n.id === node.id);
@@ -1114,12 +1160,14 @@ function applyRestore(ctx, plan, journal) {
   verifyComposition(cwd, graph, graph.targetSha, graph.combined, apply);
   for (const node of graph.nodes) {
     if (!node.head) continue;
-    requireValue(git.refId(ctx.root, `refs/heads/${node.branch}`) === (journal.local[node.branch] ?? plan.expectedLocal[node.branch]), "Restore branch changed.");
-    requireValue(!plan.expectedLocal[node.branch] || plan.expectedLocal[node.branch] === node.head,
-      `Restore would overwrite ${node.branch}.`);
-    git.writeBranch(ctx.root, node.branch, node.head, journal.local[node.branch] ?? plan.expectedLocal[node.branch]);
-    journal.local[node.branch] = node.head;
-    saveJournal(ctx, journal);
+    step("Restoring local branch", () => {
+      requireValue(git.refId(ctx.root, `refs/heads/${node.branch}`) === (journal.local[node.branch] ?? plan.expectedLocal[node.branch]), "Restore branch changed.");
+      requireValue(!plan.expectedLocal[node.branch] || plan.expectedLocal[node.branch] === node.head,
+        `Restore would overwrite ${node.branch}.`);
+      git.writeBranch(ctx.root, node.branch, node.head, journal.local[node.branch] ?? plan.expectedLocal[node.branch]);
+      journal.local[node.branch] = node.head;
+      saveJournal(ctx, journal);
+    }, nodeDetails(graph, node));
   }
   graphPins(ctx, graph);
   graph.lastOperation = journal.id;

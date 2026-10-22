@@ -132,9 +132,43 @@ and freshness, then resume auto mode for the remaining original task without
 asking the user to enable it again.
 
 Keep routine plans and digests in session artifacts for inspection, but show
-only brief progress at meaningful stages and a final result/blocker summary.
+progress according to the output contract below and a final result/blocker summary.
 Informational warnings alone do not require a prompt; a warning requiring a
 decision, exceeding scope, or violating a safety constraint does.
+
+## Progress output
+
+Keep the user informed in both interactive and auto mode. The helper reports
+live progress to stderr by default; preserve stdout for its existing JSON or
+text results. Do not pass `--quiet` unless the user requests reduced output.
+It suppresses progress only, not errors or final results.
+
+- Report each meaningful node phase: reconstruction, validation, local branch
+  updates, pushes, PR creation/updates, readiness, and merge verification.
+  Include node ID and position/total in the active DAG, branch, PR URL or ID
+  when known, and elapsed time on completion. The position is an identity aid,
+  not a count of completed nodes or a whole-operation percentage.
+- Show validation executable/argv and pass/fail. Keep successful command output
+  captured; show captured output on failure. Distinguish reused validation and
+  an approved reason for no automated checks from checks actually run.
+- Also report shared phases such as planning, ref observation, freshness
+  inspection, whole-graph verification, backup, and recovery. Progress is not
+  evidence that a freshness gate, validation, or provider write succeeded.
+- Use colors and a spinner in an interactive terminal, preserving completed
+  steps as lines. Fall back to plain append-only lines when redirected or the
+  terminal is dumb; honor `NO_COLOR`. After two minutes without a new progress
+  event, emit a heartbeat naming the active step and elapsed time; repeat at
+  that interval while the step remains quiet. Do not invent percentages or ETAs.
+
+Complement helper output with concise agent updates at meaningful milestones,
+not a narration of every helper event. Explicitly cover work outside the
+helper: the native freshness preflight, semantic analysis, plan review,
+diagram rendering/upload/verification, and waiting for approval or recovery.
+For node-specific work, include the same identity and phase details when known.
+When a tool supports live output, keep it visible rather than collecting
+everything until completion. During long agent-managed waits, report the active
+step every two minutes when the execution environment permits; do not claim
+live updates if the tool buffers output or blocks the agent.
 
 ## 0. Mandatory branch freshness preflight
 

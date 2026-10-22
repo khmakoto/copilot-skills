@@ -2,10 +2,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { Worker, isMainThread, parentPort, workerData } from "node:worker_threads";
 import * as git from "./lib/git.mjs";
 import * as state from "./lib/state.mjs";
 import { requireValue, render, validateGraph } from "./lib/graph.mjs";
 import { createPlan, applyPlan, inspect } from "./lib/operations.mjs";
+import { ProgressReporter, setProgressSink, step } from "./lib/progress.mjs";
 
 const HELP = `pr-graph (Node.js 22+, Git 2.31+)
 
@@ -38,6 +40,9 @@ After user approval of the exact plan:
   continue --operation <digest> --yes --approve <original-digest>
 
 All commands accept --repo <working-tree-path>. No command auto-installs tools.
+Live progress goes to stderr by default; --quiet suppresses progress, not errors.
+Interactive terminals use colors/spinners; redirected output uses plain lines.
+Quiet steps report a heartbeat every 2 minutes. Stdout results are unchanged.
 Node freshness is reported separately from branch identity and validation.
 Only main/master snapshots have a 90-minute grace from the recorded fetch start; merge is strict.
 Plans contain code/payloads; keep them outside the product working tree.
@@ -46,7 +51,7 @@ Plans contain code/payloads; keep them outside the product working tree.
 function args(argv) {
   const flags = {};
   const positional = [];
-  const boolean = new Set(["yes", "allow-non-atomic", "retain-published-refs"]);
+  const boolean = new Set(["yes", "allow-non-atomic", "retain-published-refs", "quiet"]);
   const known = new Set(["repo", "graph", "spec", "out", "node", "strategy", "remote",
     "backup-ref", "backup-branch", "operation", "body-file", "plan", "approve", "base", "head", "landing",
     "fetch-observation", "commit-trailers-file"]);
@@ -68,7 +73,13 @@ export function main(argv) {
   const { flags, positional } = args(argv);
   const [command, action] = positional;
   if (!command || command === "help") return process.stdout.write(HELP);
-  const ctx = git.context(flags.repo ?? process.cwd());
+  return step(command === "plan" ? `Planning ${action}` : command === "apply" || command === "continue"
+    ? `${command === "continue" ? "Continuing" : "Applying"} approved operation` : `Inspecting ${command}`,
+  () => execute(flags, command, action));
+}
+
+function execute(flags, command, action) {
+  const ctx = step("Locating repository", () => git.context(flags.repo ?? process.cwd()));
   let result;
   if (command === "analyze") {
     requireValue(flags.base && flags.head, "Analyze requires explicit --base and --head.");
@@ -124,7 +135,7 @@ export function main(argv) {
     const plan = command === "apply"
       ? state.readJson(path.resolve(flags.plan ?? ""))
       : state.readJson(state.journalFile(ctx, flags.operation)).plan;
-    result = applyPlan(ctx, plan, flags.approve, flags.yes);
+    result = step(`Executing ${plan.action}`, () => applyPlan(ctx, plan, flags.approve, flags.yes));
   } else {
     throw new Error(`Unknown command: ${command}. Run help.`);
   }
@@ -132,11 +143,47 @@ export function main(argv) {
   return result;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+function errorOutput(error) {
+  process.stderr.write(`${JSON.stringify({ error: error.message })}\n`);
+  process.exitCode = 1;
+}
+
+function runCLI(argv) {
+  const { flags, positional } = args(argv);
+  if (flags.quiet || !positional[0] || positional[0] === "help") return main(argv);
+  const reporter = new ProgressReporter();
+  // Keep reporting responsive while the worker runs synchronous Git/provider commands.
+  const worker = new Worker(new URL(import.meta.url), { workerData: { prGraph: true, argv } });
+  worker.on("message", (message) => {
+    if (message.type === "progress") reporter.receive(message.event);
+    else if (message.type === "error") {
+      reporter.close();
+      errorOutput(message);
+    }
+  });
+  worker.on("error", (error) => {
+    reporter.close();
+    errorOutput(error);
+  });
+  worker.on("exit", (code) => {
+    reporter.close();
+    if (code !== 0) process.exitCode = code;
+  });
+}
+
+if (!isMainThread && workerData?.prGraph) {
+  setProgressSink((event) => parentPort.postMessage({ type: "progress", event }));
   try {
-    main(process.argv.slice(2));
+    main(workerData.argv);
   } catch (error) {
-    process.stderr.write(`${JSON.stringify({ error: error.message })}\n`);
+    parentPort.postMessage({ type: "error", message: error.message });
     process.exitCode = 1;
+  }
+  parentPort.close();
+} else if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+  try {
+    runCLI(process.argv.slice(2));
+  } catch (error) {
+    errorOutput(error);
   }
 }

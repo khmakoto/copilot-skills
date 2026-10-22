@@ -16,6 +16,35 @@ Commands emit JSON except `help` and `view`. Failures emit a JSON error to stder
 and exit nonzero. Errors include the retained operation ID when applicable.
 `doctor` is read-only; it does not repair state implicitly.
 
+### Live progress
+
+Repository commands report progress to stderr by default, leaving stdout result
+shapes unchanged. Interactive terminals show colors and a spinner with completed
+steps retained as lines; redirected output is plain append-only text. `NO_COLOR`
+disables colors, and a dumb terminal uses plain output. `help` has no progress.
+
+Per-node phases include node ID, position/total in the active DAG, branch,
+PR URL or ID when known, and elapsed completion time. The position identifies
+the node, not a completed-node count or percentage; phases may visit it again.
+Shared planning, observations, freshness inspection, composition verification,
+backup, and recovery also report progress. A quiet step gets a heartbeat every
+two minutes, even while a Git, provider, hook, or validation command blocks.
+Successful validation output stays captured; commands and pass/fail are shown,
+with captured output included only on failure. Reused validation and approved
+no-check reasons are labeled separately.
+
+All commands accept `--quiet` to suppress progress, including heartbeats and
+spinners, without suppressing errors or final results:
+
+```text
+node "<helper>" status --repo "<repo>" --graph feature --quiet
+```
+
+With progress enabled, stderr contains human-readable progress as well as the
+JSON error on failure; it is not a JSON-only stream. Use `--quiet` when a caller
+requires the previous error-only stderr contract. Progress never changes a
+plan, approval digest, validation identity, or mutation authorization.
+
 Before invoking any repository inspection or mutation command, complete the
 skill's [branch freshness preflight](../SKILL.md#0-mandatory-branch-freshness-preflight).
 Check local DAG branches, the actual target, and existing `main`/`master`

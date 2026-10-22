@@ -8,6 +8,7 @@ import { resolveProvider } from "../lib/providers/index.mjs";
 import { fixture, git, cli } from "./fixtures.mjs";
 import { createPlan, applyPlan, inspect } from "../lib/operations.mjs";
 import { git as gitResult } from "../lib/git.mjs";
+import { setProgressSink } from "../lib/progress.mjs";
 
 test("provider detection handles GitHub, GHES, ADO SSH/HTTPS and local Git", () => {
   assert.equal(resolveProvider("git@github.com:me/repo.git").kind, "github");
@@ -862,6 +863,14 @@ test("hosted lifecycle publishes all drafts, preserves human text, and gates rea
   const f = fixture({ remote: true });
   t.after(() => f.dispose());
   const host = hostedFixture(f);
+  const progress = [];
+  setProgressSink((event) => {
+    if (event.type === "done" && event.label === "Creating or locating draft PR and verifying it") {
+      assert.equal(host.records.get(Number(event.pr.split("/").at(-1))).state, "open");
+    }
+    progress.push(event);
+  });
+  t.after(() => setProgressSink(undefined));
   f.apply("split", { spec: f.spec });
   let graph = f.apply("publish", { graph: "example" }).graph;
   assert.equal(host.records.size, 6);
@@ -878,6 +887,13 @@ test("hosted lifecycle publishes all drafts, preserves human text, and gates rea
   assert.equal(d.pr.baseBranch, "trunk");
   assert.equal(d.pr.draft, true);
   assert.ok(result.graph.nodes.find((n) => n.id === "c").pr.baseBranch.includes("/bases/"));
+  const published = progress.filter((event) => event.type === "done" &&
+    event.label === "Creating or locating draft PR and verifying it");
+  assert.deepEqual(new Set(published.map((event) => event.node)), new Set(["a", "b", "c", "d", "e", "f"]));
+  assert.ok(published.every((event) => event.branch && event.pr && event.total === 6 && event.index > 0));
+  assert.ok(progress.some((event) => event.type === "done" && event.label.startsWith("Pushing ")));
+  assert.ok(progress.some((event) => event.type === "done" && event.label === "Checking eligibility and marking ready" && event.node === "b"));
+  assert.ok(progress.some((event) => event.type === "done" && event.label === "Merging and verifying landing" && event.node === "b"));
 });
 
 test("batch describe updates approved bodies together without moving refs or draft states", (t) => {
@@ -927,14 +943,20 @@ test("ambiguous PR creation resumes through an approved reconciliation without d
   const host = hostedFixture(f);
   f.apply("split", { spec: f.spec });
   const plan = createPlan(f.ctx, "publish", { graph: "example" });
+  const progress = [];
+  setProgressSink((event) => progress.push(event));
+  t.after(() => setProgressSink(undefined));
   host.loseResponse();
   assert.throws(() => applyPlan(f.ctx, plan, plan.approval, true), /response was lost/);
+  const creation = progress.filter((event) => event.label === "Creating or locating draft PR and verifying it");
+  assert.deepEqual(creation.map((event) => event.type), ["start", "failed"]);
   const recover = createPlan(f.ctx, "reconcile", { operation: plan.approval });
   applyPlan(f.ctx, recover, recover.approval, true);
   const result = applyPlan(f.ctx, plan, plan.approval, true);
   assert.equal(host.records.size, 1);
   assert.ok(result.graph.nodes[0].pr);
   assert.equal(inspect(f.ctx, "example").operations.find((j) => j.id === plan.approval).status, "done");
+  assert.ok(progress.some((event) => event.type === "done" && event.label === "Recovering operation: reconcile"));
 });
 
 test("published folds preserve old PRs as superseded drafts until separately approved cleanup", (t) => {
