@@ -33,12 +33,16 @@ authorization, and completion. Longer supporting contracts live in that skill's
 `references/`. Install or copy complete skill directories: resources must resolve
 relative to the installed skill, independently of the repository being managed.
 `prompts/` contains user-adaptable task templates that compose these workflows;
-`README.md` documents their public behavior, invocation, and installation.
+`README.md` provides the catalog and installation instructions; `docs/skills.md`
+documents detailed public behavior and invocation.
 
 `pr-graph` additionally bundles an executable ESM helper:
 
 - `scripts/pr-graph.mjs` parses commands and formats results; `lib/operations.mjs`
   coordinates planning, approval, application, publication, and recovery.
+- With progress enabled, the CLI runs synchronous operations in a worker thread
+  so the main thread can render live progress and heartbeats. `lib/progress.mjs`
+  owns phase events, per-node identity, elapsed times, and terminal rendering.
 - `lib/graph.mjs` owns graph validation, dependency ordering, eligibility,
   freshness, canonical digests, and managed PR footers. `lib/changes.mjs` pins
   own-change patches, composes prerequisite closures, realizes branches, and
@@ -70,8 +74,8 @@ Fixture coverage is not live provider certification.
   DevOps. Use provider-native tools, inspect deferred tool schemas before calls,
   and do not replace authentication with credential scraping or raw authenticated
   HTTP workarounds.
-- Keep `SKILL.md`, referenced contracts, README descriptions/examples, and
-  affected prompt templates consistent when changing public behavior. Read
+- Keep `SKILL.md`, referenced contracts, the README catalog, `docs/skills.md`,
+  and affected prompt templates consistent when changing public behavior. Read
   workflow text as the artifact being edited, not authorization to execute it.
 
 ### `pr-graph` invariants
@@ -83,6 +87,11 @@ Fixture coverage is not live provider certification.
 - `--auto` belongs to the skill, not the helper CLI, and is invocation-scoped.
   It never bypasses digest checks; merging, deletion/cleanup, backup transfers,
   restore, and recovery decisions retain explicit approval requirements.
+- Preserve stdout result shapes; send live progress to stderr. Helper `--quiet`
+  suppresses progress only, not errors or final results. Progress is not proof of
+  successful freshness checks, validation, or mutations; report completion only
+  after the corresponding checks or readback succeed. Keep presentation details
+  in `skills/pr-graph/SKILL.md` and its command reference.
 - A node owns an immutable-base delta, not its accumulated branch. Its realized
   base contains each unlanded prerequisite once; helper bases keep blocked draft
   PR diffs limited to the node's own changes. All prerequisites must land in the
