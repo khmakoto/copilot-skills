@@ -429,7 +429,8 @@ To change the integration branch of an entirely unlanded graph, use a separately
 approved `retarget` plan with an id/target-only spec. This is a full reconstruction,
 validation and leased publication, not a metadata-only target edit. Rewritten
 non-draft PRs return to draft, existing PR identities and own-change ownership
-are retained, and diagrams must be refreshed. See [commands](references/commands.md)
+are retained, and diagrams must be refreshed. See
+[lifecycle commands](references/lifecycle-commands.md)
 for its fixed-source-snapshot and forward-moving-target semantics.
 
 When asked to publish existing PRs or take them out of draft, distinguish hosting

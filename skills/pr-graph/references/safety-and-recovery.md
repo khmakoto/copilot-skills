@@ -130,6 +130,8 @@ implied by this metadata operation. Publication, sync, readiness and merge
 still require their normal freshness preflight, composition checks and
 separate approvals.
 
+### Resuming or aborting an interrupted operation
+
 After the freshness preflight, run `status` first. If an interrupted operation
 prevents safe fast-forwarding, limit initial reads to its journal, refs, and
 worktree safety facts and resolve that blocker explicitly. A running journal
