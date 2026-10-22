@@ -174,6 +174,30 @@ Supported actions are `init`, `split`, `add`, `deps`, `split-node`, `fold`,
 `remove`, `sync`, `publish`, `retarget`, and `record-landing`; other actions reject
 the option. Without it, reconstruction messages retain their existing behavior.
 
+### Reusing a retained operation worktree
+
+For `sync`, `publish`, and `retarget`, `--reuse-worktree <operation-digest>` can
+reuse the worktree of a completed or explicitly aborted operation for the same
+graph and repository:
+
+```text
+node "<helper>" plan sync --repo "<repo>" --graph feature --reuse-worktree "<stopped-operation-digest>" --out "<plan.json>"
+```
+
+Planning pins the source journal, exact path, Git administrative-directory
+identity, and HEAD. The source must have no pending change; its worktree must be
+registered, detached, unlocked, and clean including untracked files. Apply
+rechecks those leases under the repository mutation lock before transferring
+ownership in both journals. The path and ignored installed tooling are retained;
+no new worktree, automatic install, stash, or cleanup is performed.
+
+Use the latest owner operation when reusing the same worktree again. Earlier
+owners cannot recover or clean a transferred worktree, and plans approved before
+the transfer are invalidated. Recovery and status use the retained path, not a
+new directory named after the current operation. Freshness, commit hooks,
+cleanliness checks, composition, and validation requirements are unchanged.
+Reusing a worktree does not reuse an expired snapshot or renew its fetch clock.
+
 ```text
 node "<helper>" plan split --repo "<repo>" --spec "<spec.json>" --out "<plan.json>"
 node "<helper>" apply --repo "<repo>" --plan "<plan.json>" --yes --approve "<digest>"

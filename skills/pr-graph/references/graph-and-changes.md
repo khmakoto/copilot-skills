@@ -80,6 +80,10 @@ target branch, not replayed copies of old SHAs.
 
 When all prerequisites land, sync constructs the node directly on the target,
 retargets its PR, and keeps it a draft. `ready` is a separate operation.
+For already-eligible PRs, sync and other reconstruction preserve the live
+draft/non-draft state, including manual transitions. Only blocked or superseded
+nodes are returned to draft. Revalidation and current-target merge checks remain
+required regardless of PR status; changes after planning require reapproval.
 
 Retargeting can change review/check behavior. Treat previous policy facts as
 stale. Never use helper-target policies as evidence that final-target policies
@@ -89,7 +93,7 @@ An approved `retarget` reconstructs an entirely unlanded graph on a new
 integration snapshot using these same own-change and prerequisite-closure rules.
 It is not a target-only metadata migration. The old source remains provenance;
 the combined-tree preservation comparison composes the unchanged owned deltas
-onto the new snapshot. Publication returns rewritten non-draft PRs to draft.
+onto the new snapshot. Publication preserves eligible PRs' observed draft/non-draft state.
 Forward movement of the new remote target does not change the approved authored
 snapshot or make it exact-current. Only the bounded main/master grace can
 permit readiness on that older snapshot; it never permits merging.

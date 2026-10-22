@@ -33,6 +33,7 @@ Prepare a concrete mutation plan:
   --body-file <file>          Explicit describe replacement
   --fetch-observation <json>  Main/master live-tip SHA and fetch-start time
   --commit-trailers-file <json>  Exact trailer lines for reconstruction commits
+  --reuse-worktree <digest>   Reuse a clean completed/aborted operation worktree (sync/publish/retarget)
   --allow-non-atomic          Approve fallback when atomic push is unsupported
 
 After user approval of the exact plan:
@@ -54,7 +55,7 @@ function args(argv) {
   const boolean = new Set(["yes", "allow-non-atomic", "retain-published-refs", "quiet"]);
   const known = new Set(["repo", "graph", "spec", "out", "node", "strategy", "remote",
     "backup-ref", "backup-branch", "operation", "body-file", "plan", "approve", "base", "head", "landing",
-    "fetch-observation", "commit-trailers-file"]);
+    "fetch-observation", "commit-trailers-file", "reuse-worktree"]);
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (!a.startsWith("--")) { positional.push(a); continue; }
@@ -119,6 +120,7 @@ function execute(flags, command, action) {
       remote: flags.remote, backupRef: flags["backup-ref"], backupBranch: flags["backup-branch"],
       operation: flags.operation, allowNonAtomic: flags["allow-non-atomic"],
       retainPublishedRefs: flags["retain-published-refs"],
+      reuseWorktree: flags["reuse-worktree"],
       fetchObservation: flags["fetch-observation"] ? state.readJson(path.resolve(flags["fetch-observation"])) : undefined,
       commitTrailers: flags["commit-trailers-file"] ? state.readJson(path.resolve(flags["commit-trailers-file"])) : undefined,
       body: flags["body-file"] ? fs.readFileSync(path.resolve(flags["body-file"]), "utf8") : undefined,

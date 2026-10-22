@@ -11,6 +11,13 @@ mutation.lock
 trees/<operation-id>/
 ```
 
+An approved `sync`, `publish`, or `retarget` plan may explicitly reuse a stopped
+operation's clean detached worktree with `--reuse-worktree`. Its path stays
+unchanged; journals record the ownership transfer and reject recovery/cleanup
+through an earlier owner. Source identity, HEAD, and cleanliness are leased
+before transfer. Reuse does not copy validation or renew freshness; see the
+[command reference](commands.md#reusing-a-retained-operation-worktree).
+
 Git refs under `refs/pr-graph/` pin original snapshots, candidate commits, and
 downloaded metadata. They are not product branches.
 

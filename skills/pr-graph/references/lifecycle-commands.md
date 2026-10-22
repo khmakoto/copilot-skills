@@ -18,14 +18,18 @@ node "<helper>" plan record-landing --repo "<repo>" --graph feature --node model
 Apply each separately approved plan. `publish` creates all missing drafts;
 `sync` only publishes already-published nodes. In local-provider mode, publish
 pushes branches but creates no pretend PRs. Sync never promotes a draft.
+Publish and sync preserve eligible existing PRs' observed draft/non-draft state,
+including manual transitions, even when reconstruction changes their head/base.
+Blocked or superseded nodes must be draft. A status change after planning
+invalidates approval; replan rather than overwriting it.
 
 `retarget` migrates a fully realized, unlanded graph to another integration
 branch. Its spec contains only `{"id":"feature","target":"main"}`. The new
 snapshot must contain the old integration snapshot. It preserves IDs, edges,
 own changes and PR identities, reconstructs every active branch and prerequisite
 base, verifies the combined tree, reruns configured validation, then publishes
-already-hosted nodes using the normal leased sync workflow. Rewritten non-draft
-PRs return to draft before pushes; it never promotes or merges. Old integration
+already-hosted nodes using the normal leased sync workflow. Eligible PRs retain
+their observed draft/non-draft state; it never promotes or merges. Old integration
 refs and source provenance remain untouched.
 
 This full reconstruction pins the approved source snapshot even if the new
@@ -39,6 +43,8 @@ Graphs with landing receipts need a separate graph.
 Shape changes preserve local snapshots; hosted changed content is not published
 until a separate publish/sync. Superseded PRs are marked draft with an explicit
 footer; cleanup controls closing and deletion separately.
+Eligible existing PRs retain their observed draft/non-draft state through
+reshaping; newly blocked PRs return to draft, including manually promoted PRs.
 
 `describe` replaces only the selected node's body with approved text plus the
 managed footer. Routine operations preserve existing human bodies.

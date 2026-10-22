@@ -107,6 +107,25 @@ export function createWorktree(ctx, operationId, base) {
   return dir;
 }
 
+export function operationWorktreeInfo(ctx, dir) {
+  requireValue(path.dirname(dir) === path.join(ctx.dir, "trees") &&
+    /^[0-9a-f]{64}$/.test(path.basename(dir)) &&
+    fs.existsSync(dir) && !fs.lstatSync(dir).isSymbolicLink(),
+  "Reuse requires an existing tool-owned operation worktree.");
+  requireValue(out(dir, ["rev-parse", "--path-format=absolute", "--git-common-dir"]) === ctx.common,
+    "Operation worktree belongs to another repository.");
+  requireValue(path.resolve(out(dir, ["rev-parse", "--show-toplevel"])) === dir,
+    "Operation worktree root changed.");
+  const entry = out(ctx.root, ["worktree", "list", "--porcelain", "-z"]).split("\0\0")
+    .map((item) => item.split("\0")).find((item) =>
+      item[0].startsWith("worktree ") && path.resolve(item[0].slice(9)) === dir);
+  requireValue(entry?.includes("detached") &&
+    !entry.some((item) => item === "locked" || item.startsWith("locked ")),
+  "Reuse requires a registered, detached, unlocked operation worktree.");
+  return { path: dir, head: commitId(dir, "HEAD"),
+    gitDir: out(dir, ["rev-parse", "--absolute-git-dir"]) };
+}
+
 export function checkoutClean(cwd, sha) {
   requireValue(!out(cwd, ["status", "--porcelain", "--untracked-files=all"]), `Operation worktree has changes: ${cwd}`);
   out(cwd, ["checkout", "--detach", sha]);

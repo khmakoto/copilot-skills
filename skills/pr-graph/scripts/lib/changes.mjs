@@ -1,4 +1,4 @@
-import { digest, requireValue, prerequisites, topological, helperBranch } from "./graph.mjs";
+import { digest, requireValue, prerequisites, topological, helperBranch, eligible } from "./graph.mjs";
 import * as git from "./git.mjs";
 import { nodeDetails, step } from "./progress.mjs";
 
@@ -49,6 +49,7 @@ export function realize(cwd, graph, target, previous, onNode, apply = applyChang
         target, own: node.change, deps: deps.filter((n) => !n.landing).map((n) => [n.id, n.change]),
       });
       const old = previous?.nodes.find((n) => n.id === node.id);
+      node.requiresDraft = !eligible(graph, node);
       if (old?.signature === signature && old.head && old.base) {
         node.base = old.base;
         node.head = old.head;
@@ -57,7 +58,6 @@ export function realize(cwd, graph, target, previous, onNode, apply = applyChang
         node.baseBranch = baseBranch;
         if (baseBranch !== old.baseBranch) {
           node.ready = false;
-          node.requiresDraft = true;
         }
         results.push(node);
         onNode(node);
@@ -71,7 +71,6 @@ export function realize(cwd, graph, target, previous, onNode, apply = applyChang
       node.validation = null;
       node.baseBranch = baseBranch;
       node.ready = false;
-      node.requiresDraft = true;
       results.push(node);
       onNode(node);
     }, nodeDetails(graph, node));

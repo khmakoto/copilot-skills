@@ -85,6 +85,11 @@ approval boundaries. The skill supports same-file splitting, graph reshaping,
 merge/squash/rebase strategies, and opt-in committed snapshot recovery across
 machines.
 
+Eligible existing PRs retain their live draft/non-draft state through sync,
+retargeting, and graph reshaping, including manual status changes. Blocked or
+superseded PRs must be draft; non-draft status does not waive validation,
+freshness, or merge checks. Status changes after planning require reapproval.
+
 Use invocation-scoped `--auto` to approve routine in-scope plans, safe freshness
 fetches/fast-forwards, expired-grace sync and revalidation, and diagram updates
 without repeated prompts. Conflicts and other safety blockers pause for an
@@ -122,6 +127,14 @@ Reconstruction plans accept `--commit-trailers-file <json>` to pin required comm
 trailers into the approved payload and generated commit messages, including
 conflict recovery, without changing PR titles. This helper option is scoped to
 each operation and does not change Git configuration or a graph-wide policy.
+
+For `sync`, `publish`, and `retarget`, helper plans accept
+`--reuse-worktree <operation-digest>` to explicitly reuse a completed or aborted
+operation's clean detached worktree for the same graph and repository. Plans pin
+its identity and HEAD; apply rechecks those leases and transfers ownership in
+both journals, preserving the path and ignored installed tooling. Earlier owners
+cannot recover or clean the transferred worktree. Reuse does not bypass
+validation, hooks, or freshness checks, or renew the fetch clock.
 
 Whole-graph retargeting reconstructs unlanded work on another integration branch
 while preserving change ownership and existing PR identities. Batch description
