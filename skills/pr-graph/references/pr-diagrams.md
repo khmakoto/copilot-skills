@@ -8,11 +8,31 @@ even when every image otherwise depicts the same graph.
 
 Show all nodes, including unpublished nodes and retained superseded nodes, and
 all declared dependency edges. Use stable node IDs; optional short titles and
-known PR numbers help identify changes. Distinguish blocked/eligible,
-unpublished/draft/review-ready, landed, and superseded states without conflating
-eligibility with readiness or assuming checks passed. Label the selected node
-`THIS PR` and give it a distinct outline; do not rely on color alone. Include a
-legend and identify the graph and snapshot revision.
+known PR numbers help identify changes. Keep node cards compact: show the node
+name, PR number when known, lifecycle (`active`, `landed`, or `superseded`),
+eligibility (`eligible` or `blocked` when applicable), readiness (`unpublished`,
+`draft`, or `review-ready` when applicable), and a short textual freshness badge.
+Keep these states distinct; do not imply that structural checks establish
+functional or merge readiness. Do not repeat authored commit IDs, structural
+check details, full timestamps, or explanatory prose in every node or edge.
+
+Move commit IDs and structural-check results into a concise graph-level snapshot
+summary, keyed by node ID where needed to preserve landed and superseded nodes'
+own evidence. Put the graph name, revision, observation time, integration
+snapshot/fetch start, and applicable grace expiry in that summary too. Keep it a
+compact header or footer rather than a tall metadata card; use concise labels
+and omit no required evidence.
+
+Label the selected node `THIS PR` and give it a distinct outline; do not rely on
+color alone. Use a compact visual key with colored swatches and labeled line
+samples, not a legend table or repeated edge captions. Active dependency edges
+are solid; retained landed dependency edges are dashed. Keep a brief label in
+the key for each edge style. Arrange the graph top to bottom, with prerequisites
+above their dependents (for Mermaid, use `flowchart TD` or `flowchart TB`). Use
+distinct, clear status colors for active eligible, blocked, landed, and
+superseded nodes, while keeping their text labels explicit and readable. Keep
+the full graph compact and legible in a pull-request description; avoid
+excessive whitespace, narrow cards, and line wrapping that obscures labels.
 
 Also show each node's integration freshness (`current`, `grace`, `stale`, or
 `unknown`) independently of eligibility and readiness. Include the snapshot's
@@ -28,28 +48,40 @@ preflight. Do not infer landings from closed PRs, or draw intended future
 changes as completed. If facts cannot be established, stop and report the
 blocker rather than publishing an apparently current diagram.
 
-For example, the initial A-F graph for C's PR has these edges and selection:
+For example, this compact source for the initial A-F graph shows lifecycle,
+eligibility/readiness, and freshness as separate text, with color as a supporting
+cue. The actual rendered image must also include the compact visual key and
+graph-level snapshot summary described above.
 
 ```mermaid
 flowchart TD
-    n_a["A: eligible / draft"]
-    n_b["B: eligible / draft"]
-    n_c["C: THIS PR / blocked / draft"]
-    n_d["D: blocked / draft"]
-    n_e["E: eligible / draft"]
-    n_f["F: blocked / draft"]
+    n_a["A · PR #101<br/>ACTIVE · ELIGIBLE · DRAFT<br/>FRESH: CURRENT"]
+    n_b["B · PR #102<br/>ACTIVE · ELIGIBLE · REVIEW-READY<br/>FRESH: GRACE"]
+    n_c["C · PR #103 · THIS PR<br/>ACTIVE · BLOCKED · DRAFT<br/>FRESH: STALE"]
+    n_d["D · unpublished<br/>ACTIVE · BLOCKED · UNPUBLISHED<br/>FRESH: UNKNOWN"]
+    n_e["E · PR #105<br/>LANDED<br/>FRESH: UNKNOWN"]
+    n_f["F · PR #106<br/>SUPERSEDED<br/>FRESH: UNKNOWN"]
     n_a --> n_c
     n_b --> n_c
     n_b --> n_d
     n_c --> n_f
     n_d --> n_f
-    n_e --> n_f
-    classDef current stroke:#005a9e,stroke-width:4px
-    class n_c current
+    n_e -.-> n_f
+    classDef eligible fill:#dbeafe,stroke:#2563eb,color:#172554
+    classDef blocked fill:#fef3c7,stroke:#d97706,color:#451a03
+    classDef landed fill:#dcfce7,stroke:#16a34a,color:#14532d
+    classDef superseded fill:#e5e7eb,stroke:#6b7280,color:#1f2937
+    classDef selected stroke:#075985,stroke-width:4px
+    class n_a,n_b eligible
+    class n_c,n_d blocked
+    class n_e landed
+    class n_f superseded
+    class n_c selected
 ```
 
-This is an example of the source, not the required PR attachment. Render the
-actual graph to an image; do not paste this example unchanged into descriptions.
+This is an example of the source, not a complete required PR attachment. Render
+the actual graph to an image; do not paste this example unchanged into
+descriptions.
 
 ## Render and upload safely
 

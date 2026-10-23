@@ -149,8 +149,10 @@ occupied graph node, using normal hooks and signing. Both require human approval
 even in auto mode.
 
 Each PR description ends with a rendered Mermaid DAG image highlighting its own
-node. The skill workflow refreshes these snapshots as graph state changes and
-requires an approved local renderer and supported provider attachment mechanism.
+node. Diagrams use compact node cards, a small visual key, and a concise snapshot
+summary to keep the full graph readable in a PR description. The skill workflow
+refreshes these snapshots as graph state changes and requires an approved local
+renderer and supported provider attachment mechanism.
 
 ```text
 /pr-graph [--auto] [split | view | add | sync | retarget | ready | merge | describe | reshape | adopt | checkpoint | backup | restore]
