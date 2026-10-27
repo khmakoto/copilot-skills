@@ -412,14 +412,20 @@ lifecycle, eligibility/readiness, and freshness, and move commit IDs, structural
 check details, and exact snapshot times into a compact graph summary. Use a
 small visual key instead of a legend table or repeated edge labels, distinct
 status colors with explicit text labels, and a compact top-to-bottom layout
-with prerequisites above dependents. Include accessible alt text. A Mermaid
+with prerequisites above dependents. Route every arrow clear of unrelated nodes,
+labels, and summary/key content; unobscured, traceable edges take priority over
+compactness. Inspect every edge in each final highlighted image and adjust the
+layout and re-render until it passes the
+[edge-routing acceptance check](references/pr-diagrams.md#edge-routing-and-visual-acceptance)
+before uploading. Include accessible alt text. A Mermaid
 code fence or local file path is not a substitute for the hosted image. Do not
 report publication complete until every created PR's image has been verified,
 or explicitly report the incomplete step.
 
 Refresh diagrams on existing PRs after publication, sync, readiness, landings,
-or graph reshaping changes the depicted state. Reuse an unchanged image rather
-than uploading duplicates. Replace only the managed diagram block and keep it
+or graph reshaping changes the depicted state. Reuse an unchanged image only if
+it still passes the visual acceptance check, rather than uploading duplicates.
+Replace only the managed diagram block and keep it
 at the end, preserving human text and the helper footer.
 
 Blocked drafts target tool-owned helper bases containing exactly their

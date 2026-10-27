@@ -34,6 +34,34 @@ superseded nodes, while keeping their text labels explicit and readable. Keep
 the full graph compact and legible in a pull-request description; avoid
 excessive whitespace, narrow cards, and line wrapping that obscures labels.
 
+### Edge routing and visual acceptance
+
+Every dependency arrow must be traceable from its source boundary to its target
+arrowhead. No part of its route may pass through or behind an unrelated node,
+node label, visual key, or snapshot summary. This applies to solid and dashed
+edges, including long edges that skip ranks and edges involving landed or
+superseded nodes. Leave visible clearance from unrelated node borders, including
+the selected node's heavy outline; do not route along a border where the edge
+could be mistaken for part of the card.
+
+Treat unobscured edges as a requirement, not a preference subordinate to
+compactness. Use the available local renderer's layout/routing controls to route
+around node bounds. If needed, increase rank/node spacing, reorder independent
+nodes, or reserve outer routing lanes for long edges, then render again.
+Changing a curve style or drawing edges behind opaque cards is not proof that
+the routes avoid nodes. Do not hide, drop, reverse, or invent dependency edges,
+remove retained nodes, or shrink labels to make a layout appear to pass.
+
+Inspect the final rendered image, not just the Mermaid source or layout settings.
+Trace **every** declared edge end to end and check its arrowhead, including
+fan-in/fan-out and skip-rank edges. Check for ambiguous crossings or overlapping
+routes that make endpoints unclear, and reroute them. Repeat this check for each
+PR-specific highlighted rendering because its outline or label can change the
+layout. If any route remains obscured or ambiguous, keep the artifacts and report
+the rendering blocker; do not upload or reuse that image as an acceptable diagram.
+
+### Freshness evidence
+
 Also show each node's integration freshness (`current`, `grace`, `stale`, or
 `unknown`) independently of eligibility and readiness. Include the snapshot's
 verification time (the recorded fetch start when supplied) and any grace expiry
@@ -92,6 +120,8 @@ descriptions.
 2. Use an available approved **local** Mermaid renderer to produce a PNG, or
    another image format verified to render on the target host. Inspect the
    output for correct edges, labels, selected node, legibility, and clipping.
+   Apply the edge-routing acceptance check above; adjust and re-render until
+   every arrow is unobscured and traceable before approval or upload.
    Keep the source and rendered image for recovery.
 3. Do not send repository names, titles, graph data, or encoded diagram source
    to a public rendering service. Do not install a renderer or browser silently.
@@ -163,8 +193,10 @@ Refresh affected images on all existing graph PRs when dependencies, node
 membership, publication, draft/readiness state, or landing/supersession state
 changes, including after sync and graph transformations. A body replacement
 through `describe` must retain or restore the current diagram as the last block.
-Keep unchanged images when their depicted state is still current; do not append
-duplicate blocks or repeat successful uploads after partial failure.
+Keep unchanged images when their depicted state is still current and they pass
+the edge-routing acceptance check; replace existing images with obscured arrows
+when refreshing diagrams. Do not append duplicate blocks or repeat successful
+uploads after partial failure.
 
 An image-update failure does not undo a created PR or completed merge. Retain
 the PR identity, rendering, and any successful attachment URL, report the exact

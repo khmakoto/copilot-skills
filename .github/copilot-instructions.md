@@ -62,8 +62,9 @@ Fixture coverage is not live provider certification.
 
 ### Skill and prompt contracts
 
-- Preserve explicit invocation boundaries: `pr-feedback`, `pr-reviewer`,
-  `session-distill`, and `skill-doctor` set `disable-model-invocation: true`;
+- Preserve explicit invocation boundaries: `ci-triage`, `design-interview`,
+  `pr-description`, `pr-feedback`, `pr-reviewer`, `session-distill`, and
+  `skill-doctor` set `disable-model-invocation: true`;
   `brainstorm`, `pr-walkthrough`, and `pr-graph` also support description-based
   selection.
 - Interactive triage presents one item at a time using structured user input.
