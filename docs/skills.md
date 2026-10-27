@@ -24,6 +24,66 @@ exact payload.
 /brainstorm [repository or path] [suggest-only] [count, focus areas, exclusions, or other constraints]
 ```
 
+## `ci-triage`
+
+Investigates failing GitHub or Azure DevOps PR checks, workflow/build runs, or
+local build/test commands. Pins the tested revision, run attempt, job/matrix,
+and relevant configuration before tracing failures to their causes.
+
+The skill distinguishes change-related, pre-existing, test-fixture,
+infrastructure/environment, flaky, and undetermined causes, with evidence-backed
+attribution and confidence. An unchanged failing file or a successful retry
+alone does not establish that a failure is unrelated or flaky.
+
+Root causes are triaged individually. Discovery is read-only; local reproduction,
+fixes, and remote reruns have separate explicit authorization boundaries.
+Diagnose-only mode makes no changes or reruns. Reports distinguish local
+validation from hosted results and queued reruns from completed checks.
+
+```text
+/ci-triage <pull-request-url | run-url | failing-command> [diagnose-only] [scope or constraints]
+```
+
+## `design-interview`
+
+Clarifies an already-selected feature or improvement through an evidence-backed
+interview. Inspects the relevant implementation and supplied artifacts, then asks
+one focused structured question at a time about goals, tradeoffs, and constraints.
+Supports visual interfaces, terminal output, APIs, and agent workflows.
+
+The resulting design separates explicit decisions from proposed defaults and
+assumptions, defines scope and non-goals, and includes observable acceptance
+criteria and proposed validation. Unresolved material choices keep it provisional.
+
+The workflow is read-only and requires explicit approval of the final design.
+Design approval does not authorize implementation, saving a document, running
+validation, or publishing anything; implementation requires a separate instruction.
+
+```text
+/design-interview [feature or improvement] [paths, screenshots, or constraints]
+```
+
+## `pr-description`
+
+Drafts or refreshes a GitHub or Azure DevOps pull request description using its
+current published diff, applicable repository template, and verified validation
+evidence. Supports GitHub Enterprise Server and legacy Azure DevOps URLs through
+available provider-native tools.
+
+The skill preserves human-maintained content outside the requested scope,
+references, attachments, and managed graph footer/diagram blocks. Validation
+results distinguish current-head evidence from historical results and disclose
+pending, failed, or unavailable checks.
+
+The complete body is editable and requires exact-payload approval before
+publication. The skill rechecks for intervening changes and verifies the saved
+description. Draft-only mode makes no remote changes; neither mode changes code,
+review threads, graph state, or other PR metadata.
+
+```text
+/pr-description <pull-request-url> [draft-only] [scope or constraints]
+```
+
 ## `pr-feedback`
 
 Validates incoming GitHub or Azure DevOps pull request feedback against the
@@ -151,6 +211,10 @@ even in auto mode.
 Each PR description ends with a rendered Mermaid DAG image highlighting its own
 node. Diagrams use compact node cards, a small visual key, and a concise snapshot
 summary to keep the full graph readable in a PR description. The skill workflow
+requires every arrow to stay clear of unrelated nodes and labels, with
+edge-by-edge inspection of each highlighted rendering before upload. Rerouting
+and extra spacing take priority over compactness; obscured or ambiguous edges
+block upload or image reuse. The workflow
 refreshes these snapshots as graph state changes and requires an approved local
 renderer and supported provider attachment mechanism.
 

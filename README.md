@@ -22,15 +22,18 @@ All skills can be invoked explicitly. `brainstorm`, `pr-walkthrough`, and
 `pr-graph` may also be selected automatically when a request matches their
 descriptions. The other skills require explicit invocation.
 
-| Skill                                               | Purpose                                                                                                                                    |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| [`brainstorm`](docs/skills.md#brainstorm)           | Rank repository improvements and triage them one at a time, with optional confirmed issue creation.                                        |
-| [`pr-feedback`](docs/skills.md#pr-feedback)         | Validate PR feedback and implement individually approved fixes; remote actions need separate approval.                                     |
-| [`pr-reviewer`](docs/skills.md#pr-reviewer)         | Review PRs or local branches for actionable defects, with individually confirmed remote comments.                                          |
-| [`pr-walkthrough`](docs/skills.md#pr-walkthrough)   | Build a read-only, dependency-ordered route for human review.                                                                              |
-| [`pr-graph`](docs/skills.md#pr-graph)               | Manage a PR dependency DAG across local Git, GitHub/GHES, and Azure DevOps, with draft-first publication and explicit approval boundaries. |
-| [`session-distill`](docs/skills.md#session-distill) | Turn session lessons into evidence-backed improvement proposals without automatically saving changes.                                      |
-| [`skill-doctor`](docs/skills.md#skill-doctor)       | Audit skill definitions and apply only specifically approved repairs.                                                                      |
+| Skill                                                 | Purpose                                                                                                                                       |
+| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`brainstorm`](docs/skills.md#brainstorm)             | Rank repository improvements and triage them one at a time, with optional confirmed issue creation.                                           |
+| [`ci-triage`](docs/skills.md#ci-triage)               | Diagnose failing checks, builds, or tests from revision-pinned evidence; fixes, reproduction, and remote reruns require approval.             |
+| [`design-interview`](docs/skills.md#design-interview) | Interview the user about a selected improvement and agree on a design with observable acceptance criteria before implementation.              |
+| [`pr-description`](docs/skills.md#pr-description)     | Draft or refresh PR descriptions from current changes and validation evidence, preserving managed metadata and requiring approval to publish. |
+| [`pr-feedback`](docs/skills.md#pr-feedback)           | Validate PR feedback and implement individually approved fixes; remote actions need separate approval.                                        |
+| [`pr-reviewer`](docs/skills.md#pr-reviewer)           | Review PRs or local branches for actionable defects, with individually confirmed remote comments.                                             |
+| [`pr-walkthrough`](docs/skills.md#pr-walkthrough)     | Build a read-only, dependency-ordered route for human review.                                                                                 |
+| [`pr-graph`](docs/skills.md#pr-graph)                 | Manage a PR dependency DAG across local Git, GitHub/GHES, and Azure DevOps, with draft-first publication and explicit approval boundaries.    |
+| [`session-distill`](docs/skills.md#session-distill)   | Turn session lessons into evidence-backed improvement proposals without automatically saving changes.                                         |
+| [`skill-doctor`](docs/skills.md#skill-doctor)         | Audit skill definitions and apply only specifically approved repairs.                                                                         |
 
 See the [skill guide](docs/skills.md) for invocation examples, detailed behavior,
 requirements, and safety boundaries.
