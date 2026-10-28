@@ -84,6 +84,21 @@ gate.
 
 ## Failed or interrupted operations
 
+### Removing retired unpublished metadata
+
+`plan remove-retired --graph <id> --node <id>` removes only a retired node
+without a PR, landing, remote product branch, or dependents, along with historical
+`supersedes`/`replacedBy` references to it. It requires separate human approval
+even in auto mode; it is not source removal or branch/PR cleanup.
+
+The plan pins the previous manifest and local/remote product branch observations.
+Apply rechecks them before writing graph metadata and retains the complete prior
+manifest in its journal. All Git refs, commits, files, indexes, worktrees, PRs,
+and existing validation/readiness evidence remain unchanged. No source
+reconstruction, validation run, publication, or backup upload occurs; the helper
+does not accept `--fetch-observation` for this operation. An interrupted metadata
+write can resume with `continue` and the original approval digest.
+
 ### Releasing an occupied node without stashing
 
 `plan checkpoint --graph <id> --spec <json>` preserves the selected checkout's

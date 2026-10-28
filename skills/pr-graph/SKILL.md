@@ -114,8 +114,8 @@ tasks do not trigger unnecessary source reconstruction. Merge remains strictly
 current-target.
 
 **Always ask for concrete approval** before merging, removal/deletion/cleanup
-(including `remove` and closing retired PRs), backup uploads, backup downloads,
-restore, `adopt`, or `checkpoint`. Inspect all plan effects: a routine lifecycle
+(including `remove`, `remove-retired`, and closing retired PRs), backup uploads,
+backup downloads, restore, `adopt`, or `checkpoint`. Inspect all plan effects: a routine lifecycle
 plan that also uploads an enabled backup needs human approval too. Auto mode never silently disables
 backup to avoid that prompt. Actions not listed as routine above also require
 human approval.
@@ -490,6 +490,12 @@ Shape operations update local branches; use a separate approved `publish` or
 `sync` to publish the new realization. Superseded hosted nodes are marked draft
 with a footer; closing PRs and deleting obsolete branches require a separate
 explicit `cleanup` plan.
+
+To remove only a retired unpublished node from graph metadata, use a separately
+approved `remove-retired --node <id>` plan. It refuses PRs, landings, published
+product branches and dependent nodes, retains the previous manifest in its
+journal, and preserves all Git refs, commits, files and worktrees. This is not
+source removal or cleanup; see [recovery commands](references/recovery-commands.md).
 
 ## 6. Recovery and portability
 

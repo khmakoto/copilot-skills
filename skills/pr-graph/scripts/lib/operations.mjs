@@ -11,13 +11,14 @@ import { normalizeChange, applyChange, realize, verifyComposition } from "./chan
 import { resolveProvider, identity, providerFor } from "./providers/index.mjs";
 import { createAdoptionPlan, applyAdoptionPlan } from "./adoption.mjs";
 import { createCheckpointPlan, applyCheckpointPlan } from "./checkpoint.mjs";
+import { createRetiredRemovalPlan, applyRetiredRemovalPlan } from "./retirement.mjs";
 import { nodeDetails, step } from "./progress.mjs";
 
 const SHAPE = new Set(["init", "split", "add", "deps", "split-node", "fold", "remove"]);
 const FORWARD_TARGET = new Set(["retarget", "describe"]);
 const ACTIONS = new Set([...SHAPE, "publish", "sync", "retarget", "ready", "merge", "backup",
   "fetch-backup", "restore", "resolve", "abort", "cleanup", "describe", "reconcile", "unlock",
-  "record-landing", "adopt", "checkpoint"]);
+  "record-landing", "adopt", "checkpoint", "remove-retired"]);
 
 const now = (ctx) => ctx.now?.() ?? Date.now();
 
@@ -342,6 +343,11 @@ export function createPlan(ctx, action, options = {}) {
     requireValue(options.fetchObservation === undefined,
       "Adoption and checkpoint recovery do not accept fetch-start observations.");
     return action === "adopt" ? createAdoptionPlan(ctx, options) : createCheckpointPlan(ctx, options);
+  }
+  if (action === "remove-retired") {
+    requireValue(options.fetchObservation === undefined,
+      "Metadata-only retired-node removal does not accept fetch-start observations.");
+    return createRetiredRemovalPlan(ctx, options);
   }
   if (action === "unlock") {
     const owner = state.readJson(path.join(ctx.dir, "mutation.lock"));
@@ -1047,6 +1053,7 @@ export function applyPlan(ctx, plan, approval, yes) {
   return state.lock(ctx, () => {
     if (plan.action === "adopt") return step("Recovering approved external graph identities", () => applyAdoptionPlan(ctx, plan));
     if (plan.action === "checkpoint") return step("Preserving approved staged work on checkpoint branch", () => applyCheckpointPlan(ctx, plan));
+    if (plan.action === "remove-retired") return step("Removing approved retired-node metadata", () => applyRetiredRemovalPlan(ctx, plan));
     if (["resolve", "abort", "cleanup", "reconcile"].includes(plan.action)) {
       return step(`Recovering operation: ${plan.action}`, () => applyRecovery(ctx, plan));
     }

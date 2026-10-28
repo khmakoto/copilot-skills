@@ -20,9 +20,10 @@ Prepare a concrete mutation plan:
   Actions: init, split, add, deps, split-node, fold, remove,
            publish, sync, retarget, ready, merge, describe, backup,
            fetch-backup, restore, resolve, reconcile, abort, cleanup, unlock,
-           record-landing, adopt, checkpoint
+           record-landing, adopt, checkpoint, remove-retired
   adopt --spec <json>         Local-only adoption of verified external PR rewrites
   checkpoint --spec <json>    Preserve staged source on a new local branch and release its occupied graph branch
+  remove-retired --node <id>  Remove retired unpublished node metadata, preserving all Git refs and files
   --node <id>                 Select ready/merge/describe node
   --strategy merge|squash|rebase
   --landing <sha>             Verified external local landing to record
