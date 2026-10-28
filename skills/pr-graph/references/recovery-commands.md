@@ -5,6 +5,15 @@ and plan/approve/apply requirements before using these commands.
 
 ## Backup and recovery actions
 
+`plan remove-retired --graph <id> --node <id> --out <plan>` removes only a
+retired node without a PR, landing, remote product branch, or dependents.
+It also removes historical `supersedes`/`replacedBy` references to that ID.
+This separately approved metadata-only operation retains the previous manifest
+in its journal and preserves all Git refs, commits, files, indexes, worktrees,
+PRs, and validation/readiness evidence. It does not reconstruct or publish source,
+upload a backup, or accept fetch-start observations. Apply with the exact digest;
+`continue` resumes the same journal after an interrupted metadata write.
+
 To release an occupied graph node while retaining an exact local source
 checkpoint, prepare `plan checkpoint --graph <id> --spec <json> --out <plan>`.
 Its spec contains `id`, a new local `branch`, and the exact commit `message`.

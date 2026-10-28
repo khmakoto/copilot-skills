@@ -19,6 +19,7 @@ node "<helper>" analyze --repo "<repo>" --base "<integration-ref>" --head "<sour
 node "<helper>" status --repo "<repo>" --graph feature
 node "<helper>" view --repo "<repo>" --graph feature
 node "<helper>" check --repo "<repo>" --graph feature
+node "<helper>" plan remove-retired --repo "<repo>" --graph feature --node staging --out "<plan.json>"
 ```
 
 Commands emit JSON except `help` and `view`. Failures emit a JSON error to stderr

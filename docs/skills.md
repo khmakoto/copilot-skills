@@ -208,6 +208,14 @@ and landings into local graph state without publishing or claiming validation.
 occupied graph node, using normal hooks and signing. Both require human approval
 even in auto mode.
 
+`remove-retired --node <id>` removes only retired unpublished node metadata and
+historical `supersedes`/`replacedBy` references to it. It refuses nodes with a PR,
+landing, remote product branch, or dependents. The previous manifest stays in
+the operation journal; Git refs, commits, files, indexes, worktrees, and existing
+validation/readiness evidence are preserved. It does not reconstruct source,
+publish, or upload a backup, and requires separate human approval even in auto
+mode. Use `continue` with the original digest after an interrupted metadata write.
+
 Each PR description ends with a rendered Mermaid DAG image highlighting its own
 node. Diagrams use compact node cards, a small visual key, and a concise snapshot
 summary to keep the full graph readable in a PR description. The skill workflow
@@ -219,7 +227,7 @@ refreshes these snapshots as graph state changes and requires an approved local
 renderer and supported provider attachment mechanism.
 
 ```text
-/pr-graph [--auto] [split | view | add | sync | retarget | ready | merge | describe | reshape | adopt | checkpoint | backup | restore]
+/pr-graph [--auto] [split | view | add | sync | retarget | ready | merge | describe | reshape | adopt | checkpoint | remove-retired | backup | restore]
 ```
 
 The self-contained helper requires Node.js 22+ and Git 2.31+, with authenticated
