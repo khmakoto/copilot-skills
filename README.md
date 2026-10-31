@@ -34,6 +34,7 @@ descriptions. The other skills require explicit invocation.
 | [`pr-graph`](docs/skills.md#pr-graph)                 | Manage a PR dependency DAG across local Git, GitHub/GHES, and Azure DevOps, with draft-first publication and explicit approval boundaries.    |
 | [`session-distill`](docs/skills.md#session-distill)   | Turn session lessons into evidence-backed improvement proposals without automatically saving changes.                                         |
 | [`skill-doctor`](docs/skills.md#skill-doctor)         | Audit skill definitions and apply only specifically approved repairs.                                                                         |
+| [`unslop`](docs/skills.md#unslop)                     | Edit writing using Cursor's live upstream unslop rules, fetched on each explicit invocation.                                                  |
 
 See the [skill guide](docs/skills.md) for invocation examples, detailed behavior,
 requirements, and safety boundaries.
