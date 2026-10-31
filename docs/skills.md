@@ -274,3 +274,23 @@ of the specific proposed change.
 ```text
 /skill-doctor [skill names or paths] [audit-only] [focus or constraints]
 ```
+
+## `unslop`
+
+Edits selected writing using Cursor's upstream `unslop` rules. The installed
+skill is a local wrapper that fetches the complete instructions from
+`https://raw.githubusercontent.com/cursor/plugins/main/pstack/skills/unslop/SKILL.md`
+on every explicit invocation, not during installation.
+
+This requires network access and trusts changing upstream writing guidance
+rather than a pinned local copy. If the fetch fails or returns incomplete or
+unexpected content, the skill stops without inventing or silently using cached
+rules. The user's text and repository content are not sent upstream.
+
+Upstream rules remain subject to higher-priority instructions and the user's
+scope and tone constraints. Fetching does not authorize running upstream scripts,
+unrelated edits, commits, or publication.
+
+```text
+/unslop [text or paths] [tone or scope constraints]
+```
