@@ -47,6 +47,88 @@ test("CLI reuse keeps the retained worktree and tooling, transfers ownership, an
   assert.equal(git(f.root, "rev-parse", "HEAD"), f.head);
 });
 
+test("CLI add and fold reuse the latest worktree owner while preserving source, tooling, and validation", (t) => {
+  const f = fixture({ names: ["a", "b"] });
+  t.after(() => f.dispose());
+  const original = f.apply("split", { spec: f.spec });
+  fs.appendFileSync(path.join(f.ctx.common, "info", "exclude"), "\nnode_modules/\n");
+  const tool = path.join(original.worktree, "node_modules", "installed-tool");
+  fs.mkdirSync(path.dirname(tool));
+  fs.writeFileSync(tool, "keep tooling\n");
+  const worktrees = () => git(f.root, "worktree", "list", "--porcelain")
+    .split("\n").filter((line) => line.startsWith("worktree "));
+  const retainedWorktrees = worktrees();
+  const extra = "follow-on change\n";
+  fs.writeFileSync(path.join(f.root, "extra.txt"), extra);
+  git(f.root, "add", "extra.txt");
+  git(f.root, "commit", "-qm", "Additional source");
+  const head = git(f.root, "rev-parse", "HEAD");
+  git(f.root, "checkout", "-qb", "input-b-extra", f.changes.b.head);
+  fs.writeFileSync(path.join(f.root, "extra.txt"), extra);
+  git(f.root, "add", "extra.txt");
+  git(f.root, "commit", "-qm", "Folded owner source");
+  const ownerHead = git(f.root, "rev-parse", "HEAD");
+  git(f.root, "checkout", "source");
+  const marker = path.join(f.dir, "validated-in");
+  const validations = [{
+    command: process.execPath,
+    args: ["-e",
+      "const fs=require('node:fs'); fs.accessSync('extra.txt'); fs.writeFileSync(process.argv[1],process.cwd())",
+      marker],
+  }];
+  const addSpec = {
+    ...f.spec, source: { base: f.base, head },
+    nodes: [...f.spec.nodes, {
+      id: "extra", title: "Additional source", dependencies: ["a", "b"],
+      change: { base: f.head, head }, validations,
+    }],
+  };
+  const foldSpec = {
+    id: "example", source: { base: f.base, head },
+    nodes: [f.spec.nodes[0], {
+      ...f.spec.nodes[1], supersedes: ["extra"],
+      change: { base: f.base, head: ownerHead }, validations,
+    }],
+  };
+  let owner = original.operation;
+  for (const [action, spec] of [["add", addSpec], ["fold", foldSpec]]) {
+    const userFile = path.join(original.worktree, "user.txt");
+    fs.writeFileSync(userFile, "preserve untracked work\n");
+    assert.throws(() => createPlan(f.ctx, action, {
+      graph: "example", spec, reuseWorktree: owner,
+    }), /has changes/);
+    assert.equal(readJson(journalFile(f.ctx, owner)).worktreeReusedBy, undefined);
+    fs.unlinkSync(userFile);
+    const specFile = path.join(f.dir, `${action}-spec.json`);
+    fs.writeFileSync(specFile, JSON.stringify(spec));
+    const planned = cli(f.root, "plan", action, "--graph", "example",
+      "--spec", specFile, "--reuse-worktree", owner);
+    assert.equal(planned.status, 0, planned.stderr);
+    const plan = JSON.parse(planned.stdout);
+    assert.equal(plan.reuseWorktree.path, original.worktree);
+    const done = applyPlan(f.ctx, plan, plan.approval, true);
+    assert.equal(done.worktree, original.worktree);
+    assert.deepEqual(worktrees(), retainedWorktrees);
+    assert.equal(git(f.root, "rev-parse", `${done.graph.combined}^{tree}`),
+      git(f.root, "rev-parse", `${head}^{tree}`));
+    assert.equal(fs.readFileSync(tool, "utf8"), "keep tooling\n");
+    assert.equal(fs.readFileSync(marker, "utf8"), original.worktree);
+    fs.unlinkSync(marker);
+    assert.equal(readJson(journalFile(f.ctx, owner)).worktreeReusedBy, done.operation);
+    assert.throws(() => createPlan(f.ctx, "cleanup", {
+      operation: owner, spec: { branches: [], worktree: true },
+    }), /transferred/);
+    if (action === "fold") {
+      assert.deepEqual(done.graph.nodes.filter((n) => !n.retired).map((n) => n.id), ["a", "b"]);
+      assert.deepEqual(done.graph.nodes.find((n) => n.id === "extra").replacedBy, ["b"]);
+    }
+    owner = done.operation;
+  }
+  assert.equal(git(f.root, "branch", "--show-current"), "source");
+  assert.equal(git(f.root, "rev-parse", "HEAD"), head);
+  assert.equal(git(f.root, "status", "--porcelain"), "");
+});
+
 test("reuse resumes an interrupted ownership transfer without accepting a second owner", (t) => {
   const f = fixture({ names: ["a"] });
   t.after(() => f.dispose());

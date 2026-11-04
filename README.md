@@ -31,7 +31,7 @@ descriptions. The other skills require explicit invocation.
 | [`pr-feedback`](docs/skills.md#pr-feedback)           | Validate PR feedback and implement individually approved fixes; remote actions need separate approval.                                        |
 | [`pr-reviewer`](docs/skills.md#pr-reviewer)           | Review PRs or local branches for actionable defects, with individually confirmed remote comments.                                             |
 | [`pr-walkthrough`](docs/skills.md#pr-walkthrough)     | Build a read-only, dependency-ordered route for human review.                                                                                 |
-| [`pr-graph`](docs/skills.md#pr-graph)                 | Manage a PR dependency DAG across local Git, GitHub/GHES, and Azure DevOps, with draft-first publication and explicit approval boundaries.    |
+| [`pr-graph`](docs/skills.md#pr-graph)                 | Manage a PR dependency DAG across local Git, GitHub/GHES, and Azure DevOps, with selective draft publication, local-only sync, and explicit approvals. |
 | [`session-distill`](docs/skills.md#session-distill)   | Turn session lessons into evidence-backed improvement proposals without automatically saving changes.                                         |
 | [`skill-doctor`](docs/skills.md#skill-doctor)         | Audit skill definitions and apply only specifically approved repairs.                                                                         |
 | [`unslop`](docs/skills.md#unslop)                     | Edit writing using Cursor's live upstream unslop rules, fetched on each explicit invocation.                                                  |

@@ -11,8 +11,8 @@ mutation.lock
 trees/<operation-id>/
 ```
 
-An approved `sync`, `publish`, or `retarget` plan may explicitly reuse a stopped
-operation's clean detached worktree with `--reuse-worktree`. Its path stays
+An approved `add`, `fold`, `sync`, `publish`, or `retarget` plan may explicitly
+reuse a stopped operation's clean detached worktree with `--reuse-worktree`. Its path stays
 unchanged; journals record the ownership transfer and reject recovery/cleanup
 through an earlier owner. Source identity, HEAD, and cleanliness are leased
 before transfer. Reuse does not copy validation or renew freshness; see the
@@ -134,6 +134,14 @@ must cover their exact old/new identities. The plan verifies each authored
 own-change merge base and that provider-confirmed landings reach the pinned
 target snapshot. Previously recorded landing identities remain immutable.
 It does not prove that reconstructed dependency closures compose losslessly.
+
+Selective adoption (`"selective": true` in the spec) can recover only a named
+subset while retaining unpublished local work on other nodes. It must retain
+the graph's integration snapshot and helper namespace. Unselected source
+snapshots and refs are unchanged, but selected nodes and active descendants
+lose validation/readiness and combined caches are cleared. Unselected hosted
+head/target identities remain checked; this is not permission to ignore other
+external updates. Retired no-PR snapshots remain immutable.
 
 Application preserves the full previous manifest in its journal, pins old/new
 snapshots, and updates only listed unoccupied local branches in an expected-SHA

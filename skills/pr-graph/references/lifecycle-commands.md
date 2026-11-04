@@ -7,7 +7,9 @@ and plan/approve/apply requirements before using these commands.
 
 ```text
 node "<helper>" plan publish --repo "<repo>" --graph feature --out "<plan>"
+node "<helper>" plan publish --repo "<repo>" --graph feature --nodes model,consumer --out "<plan>"
 node "<helper>" plan sync --repo "<repo>" --graph feature --out "<plan>"
+node "<helper>" plan sync --repo "<repo>" --graph feature --local-only --out "<plan>"
 node "<helper>" plan retarget --repo "<repo>" --graph feature --spec "<target.json>" --out "<plan>"
 node "<helper>" plan ready --repo "<repo>" --graph feature --node model --out "<plan>"
 node "<helper>" plan merge --repo "<repo>" --graph feature --node model --strategy squash --out "<plan>"
@@ -18,10 +20,25 @@ node "<helper>" plan record-landing --repo "<repo>" --graph feature --node model
 Apply each separately approved plan. `publish` creates all missing drafts;
 `sync` only publishes already-published nodes. In local-provider mode, publish
 pushes branches but creates no pretend PRs. Sync never promotes a draft.
+`publish --nodes <id,id>` limits local and remote ref updates, PR creation/updates,
+and footer refreshes to that exact selection and its required helper bases.
+Unselected and landed PRs remain unchanged. Every unlanded prerequisite must
+either be selected or already published at its exact realized head and target.
+Selective publication retains the existing integration snapshot; sync separately
+if freshness or source reconstruction would change unselected nodes. The selection
+is pinned in the approval and retained for continuation; it never implies readiness.
 Publish and sync preserve eligible existing PRs' observed draft/non-draft state,
 including manual transitions, even when reconstruction changes their head/base.
 Blocked or superseded nodes must be draft. A status change after planning
 invalidates approval; replan rather than overwriting it.
+
+`sync --local-only` reconstructs on the approved fresh target, runs validation,
+and persists local branches and graph state without pushing refs or making any
+hosting writes, including draft changes, footers, and backup uploads. It retains
+PR identities and backup configuration; remote publication remains pending.
+The flag is pinned in the plan and survives continuation. It is accepted only
+for sync and does not relax freshness, leases, hooks, validation, or worktree
+ownership. Worktree reuse is supported as for ordinary sync.
 
 `retarget` migrates a fully realized, unlanded graph to another integration
 branch. Its spec contains only `{"id":"feature","target":"main"}`. The new
@@ -48,6 +65,8 @@ reshaping; newly blocked PRs return to draft, including manually promoted PRs.
 
 `describe` replaces only the selected node's body with approved text plus the
 managed footer. Routine operations preserve existing human bodies.
+Description-only actions do not create or claim a worktree; an existing partial
+checkout from an interrupted older helper remains retained and untouched.
 Description-only plans tolerate verified remote integration fast-forwards and
 corresponding PR preview-base advances while preserving the authored merge base.
 They do not reconstruct, rebase, push, retarget, or promote source changes.

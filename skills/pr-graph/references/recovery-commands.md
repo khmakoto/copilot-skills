@@ -49,6 +49,19 @@ operations. Apply the saved plan with the normal `--yes --approve <digest>`
 contract. Retry an interrupted preservation/recovery only after inspecting its
 journal, using `continue` with the original operation and approval digest.
 
+For a bounded external update, an adoption spec may use `"selective": true`
+with a nonempty subset of existing nodes. Keep `targetSnapshot` equal to the
+graph's recorded `targetSha` and omit `helperBranchPrefix`. Only selected live
+PR identities and branches are adopted. Unselected authored changes, local
+branches, landing receipts and retired snapshots remain intact, including
+unpublished local reconstructions. Unselected hosted heads and targets must
+still match their recorded PR identities; unrelated external changes require
+explicit recovery too. Validation/readiness is invalidated for selected nodes
+and their active descendants, and combined/source caches are cleared. This
+does not reconstruct or publish descendants or claim current integration
+freshness. Retired nodes without a PR may be retained in complete adoption;
+their snapshots remain immutable.
+
 See [safety and recovery](safety-and-recovery.md) for complete instructions.
 
 ```text

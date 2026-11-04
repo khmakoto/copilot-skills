@@ -46,18 +46,25 @@ export function createAdoptionPlan(ctx, options) {
   noPending(ctx);
   const previous = state.load(ctx, options.graph);
   const spec = options.spec;
+  const selective = spec?.selective === true;
   requireValue(spec?.id === previous.id && Array.isArray(spec.nodes),
-    "Adoption requires this graph's ID and a complete node list.");
-  requireValue(spec.nodes.length === previous.nodes.length &&
-    new Set(spec.nodes.map((n) => n.id)).size === previous.nodes.length &&
+    "Adoption requires this graph's ID and a node list.");
+  requireValue(spec.selective === undefined || typeof spec.selective === "boolean",
+    "Selective adoption must be explicitly true or false.");
+  requireValue((selective ? spec.nodes.length > 0 : spec.nodes.length === previous.nodes.length) &&
+    new Set(spec.nodes.map((n) => n.id)).size === spec.nodes.length &&
     spec.nodes.every((n) => previous.nodes.some((old) => old.id === n.id)),
   "Adoption cannot add, remove, or duplicate nodes.");
   const graph = structuredClone(previous);
+  requireValue(!selective || spec.helperBranchPrefix === undefined,
+    "Selective adoption cannot change the helper namespace.");
   if (spec.helperBranchPrefix !== undefined) {
     git.checkBranch(ctx.root, `${spec.helperBranchPrefix}/probe`);
     graph.helperBranchPrefix = spec.helperBranchPrefix;
   }
   const target = commit(ctx, spec.targetSnapshot);
+  requireValue(!selective || target === previous.targetSha,
+    "Selective adoption must preserve the graph's integration snapshot.");
   requireValue(git.ancestor(ctx.root, previous.targetSha, target),
     "Adoption target snapshot must descend from the previous snapshot.");
   const facts = observations(ctx, graph, previous);
@@ -66,13 +73,23 @@ export function createAdoptionPlan(ctx, options) {
   for (const node of topological(graph)) {
     const input = spec.nodes.find((n) => n.id === node.id);
     const pr = facts.prs[node.id];
-    requireValue(pr && pr.id === node.pr.id && pr.branch === node.branch,
-      `PR identity mismatch: ${node.id}`);
+    if (!input) {
+      requireValue(selective, `Missing adoption input: ${node.id}`);
+      if (node.pr && !node.retired) {
+        requireValue(pr && pr.id === node.pr.id && pr.branch === node.branch &&
+          pr.head === node.pr.head && pr.baseBranch === node.pr.baseBranch &&
+          (!node.landing || pr.landing === node.landing.commit),
+        `Unselected PR identity changed: ${node.id}; include it in recovery explicitly.`);
+      }
+      continue;
+    }
     if (node.retired) {
       requireValue(input.head === node.head && input.base === node.base &&
         input.baseBranch === node.baseBranch, `Retired snapshot is immutable: ${node.id}`);
       continue;
     }
+    requireValue(pr && pr.id === node.pr?.id && pr.branch === node.branch,
+      `PR identity mismatch: ${node.id}`);
     requireValue(pr.head === input.head && pr.baseBranch === input.baseBranch,
       `Live PR does not match approved adoption inputs: ${node.id}`);
     if (pr.state === "merged") {
@@ -122,10 +139,17 @@ export function createAdoptionPlan(ctx, options) {
       updates.push({ branch: node.branch, expected, head: node.head });
     }
     node.pr = pr;
-    node.validation = null;
-    node.ready = false;
-    node.requiresDraft = true;
-    delete node.signature;
+  }
+  const invalidated = new Set(spec.nodes.map((n) => n.id));
+  for (const node of topological(graph)) {
+    if (node.retired) continue;
+    if (invalidated.has(node.id) || (selective && node.dependencies.some((id) => invalidated.has(id)))) {
+      invalidated.add(node.id);
+      node.validation = null;
+      node.ready = false;
+      node.requiresDraft = true;
+      delete node.signature;
+    }
   }
   delete graph.combined;
   delete graph.source;
@@ -137,11 +161,13 @@ export function createAdoptionPlan(ctx, options) {
     action: "adopt", repository: ctx.root, common: ctx.common, previous,
     previousDigest: digest(previous), graph, facts, updates,
     effects: [
-      "Adopt only the pinned live PR heads, own-change bases, helper namespace and provider landing receipts.",
+      selective
+        ? `Adopt only selected nodes: ${spec.nodes.map((n) => n.id).join(", ")}. Preserve all unselected source snapshots, branches, dependencies and landing receipts.`
+        : "Adopt only the pinned live PR heads, own-change bases, helper namespace and provider landing receipts.",
       "Preserve the full previous manifest in the operation journal and pin previous snapshots before any branch moves.",
       "Atomically update only the listed unoccupied local branches using expected-old-SHA checks.",
       "Do not change main/master, any worktree or index, remote refs, PR descriptions or draft states.",
-      "Clear validation, readiness, reconstruction signatures and combined/source snapshots. Dependency composition remains unverified.",
+      `Clear validation, readiness and reconstruction signatures for ${[...invalidated].join(", ")}; clear combined/source snapshots. Dependency composition remains unverified.`,
     ],
     warnings: [
       "This is metadata recovery, not sync, validation or publication. Authored integration snapshots may be stale.",
