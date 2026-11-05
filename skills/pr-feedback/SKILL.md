@@ -163,8 +163,13 @@ posted to that thread before resolving it. If reply approval is declined or
 posting fails, leave the thread unresolved. Do not resolve automatically after
 posting.
 
-If a write fails, report the failure and keep the concern active. Do not silently
-substitute a different write.
+If a write fails or its outcome is uncertain, report the error and keep the
+concern active. Before retrying, re-read the exact thread through supported
+provider tools to determine whether the approved reply or resolution already
+took effect. Record confirmed successful effects and do not repeat them. If
+the outcome cannot be established, report that limitation and pause rather
+than retrying blindly. Any changed text, destination, or effect requires new
+approval. Do not silently substitute a different write.
 
 ## 6. Finish
 
