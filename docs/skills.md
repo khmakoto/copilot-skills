@@ -158,6 +158,15 @@ pending. Both the publication selection and local-only mode are pinned in their
 approved plans and retained for continuation; neither bypasses normal safety
 checks or implies readiness.
 
+Preflight distinguishes journal-verified pending publication after approved local
+reconstruction from unexplained divergence. It never pushes or repairs branches
+to resolve that difference; normal helper planning and authorization still apply.
+
+Diagram updates respect the same scope: local-only sync performs no image
+uploads or description edits, and selective publication refreshes only selected
+PRs. Needed refreshes outside that scope remain pending separate authorization
+and do not block completion of local-only sync.
+
 Eligible existing PRs retain their live draft/non-draft state through sync,
 retargeting, and graph reshaping, including manual status changes. Blocked or
 superseded PRs must be draft; non-draft status does not waive validation,
@@ -290,6 +299,9 @@ handling, interaction, and completion criteria.
 
 Findings are presented individually, and repairs are applied only after approval
 of the specific proposed change.
+
+Deferred findings return after the other unreviewed findings. Deferring the sole
+remaining finding again ends triage with that finding left deferred.
 
 ```text
 /skill-doctor [skill names or paths] [audit-only] [focus or constraints]

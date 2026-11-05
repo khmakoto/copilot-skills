@@ -121,7 +121,7 @@ backup to avoid that prompt. Actions not listed as routine above also require
 human approval.
 
 **Pause and ask on blockers:** conflicts, failed validation or hooks, missing
-tooling, divergence, unsafe worktree updates, ambiguous repository/remote/target
+tooling, unexplained divergence, unsafe worktree updates, ambiguous repository/remote/target
 choices, inaccessible or moving refs, unexpected source/helper/PR changes,
 uncertain remote effects, or unknown/pending/failed merge policies. Inspect
 read-only evidence and propose a specific resolution; do not auto-resolve
@@ -206,7 +206,7 @@ operations may precede this gate. `help` does not inspect a repository.
    for the bounded integration grace below. Never
    reset, rebase, merge divergent histories, force-update, stash, or push as part
    of this preflight.
-5. Stop if a required branch has diverged, a remote cannot be checked, an
+5. Stop if a required branch has unexplained divergence, a remote cannot be checked, an
    upstream disappeared, a tip changes during the check, or a required update
    would move a branch checked out in any worktree. Verified main/master
    forward movement within a fetch-start window is the bounded exception, not
@@ -216,6 +216,17 @@ operations may precede this gate. `help` does not inspect a repository.
 6. Recheck all relevant tips after updates. Proceed only when no required branch
    remains behind outside the integration grace. In a repository without remotes, report that only local freshness
    can be established rather than claiming remote verification.
+
+For a reconstructed node branch, minimal preflight reads may compare the graph
+manifest, completed approved operation journal, and live local/remote/PR identities.
+If the local tip equals the recorded node head, the journal proves that approved
+reconstruction left publication pending, and the remote tip still equals the
+journal's recorded published tip, report pending publication rather than blocking
+on divergence. For hosted nodes, the live PR head must also match the recorded
+published PR head. Missing or inconsistent evidence remains a blocker.
+Do not fast-forward, reset, merge, or push either history during preflight.
+Proceed only to the helper's normal planning and approval checks; this exception
+does not establish validation, integration freshness, or publication authorization.
 
 ### Explicit per-node freshness and main/master grace
 
@@ -427,8 +438,13 @@ code fence or local file path is not a substitute for the hosted image. Do not
 report publication complete until every created PR's image has been verified,
 or explicitly report the incomplete step.
 
-Refresh diagrams on existing PRs after publication, sync, readiness, landings,
-or graph reshaping changes the depicted state. Reuse an unchanged image only if
+Refresh diagrams on existing PRs within the authorized hosting scope after
+publication, sync, readiness, landings, or graph reshaping changes the depicted
+state. A `sync --local-only` performs no image uploads or description edits;
+report hosted diagram updates as pending, not as a failure of local sync.
+For `publish --nodes`, refresh only selected PRs; leave unselected and landed
+PRs unchanged and report any needed diagram refreshes as pending separate
+authorization. Reuse an unchanged image only if
 it still passes the visual acceptance check, rather than uploading duplicates.
 Replace only the managed diagram block and keep it
 at the end, preserving human text and the helper footer.

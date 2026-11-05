@@ -68,10 +68,15 @@ Use explicit private fetch refspecs and compare-and-swap local updates; never
 trust cached tracking refs or arbitrary configured fetch mappings.
 
 Only behind, non-divergent, unoccupied branches may advance. Ahead branches keep
-their local commits. Divergence, inaccessible remotes, missing upstreams, moving
+their local commits. Unexplained divergence, inaccessible remotes, missing upstreams, moving
 tips, and occupied branches needing updates are blockers, not permission to
 reset, stash, force, rebase, or push. Report unpublished branches with no remote
 counterpart and repositories with no remote without inventing a freshness check.
+
+The skill's preflight exception permits journal-verified pending publication
+after approved local reconstruction. Verify the recorded local and published
+identities against live refs and PR state; do not update either branch during
+preflight. Missing or inconsistent evidence still blocks.
 
 This prerequisite is enforced by the skill workflow, not automatically by the
 helper CLI. It neither adopts changed node content into graph metadata nor

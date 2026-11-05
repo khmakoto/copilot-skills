@@ -112,6 +112,16 @@ In audit-only mode, replace Apply with Keep proposed repair and make no edits.
 
 Do not reveal the entire queue unless the user requests it.
 
+After applying a repair, keeping a proposal in audit-only mode, or skipping a
+finding, record that disposition and continue to the next unreviewed finding.
+Refinement and investigation keep the current finding active; update or withdraw
+it based on the evidence, then request a disposition again when needed.
+
+Deferring moves the finding behind every other unreviewed finding and revisits
+it at the end. If the user defers it again when it is the only finding remaining,
+leave it deferred and finish rather than looping. Stop ends triage immediately;
+report only the count of unreviewed findings, not their individual details.
+
 ## 4. Apply an approved repair
 
 Show the proposed patch or exact replacement before approval. If refinement

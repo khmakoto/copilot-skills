@@ -184,6 +184,13 @@ inspected rendering, not just that some image URL appears in the body.
 
 ## Keep the snapshot current
 
+Diagram requirements do not expand hosting authorization. For `sync --local-only`,
+do not upload images or edit descriptions, even for nodes with existing PRs.
+Report hosted refreshes as pending without blocking local-sync completion.
+For `publish --nodes`, refresh only selected PRs; leave unselected and landed
+PRs unchanged. Report their needed refreshes as pending separate authorization.
+Apply the following refresh rules only within that authorized hosting scope.
+
 After a PR is created, append its image before reporting the node's publication
 complete. After publishing a batch, refresh earlier PRs to include the final
 publication state and known PR identities. Apply the same requirement when
