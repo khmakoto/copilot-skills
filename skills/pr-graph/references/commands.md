@@ -61,7 +61,9 @@ Check local DAG branches, the actual target, and existing `main`/`master`
 branches against freshly fetched tips, and obtain approval for required
 fast-forwards. An integration target named exactly `main` or `master` may
 remain behind during the documented 90-minute grace outside merging; do not
-advance it repeatedly during that window. Block on divergence or unsafe worktree updates. This prerequisite
+advance it repeatedly during that window. Block on unexplained divergence or
+unsafe worktree updates. Recognize journal-verified pending publication only
+under the skill's narrow preflight exception; do not repair or push it here. This prerequisite
 is a skill workflow; these CLI commands do not automatically fetch or advance
 branches. Local ref changes invalidate plans unless explicitly reconciled;
 only documented remote-target fast-forwards are tolerated.
