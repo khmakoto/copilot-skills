@@ -193,8 +193,11 @@ Apply the following refresh rules only within that authorized hosting scope.
 
 After a PR is created, append its image before reporting the node's publication
 complete. After publishing a batch, refresh earlier PRs to include the final
-publication state and known PR identities. Apply the same requirement when
-adopting an existing PR.
+publication state and known PR identities. For an existing PR attached through
+`init`/`add` with `adoptPr`, apply the same requirement only within the approved
+hosting scope. The separate local-only `adopt` recovery performs no image uploads
+or description edits; report any needed hosted refreshes as pending separate
+authorization without blocking completion of local adoption.
 
 Refresh affected images on all existing graph PRs when dependencies, node
 membership, publication, draft/readiness state, or landing/supersession state
