@@ -25,6 +25,7 @@ Prepare a concrete mutation plan:
   checkpoint --spec <json>    Preserve staged source on a new local branch and release its occupied graph branch
   remove-retired --node <id>  Remove retired unpublished node metadata, preserving all Git refs and files
   --node <id>                 Select ready/merge/describe node
+  --nodes <id,id>             Publish only selected nodes and their required helper bases
   --strategy merge|squash|rebase
   --landing <sha>             Verified external local landing to record
   --remote <name>             Backup download/restore remote
@@ -34,7 +35,8 @@ Prepare a concrete mutation plan:
   --body-file <file>          Explicit describe replacement
   --fetch-observation <json>  Main/master live-tip SHA and fetch-start time
   --commit-trailers-file <json>  Exact trailer lines for reconstruction commits
-  --reuse-worktree <digest>   Reuse a clean completed/aborted operation worktree (sync/publish/retarget)
+  --reuse-worktree <digest>   Reuse a clean completed/aborted operation worktree (add/fold/sync/publish/retarget)
+  --local-only               Sync locally without pushes, PR changes, or backup uploads
   --allow-non-atomic          Approve fallback when atomic push is unsupported
 
 After user approval of the exact plan:
@@ -53,10 +55,10 @@ Plans contain code/payloads; keep them outside the product working tree.
 function args(argv) {
   const flags = {};
   const positional = [];
-  const boolean = new Set(["yes", "allow-non-atomic", "retain-published-refs", "quiet"]);
+  const boolean = new Set(["yes", "allow-non-atomic", "retain-published-refs", "quiet", "local-only"]);
   const known = new Set(["repo", "graph", "spec", "out", "node", "strategy", "remote",
     "backup-ref", "backup-branch", "operation", "body-file", "plan", "approve", "base", "head", "landing",
-    "fetch-observation", "commit-trailers-file", "reuse-worktree"]);
+    "fetch-observation", "commit-trailers-file", "reuse-worktree", "nodes"]);
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (!a.startsWith("--")) { positional.push(a); continue; }
@@ -81,6 +83,10 @@ export function main(argv) {
 }
 
 function execute(flags, command, action) {
+  requireValue(flags.nodes === undefined || (command === "plan" && action === "publish"),
+    "Use --nodes only when planning publish; apply and continue use the approved selection.");
+  requireValue(flags["local-only"] === undefined || (command === "plan" && action === "sync"),
+    "Use --local-only only when planning sync; apply and continue use the approved plan's mode.");
   const ctx = step("Locating repository", () => git.context(flags.repo ?? process.cwd()));
   let result;
   if (command === "analyze") {
@@ -117,11 +123,13 @@ function execute(flags, command, action) {
     const spec = flags.spec ? state.readJson(path.resolve(flags.spec)) : undefined;
     result = createPlan(ctx, action, {
       graph: flags.graph, spec, node: flags.node, strategy: flags.strategy,
+      publishNodes: flags.nodes === undefined ? undefined : flags.nodes.split(","),
       landing: flags.landing,
       remote: flags.remote, backupRef: flags["backup-ref"], backupBranch: flags["backup-branch"],
       operation: flags.operation, allowNonAtomic: flags["allow-non-atomic"],
       retainPublishedRefs: flags["retain-published-refs"],
       reuseWorktree: flags["reuse-worktree"],
+      localOnly: flags["local-only"],
       fetchObservation: flags["fetch-observation"] ? state.readJson(path.resolve(flags["fetch-observation"])) : undefined,
       commitTrailers: flags["commit-trailers-file"] ? state.readJson(path.resolve(flags["commit-trailers-file"])) : undefined,
       body: flags["body-file"] ? fs.readFileSync(path.resolve(flags["body-file"]), "utf8") : undefined,

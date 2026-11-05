@@ -145,6 +145,19 @@ approval boundaries. The skill supports same-file splitting, graph reshaping,
 merge/squash/rebase strategies, and opt-in committed snapshot recovery across
 machines.
 
+Helper `plan publish --nodes <id,id>` limits publication to selected nodes and
+their required helper bases, leaving unselected and landed PRs unchanged.
+Unpublished or out-of-date prerequisites must also be selected. Selective
+publication retains the existing integration snapshot and refuses reconstruction
+that would change unselected nodes; sync separately when needed.
+
+Helper `plan sync --local-only` reconstructs and validates local branches without
+pushes, PR updates, draft changes, hosted footer refreshes, or backup uploads.
+Hosting identities and backup configuration remain intact, with publication
+pending. Both the publication selection and local-only mode are pinned in their
+approved plans and retained for continuation; neither bypasses normal safety
+checks or implies readiness.
+
 Eligible existing PRs retain their live draft/non-draft state through sync,
 retargeting, and graph reshaping, including manual status changes. Blocked or
 superseded PRs must be draft; non-draft status does not waive validation,
@@ -188,7 +201,7 @@ trailers into the approved payload and generated commit messages, including
 conflict recovery, without changing PR titles. This helper option is scoped to
 each operation and does not change Git configuration or a graph-wide policy.
 
-For `sync`, `publish`, and `retarget`, helper plans accept
+For `add`, `fold`, `sync`, `publish`, and `retarget`, helper plans accept
 `--reuse-worktree <operation-digest>` to explicitly reuse a completed or aborted
 operation's clean detached worktree for the same graph and repository. Plans pin
 its identity and HEAD; apply rechecks those leases and transfers ownership in
@@ -201,9 +214,16 @@ while preserving change ownership and existing PR identities. Batch description
 updates leave source branches and draft states unchanged. Custom helper-branch
 prefixes accommodate namespace restrictions, and explicitly approved recovery
 can retain verified pushes after a partial first-publication failure.
+Description-only actions do not create or claim a worktree; retained partial
+checkouts from interrupted older operations remain untouched.
 
 Separately approved `adopt` recovery imports verified externally rewritten PRs
 and landings into local graph state without publishing or claiming validation.
+An adoption spec with `"selective": true` can name only the externally updated
+nodes while retaining the integration snapshot, helper namespace, and unselected
+unpublished work. Unselected hosted heads and targets must still match recorded
+identities. Selected nodes and active descendants lose validation/readiness;
+adoption does not reconstruct or publish them.
 `checkpoint` preserves already-staged work on a new local branch to release an
 occupied graph node, using normal hooks and signing. Both require human approval
 even in auto mode.

@@ -248,13 +248,15 @@ function reconcile(ctx, graph, facts, target, previous) {
   }
 }
 
-function warnings(ctx, graph) {
+function warnings(ctx, graph, localOnly = false) {
   const items = [];
   if (git.out(ctx.root, ["status", "--porcelain", "--untracked-files=all"])) {
     items.push("Current worktree has uncommitted work. It is not modified or backed up.");
   }
   if (!graph.backup.enabled) items.push("Remote snapshot backup is disabled; unpublished committed work is clone-local.");
-  if (graph.backup.enabled) items.push(`Backup publishes committed code and its reachable history to ${graph.repository.url}, branch ${graph.backup.branch}.`);
+  if (graph.backup.enabled) items.push(localOnly
+    ? "Backup remains enabled, but local-only sync uploads no backup; locally reconstructed work is not yet published."
+    : `Backup publishes committed code and its reachable history to ${graph.repository.url}, branch ${graph.backup.branch}.`);
   if (graph.repository.provider.kind === "ado") items.push("ADO retargeting is conditional and verified after every update. Multi-ref pushes are non-atomic.");
   return items;
 }
@@ -328,10 +330,36 @@ function prepareWorktree(ctx, journal, target) {
   });
 }
 
+function validatePublicationNodes(graph, nodes, facts, target) {
+  requireValue(graph.targetSha === target,
+    "Selective publication requires the existing integration snapshot; sync separately before publishing selected nodes.");
+  for (const id of nodes) {
+    const node = nodeById(graph, id);
+    requireValue(!node.landing && node.head && node.base && node.baseBranch,
+      `Selective publication requires a realized unlanded node: ${id}`);
+    for (const dependency of prerequisites(graph, id)) {
+      requireValue(dependency.landing || nodes.includes(dependency.id) ||
+        (dependency.pr?.state === "open" && facts.remote[dependency.branch] === dependency.head &&
+          facts.prs[dependency.id]?.head === dependency.head &&
+          facts.prs[dependency.id]?.baseBranch === dependency.baseBranch),
+      `Include unpublished or out-of-date prerequisite ${dependency.id} in the publication selection.`);
+    }
+  }
+}
+
 export function createPlan(ctx, action, options = {}) {
   requireValue(ACTIONS.has(action), `Unknown action: ${action}`);
-  requireValue(options.reuseWorktree === undefined || ["sync", "publish", "retarget"].includes(action),
-    "Worktree reuse is supported only for sync, publish, and retarget.");
+  requireValue(options.publishNodes === undefined || (action === "publish" &&
+    !options.node && Array.isArray(options.publishNodes) && options.publishNodes.length > 0 &&
+    options.publishNodes.every((id) => typeof id === "string" && /^[a-z0-9][a-z0-9-]*$/.test(id)) &&
+    new Set(options.publishNodes).size === options.publishNodes.length),
+  "Selective publication requires publish and a nonempty unique node-ID array; do not combine with --node.");
+  requireValue(options.localOnly === undefined ||
+    (action === "sync" && typeof options.localOnly === "boolean"),
+  "Local-only mode is supported only for sync and must be boolean.");
+  const localOnly = options.localOnly === true;
+  requireValue(options.reuseWorktree === undefined || ["add", "fold", "sync", "publish", "retarget"].includes(action),
+    "Worktree reuse is supported only for add, fold, sync, publish, and retarget.");
   if (options.commitTrailers !== undefined) {
     requireValue((SHAPE.has(action) || ["sync", "publish", "retarget", "record-landing"].includes(action)) &&
       Array.isArray(options.commitTrailers) && options.commitTrailers.length > 0 &&
@@ -462,6 +490,9 @@ export function createPlan(ctx, action, options = {}) {
     snapshotFreshness(ctx, snapshot, observedTarget).status === "grace";
   const target = withinGrace && (SHAPE.has(action) || ["publish", "ready"].includes(action))
     ? snapshot.targetSha : fetched?.sha ?? observedTarget;
+  if (options.publishNodes) {
+    validatePublicationNodes(graph, options.publishNodes, facts, target);
+  }
   const integration = target === snapshot.targetSha ? snapshot.integration : fetchedIntegration;
   requireValue(!fetched || target !== fetched.sha || target === observedTarget ||
     snapshotFreshness(ctx, { ...graph, integration }, observedTarget).status === "grace",
@@ -516,7 +547,7 @@ export function createPlan(ctx, action, options = {}) {
   }
   const strategy = options.strategy ?? "merge";
   requireValue(["merge", "squash", "rebase"].includes(strategy), "Invalid merge strategy.");
-  const remoteAction = ["publish", "sync", "retarget", "ready", "merge", "describe"].includes(action);
+  const remoteAction = !localOnly && ["publish", "sync", "retarget", "ready", "merge", "describe"].includes(action);
   const capabilities = remoteAction || provider.kind === "local" ? provider.capabilities() : null;
   if (action === "merge") requireValue(capabilities.strategies.includes(strategy), "Merge strategy is unsupported.");
   if (action === "backup") requireValue(graph.backup.enabled && graph.repository.remote, "Enable remote backup explicitly in a graph spec first.");
@@ -531,8 +562,10 @@ export function createPlan(ctx, action, options = {}) {
   const plan = {
     version: VERSION, action, repository: ctx.root, common: ctx.common,
     graph, previousDigest: previous ? digest(previous) : null, landing,
+    ...(localOnly ? { localOnly: true } : {}),
     ...(options.commitTrailers ? { commitTrailers: [...options.commitTrailers] } : {}),
     ...(reuseWorktree ? { reuseWorktree } : {}),
+    ...(options.publishNodes ? { publishNodes: [...options.publishNodes].sort() } : {}),
     facts, target, source, node: options.node ?? null, strategy,
     ...(fetched ? { fetchObservation: fetched } : {}),
     freshness: freshnessReport(ctx, graph, facts),
@@ -556,7 +589,9 @@ export function createPlan(ctx, action, options = {}) {
         "Record the transfer in both operation journals. The previous owner can no longer reuse or clean this worktree; all freshness, hooks, cleanliness checks, and validation remain required.",
       ] : []),
       ...(["merge", "ready", "describe", "backup"].includes(action) ? [] :
-        ["Build/validate candidate own changes and integration bases in an isolated worktree; update only unoccupied graph branches."]),
+        [options.publishNodes
+          ? "Verify whole-graph composition and validation in an isolated worktree; update only the selected unoccupied node branches and their helper bases."
+          : "Build/validate candidate own changes and integration bases in an isolated worktree; update only unoccupied graph branches."]),
       ...plans,
       ...(action === "retarget" ? [
         `Reconstruct every active node and prerequisite base on ${graph.target}@${target}; preserve own-change ownership and existing PR identities.`,
@@ -564,26 +599,34 @@ export function createPlan(ctx, action, options = {}) {
         "Preserve each eligible PR's observed draft/non-draft state through reconstruction and retargeting. No promotions or merges.",
         "Preserve the previous integration branch and original source snapshots; verify the combined tree against the unchanged own changes composed on the new snapshot.",
       ] : []),
-      ...(["publish", "sync", "retarget"].includes(action) ? [
-        action === "publish" ? "Push all active nodes; create missing PRs as drafts." : "Push already-published nodes; never promote drafts.",
+      ...(localOnly ? [
+        "Sync the approved integration snapshot and local branches only; preserve hosting identities and observed PR state.",
+        "Do not push refs, create or update PRs, refresh hosted footers, promote drafts, merge, or upload backups. Backup configuration remains unchanged; publication is deferred.",
+      ] : []),
+      ...(!localOnly && ["publish", "sync", "retarget"].includes(action) ? [
+        action === "publish" ? options.publishNodes
+          ? `Push only selected nodes ${[...options.publishNodes].sort().join(", ")} and their required helper bases; create missing PRs as drafts. Preserve all unselected source refs, PR bodies, targets, and states.`
+          : "Push all active nodes; create missing PRs as drafts." : "Push already-published nodes; never promote drafts.",
         "Push tool-owned integration bases; preserve human PR bodies except the managed graph footer.",
         "Preserve observed draft/non-draft state for eligible existing PRs, including manual changes; blocked PRs must remain draft. Readiness does not waive freshness, validation, or merge checks.",
       ] : []),
       ...(action === "ready" ? [`Promote only ${options.node}, after dependency, target, diff, and validation checks.`] : []),
-      ...(["publish", "sync", "retarget", "ready", "merge"].includes(action) ? ["Refresh managed graph footers, including landed nodes; preserve human text."] : []),
+      ...(!localOnly && ["publish", "sync", "retarget", "ready", "merge"].includes(action)
+        ? [options.publishNodes ? "Refresh managed graph footers only on selected PRs; leave unselected and landed PRs unchanged."
+          : "Refresh managed graph footers, including landed nodes; preserve human text."] : []),
       ...(action === "merge" ? [`Merge only ${options.node} using ${strategy}; no source-branch deletion, auto-merge, or policy bypass.`] : []),
       ...(landing ? [{ recordLanding: landing, node: options.node,
         observedDelta: git.git(ctx.root, ["diff", "--binary", "--full-index", `${landing}^1`, landing]).stdout,
         effect: "Verify the node's own change replays to exactly this landing tree before recording it; then reconstruct the graph." }] : []),
       ...(action === "describe" ? Object.entries(descriptions ?? { [options.node]: options.body })
         .map(([node, replaceBody]) => ({ node, replaceBody })) : []),
-      ...(graph.backup.enabled && ["publish", "sync", "retarget", "backup", "merge", "ready", "describe"].includes(action)
+      ...(!localOnly && graph.backup.enabled && ["publish", "sync", "retarget", "backup", "merge", "ready", "describe"].includes(action)
         ? [`Publish graph manifest and reachable committed snapshots to ${graph.backup.branch}.`] : []),
-      ...graph.nodes.filter((n) => n.retired && n.pr && n.pr.state === "open")
+      ...graph.nodes.filter((n) => !localOnly && !options.publishNodes && n.retired && n.pr && n.pr.state === "open")
         .map((n) => `Mark superseded PR ${n.pr.url} as draft; retain all branches and snapshots.`),
       ...(SHAPE.has(action) ? ["Preserve observed draft/non-draft state for eligible existing PRs; mark blocked or superseded PRs draft."] : []),
     ],
-    warnings: warnings(ctx, graph),
+    warnings: warnings(ctx, graph, localOnly),
   };
   requireValue(action !== "describe" || descriptions || typeof options.body === "string", "Describe requires an approved body.");
   return seal(plan);
@@ -745,7 +788,8 @@ function validateNodes(ctx, graph, journal, cwd) {
 
 function writeLocal(ctx, graph, plan, journal) {
   const values = new Map();
-  for (const node of graph.nodes.filter((n) => !n.landing && !n.retired)) {
+  for (const node of graph.nodes.filter((n) => !n.landing && !n.retired &&
+    (!plan.publishNodes || plan.publishNodes.includes(n.id)))) {
     values.set(node.branch, node.head);
     if (node.baseBranch !== graph.target) values.set(node.baseBranch, node.base);
   }
@@ -825,7 +869,8 @@ function verifyPr(ctx, graph, node, provider) {
 }
 
 function publish(ctx, graph, provider, plan, journal) {
-  const active = topological(graph).filter((n) => !n.landing && !n.retired && (plan.action === "publish" || n.pr));
+  const active = topological(graph).filter((n) => !n.landing && !n.retired &&
+    (plan.action === "publish" || n.pr) && (!plan.publishNodes || plan.publishNodes.includes(n.id)));
   for (const node of active) {
     if (node.pr && node.requiresDraft && !node.pr.draft) {
       step("Returning blocked PR to draft", () => {
@@ -1012,7 +1057,8 @@ function supersede(ctx, graph, provider, journal) {
 
 function refreshFooters(ctx, graph, provider, journal) {
   if (provider.kind === "local") return;
-  for (const node of graph.nodes.filter((n) => n.pr)) {
+  for (const node of graph.nodes.filter((n) => n.pr &&
+    (!journal.plan.publishNodes || journal.plan.publishNodes.includes(n.id)))) {
     step("Refreshing and verifying managed PR footer", () => {
       const current = provider.get(node.pr.id);
       requireValue(current.branch === node.branch && current.head === node.pr.head &&
@@ -1041,6 +1087,15 @@ function graphPins(ctx, graph) {
 
 export function applyPlan(ctx, plan, approval, yes) {
   verifyApproval(plan, approval, yes);
+  requireValue(plan.publishNodes === undefined || (plan.action === "publish" && !plan.node &&
+    Array.isArray(plan.publishNodes) && plan.publishNodes.length > 0 &&
+    plan.publishNodes.every((id) => typeof id === "string" && /^[a-z0-9][a-z0-9-]*$/.test(id)) &&
+    new Set(plan.publishNodes).size === plan.publishNodes.length),
+  "Invalid approved publication selection.");
+  if (plan.publishNodes) validatePublicationNodes(plan.graph, plan.publishNodes, plan.facts, plan.target);
+  requireValue(plan.localOnly === undefined ||
+    (plan.action === "sync" && plan.localOnly === true),
+  "Local-only mode is supported only for sync.");
   requireValue(plan.repository === ctx.root && plan.common === ctx.common, "Plan belongs to another checkout.");
   if (plan.action === "unlock") {
     const file = path.join(ctx.dir, "mutation.lock");
@@ -1106,7 +1161,7 @@ export function applyPlan(ctx, plan, approval, yes) {
       const target = git.commitId(ctx.root, plan.target);
       const previous = state.load(ctx, graph.id, true);
       reconcile(ctx, graph, facts, target, SHAPE.has(plan.action) ? previous : null);
-      const cwd = prepareWorktree(ctx, journal, target);
+      const cwd = plan.action === "describe" ? null : prepareWorktree(ctx, journal, target);
       const apply = (dir, change, title) => applyOwned(ctx, journal, dir, change, title);
       if (plan.action === "record-landing") {
         const node = nodeById(graph, plan.node);
@@ -1134,12 +1189,20 @@ export function applyPlan(ctx, plan, approval, yes) {
           plan.source?.head ?? journal.beforeCombined, apply);
         graph.targetSha = target;
         validateNodes(ctx, graph, journal, cwd);
+        if (plan.publishNodes) {
+          for (const node of graph.nodes.filter((n) => !plan.publishNodes.includes(n.id))) {
+            const old = plan.graph.nodes.find((n) => n.id === node.id);
+            requireValue(["head", "base", "baseBranch", "change", "dependencies", "branch",
+              "landing", "retired", "ready", "signature"].every((key) => digest(node[key] ?? null) === digest(old[key] ?? null)),
+            `Selective publication would reconstruct or change unselected node ${node.id}; sync separately.`);
+          }
+        }
         journal.candidate = graph;
         saveJournal(ctx, journal);
         verifyFacts(ctx, plan, provider, journal);
         writeLocal(ctx, graph, plan, journal);
       }
-      if (["sync", "publish", "retarget"].includes(plan.action)) publish(ctx, graph, provider, plan, journal);
+      if (!plan.localOnly && ["sync", "publish", "retarget"].includes(plan.action)) publish(ctx, graph, provider, plan, journal);
       if (plan.action === "ready") {
         const node = nodeById(graph, plan.node);
         step("Checking eligibility and marking ready", () => {
@@ -1185,7 +1248,7 @@ export function applyPlan(ctx, plan, approval, yes) {
         }
       }
       if (SHAPE.has(plan.action)) supersede(ctx, graph, provider, journal);
-      if (["publish", "sync", "retarget", "ready", "merge"].includes(plan.action)) {
+      if (!plan.localOnly && ["publish", "sync", "retarget", "ready", "merge"].includes(plan.action)) {
         refreshFooters(ctx, graph, provider, journal);
       }
       const freshness = freshnessReport(ctx, graph, observe(ctx, graph, provider));
@@ -1194,7 +1257,7 @@ export function applyPlan(ctx, plan, approval, yes) {
       journal.candidate = graph;
       saveJournal(ctx, journal);
       graphPins(ctx, graph);
-      if (graph.backup.enabled && ["publish", "sync", "retarget", "backup", "merge", "ready", "describe"].includes(plan.action)) {
+      if (!plan.localOnly && graph.backup.enabled && ["publish", "sync", "retarget", "backup", "merge", "ready", "describe"].includes(plan.action)) {
         backup(ctx, graph, plan, journal);
       }
       journal.candidate = graph;

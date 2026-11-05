@@ -7,8 +7,9 @@ import { adoProvider } from "../lib/providers/ado.mjs";
 import { resolveProvider } from "../lib/providers/index.mjs";
 import { fixture, git, cli } from "./fixtures.mjs";
 import { createPlan, applyPlan, inspect } from "../lib/operations.mjs";
-import { git as gitResult } from "../lib/git.mjs";
+import { git as gitResult, tree } from "../lib/git.mjs";
 import { setProgressSink } from "../lib/progress.mjs";
+import { digest } from "../lib/graph.mjs";
 
 test("provider detection handles GitHub, GHES, ADO SSH/HTTPS and local Git", () => {
   assert.equal(resolveProvider("git@github.com:me/repo.git").kind, "github");
@@ -342,6 +343,137 @@ function hostedFixture(f) {
   f.ctx.providerFactory = () => p;
   return { p, records, loseResponse: () => { loseResponse = true; } };
 }
+
+test("selective publish creates only selected drafts and preserves landed and out-of-date unselected PRs", (t) => {
+  const f = fixture({ remote: true, names: ["a", "b", "c", "e"] });
+  t.after(() => f.dispose());
+  const host = hostedFixture(f);
+  const split = f.apply("split", { spec: f.spec });
+  assert.throws(() => createPlan(f.ctx, "publish", { graph: "example", publishNodes: ["c"] }),
+    /Include unpublished or out-of-date prerequisite/);
+  for (const publishNodes of [[], ["b", "b"], ["b", ""], ["missing"]]) {
+    assert.throws(() => createPlan(f.ctx, "publish", { graph: "example", publishNodes }),
+      /nonempty unique|Unknown active node/);
+  }
+  assert.throws(() => createPlan(f.ctx, "sync", { graph: "example", publishNodes: ["b"] }),
+    /Selective publication requires publish/);
+  const initial = f.apply("publish", { graph: "example", publishNodes: ["a", "e"],
+    reuseWorktree: split.operation });
+  f.apply("ready", { graph: "example", node: "a" });
+  f.apply("merge", { graph: "example", node: "a" });
+  assert.throws(() => createPlan(f.ctx, "publish", { graph: "example", publishNodes: ["a"] }),
+    /realized unlanded/);
+  const synced = f.apply("sync", { graph: "example", localOnly: true,
+    reuseWorktree: initial.operation });
+  const e = synced.graph.nodes.find((n) => n.id === "e");
+  assert.notEqual(e.head, e.pr.head, "Unselected PR has deliberately unpublished local content");
+  const records = structuredClone([...host.records]);
+  const remote = git(f.root, "ls-remote", "--refs", "upstream");
+  const update = host.p.update;
+  const oldIds = new Set(records.map(([id]) => id));
+  host.p.update = (id, fields) => {
+    assert.ok(!oldIds.has(id), "No unselected or landed PR may be updated");
+    return update(id, fields);
+  };
+  const plan = createPlan(f.ctx, "publish", {
+    graph: "example", publishNodes: ["c", "b"], reuseWorktree: synced.operation,
+  });
+  assert.deepEqual(plan.publishNodes, ["b", "c"]);
+  for (const publishNodes of [[], ["missing"], ["a"], ["c"], ["b", "b"]]) {
+    const { approval, ...payload } = plan;
+    const invalid = { ...payload, publishNodes };
+    invalid.approval = digest(invalid);
+    assert.throws(() => applyPlan(f.ctx, invalid, invalid.approval, true),
+      /Invalid approved|Unknown active node|realized unlanded|Include unpublished/);
+  }
+  host.loseResponse();
+  assert.throws(() => applyPlan(f.ctx, plan, plan.approval, true), /response was lost/);
+  const recovery = createPlan(f.ctx, "reconcile", { operation: plan.approval });
+  applyPlan(f.ctx, recovery, recovery.approval, true);
+  const result = applyPlan(f.ctx, plan, plan.approval, true);
+  for (const [id, record] of records) assert.deepEqual(host.records.get(id), record);
+  assert.equal(host.records.size, records.length + 2);
+  for (const id of ["b", "c"]) {
+    const node = result.graph.nodes.find((n) => n.id === id);
+    assert.equal(node.pr.draft, true);
+    assert.equal(node.pr.head, node.head);
+    assert.equal(node.pr.baseBranch, node.baseBranch);
+  }
+  assert.deepEqual(host.p.diffPaths(result.graph.nodes.find((n) => n.id === "c").pr.id), ["shared.txt"]);
+  const oldRefs = new Map(remote.split("\n").filter(Boolean).map((line) => line.split("\t").reverse()));
+  const selected = result.graph.nodes.filter((n) => plan.publishNodes.includes(n.id));
+  const allowed = new Set(selected.flatMap((n) => [n.branch, n.baseBranch]));
+  for (const line of git(f.root, "ls-remote", "--refs", "upstream").split("\n").filter(Boolean)) {
+    const [sha, ref] = line.split("\t");
+    if (!allowed.has(ref.slice("refs/heads/".length))) assert.equal(sha, oldRefs.get(ref), ref);
+  }
+  const journal = JSON.parse(fs.readFileSync(path.join(f.ctx.dir, "operations", `${result.operation}.json`)));
+  assert.ok(Object.keys(journal.local).every((branch) => allowed.has(branch)));
+  assert.ok(Object.keys(journal.remote).every((branch) => allowed.has(branch)));
+  assert.deepEqual(Object.keys(journal.prs).sort(), ["b", "c"]);
+  assert.equal(result.worktree, initial.worktree);
+  assert.equal(git(f.root, "rev-parse", "HEAD"), f.head);
+  assert.equal(git(f.root, "branch", "--show-current"), "source");
+  assert.equal(applyPlan(f.ctx, plan, plan.approval, true).alreadyDone, true);
+});
+
+test("CLI pins selective publication and rejects unsupported selections", (t) => {
+  const f = fixture({ remote: true, names: ["a", "b"] });
+  t.after(() => f.dispose());
+  const split = f.apply("split", { spec: f.spec });
+  const planned = cli(f.root, "plan", "publish", "--graph", "example", "--nodes", "b",
+    "--reuse-worktree", split.operation);
+  assert.equal(planned.status, 0, planned.stderr);
+  const plan = JSON.parse(planned.stdout);
+  assert.deepEqual(plan.publishNodes, ["b"]);
+  const result = applyPlan(f.ctx, plan, plan.approval, true);
+  assert.equal(git(f.root, "ls-remote", "--refs", "upstream", `refs/heads/${result.graph.nodes[0].branch}`), "");
+  assert.ok(git(f.root, "ls-remote", "--refs", "upstream", `refs/heads/${result.graph.nodes[1].branch}`));
+  assert.notEqual(cli(f.root, "plan", "sync", "--graph", "example", "--nodes", "b").status, 0);
+  assert.notEqual(cli(f.root, "plan", "publish", "--graph", "example", "--nodes", "b,b").status, 0);
+  assert.notEqual(cli(f.root, "plan", "publish", "--graph", "example", "--nodes", "a,").status, 0);
+});
+
+test("local-only sync refreshes and validates local branches without any hosting or backup writes", (t) => {
+  const f = fixture({ remote: true, names: ["a", "c"] });
+  t.after(() => f.dispose());
+  const validationLog = path.join(f.dir, "validations.log");
+  f.spec.backup = { enabled: true, branch: "graph-backup" };
+  f.spec.nodes[0].validations = [{ command: process.execPath, args: ["-e",
+    `require("node:fs").appendFileSync(${JSON.stringify(validationLog)}, "validated\\n")`] }];
+  const host = hostedFixture(f);
+  f.apply("split", { spec: f.spec });
+  const published = f.apply("publish", { graph: "example" });
+  host.p.update(published.graph.nodes[0].pr.id, { draft: false });
+  const advanced = git(f.root, "commit-tree", `${f.base}^{tree}`, "-p", f.base, "-m", "New target");
+  git(f.root, "push", "-q", "upstream", `${advanced}:refs/heads/trunk`);
+  const beforeRefs = git(f.root, "ls-remote", "--refs", "upstream");
+  const beforeValidation = fs.readFileSync(validationLog, "utf8");
+  const update = host.p.update;
+  host.p.update = host.p.create = host.p.merge = host.p.capabilities = () => {
+    assert.fail("Local-only sync must not invoke hosting writes or publication capabilities");
+  };
+  const plan = createPlan(f.ctx, "sync", { graph: "example", localOnly: true });
+  assert.equal(plan.localOnly, true);
+  assert.equal(plan.capabilities, null);
+  assert.ok(!plan.effects.some((e) => typeof e === "string" &&
+    /Push already-published|Publish graph manifest|Refresh managed graph footers/.test(e)));
+  const beforePrs = structuredClone([...host.records]);
+  const result = applyPlan(f.ctx, plan, plan.approval, true);
+  assert.equal(result.graph.targetSha, advanced);
+  assert.equal(result.graph.nodes[0].base, advanced);
+  assert.equal(result.graph.nodes[0].validation.head, result.graph.nodes[0].head);
+  assert.equal(fs.readFileSync(validationLog, "utf8"), `${beforeValidation}validated\n`);
+  assert.equal(tree(f.root, result.graph.combined), tree(f.root, f.head));
+  assert.equal(git(f.root, "ls-remote", "--refs", "upstream"), beforeRefs);
+  assert.deepEqual([...host.records], beforePrs);
+  assert.deepEqual(result.graph.backup, published.graph.backup);
+  assert.equal(result.graph.nodes[0].pr.draft, false);
+  const resumed = applyPlan(f.ctx, plan, plan.approval, true);
+  assert.equal(resumed.alreadyDone, true);
+  assert.equal(git(f.root, "ls-remote", "--refs", "upstream"), beforeRefs);
+  host.p.update = update;
+});
 
 test("server ancestry preserves fetch-start grace without fetching remote-only main or preview commits", (t) => {
   const f = fixture({ remote: true, names: ["a"] });
@@ -863,6 +995,25 @@ test("retarget recovery still rejects rewound targets and changed local or sourc
     assert.throws(() => applyPlan(f.ctx, recover, recover.approval, true),
       /rewound or rewritten|Observed state changed after reconciliation approval/);
   }
+});
+
+test("description-only updates do not allocate or claim an operation checkout", (t) => {
+  const f = fixture({ remote: true, names: ["a"] });
+  t.after(() => f.dispose());
+  const host = hostedFixture(f);
+  f.apply("split", { spec: f.spec });
+  const published = f.apply("publish", { graph: "example" });
+  const before = git(f.root, "ls-remote", "--refs", "upstream");
+  const plan = createPlan(f.ctx, "describe", { graph: "example", node: "a", body: "Accurate draft description" });
+  const checkout = path.join(f.ctx.dir, "trees", plan.approval);
+  assert.equal(fs.existsSync(checkout), false);
+  const result = applyPlan(f.ctx, plan, plan.approval, true);
+  assert.equal(result.worktree, null);
+  assert.equal(fs.existsSync(checkout), false);
+  assert.equal(git(f.root, "ls-remote", "--refs", "upstream"), before);
+  assert.equal(git(f.root, "rev-parse", "HEAD"), f.head);
+  assert.ok(host.p.get(published.graph.nodes[0].pr.id).body.startsWith("Accurate draft description"));
+  assert.equal(host.p.get(published.graph.nodes[0].pr.id).draft, true);
 });
 
 test("description batches tolerate forward integration movement without rebasing or promoting nodes", (t) => {

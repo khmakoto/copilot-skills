@@ -403,6 +403,11 @@ different payload under the same approval.
 
 Publish is separate from local splitting. An approved `publish` plan pushes
 active nodes and creates **all** missing PRs as drafts.
+To publish only specific nodes, use `plan publish --nodes <id,id>`. Review the
+exact selected refs and prerequisite closure; unselected and landed PRs are not
+updated. Unpublished prerequisites must also be selected. A separate sync is
+required if the existing integration snapshot cannot be retained or unselected
+nodes would need reconstruction. This does not mark any node ready.
 
 Once each node's PR exists, generate a Mermaid diagram from the current full
 DAG, render it locally to an image, and attach it at the very end of that PR's
@@ -435,6 +440,10 @@ product PR into a helper base or create a product PR for a helper branch.
 Use explicit `sync` when target freshness requires it or nodes land. It reconstructs
 affected work, verifies clean diffs, retargets newly eligible nodes, and reports
 eligibility. It does **not** promote drafts or merge anything.
+When publication is not authorized, use an approved `sync --local-only` plan.
+It reconstructs and validates local branches without pushes, PR updates,
+draft changes, hosted footer refreshes, or backup uploads. Hosting identities
+and backup configuration remain intact, and publication stays pending.
 Preserve the live draft/non-draft state of eligible existing PRs, whether changed
 by the graph or manually, even when sync reconstructs their branches. Return
 blocked or superseded PRs to draft; never infer freshness or validation from
@@ -509,8 +518,8 @@ Do not infer availability from the primary checkout or another operation's
 worktree. Prefer read-only checks; do not install dependencies or alter hooks
 automatically.
 
-For `sync`, `publish`, or `retarget`, an exact plan may explicitly reuse a clean
-detached worktree from a completed or separately approved aborted operation via
+For `add`, `fold`, `sync`, `publish`, or `retarget`, an exact plan may explicitly
+reuse a clean detached worktree from a completed or separately approved aborted operation via
 `--reuse-worktree <operation-digest>`. Review the pinned source identity, HEAD,
 and ownership transfer. Its path and tooling remain intact; old owners cannot
 recover or clean the transferred worktree. Reuse never skips validation or
@@ -532,6 +541,10 @@ installation does not establish that the original plan is still current.
   separate `adopt` plan from pinned live heads, own-change bases, and provider
   landing receipts. It updates only approved unoccupied local branches and
   graph metadata, clears validation/readiness, and does not prove composition.
+  A selective adoption spec may name only the externally updated nodes while
+  retaining the graph's integration snapshot, helper namespace and unselected
+  unpublished source. It invalidates selected nodes and active descendants;
+  it never reconstructs or publishes them. See the recovery command reference.
 - To release an occupied graph node without stashing, prepare a separate
   `checkpoint` plan for its already-staged work, new local branch, and exact
   commit message. It switches only that checkout and commits through normal

@@ -155,3 +155,98 @@ test("adoption resumes the same journal after its atomic branch transaction", (t
   assert.equal(result.graph.nodes[1].head, f.rewritten);
   assert.equal(state.readJson(file).status, "done");
 });
+
+function selectiveFixture(t) {
+  const f = fixture({ remote: true, names: ["a", "b", "c", "d"] });
+  t.after(() => f.dispose());
+  const graph = f.apply("split", { spec: f.spec }).graph;
+  const prs = {};
+  for (const [index, node] of graph.nodes.entries()) {
+    node.pr = { id: index + 1, branch: node.branch, head: node.head, base: node.base,
+      baseBranch: node.baseBranch, state: "open", draft: true, body: "Human description" };
+    prs[node.pr.id] = structuredClone(node.pr);
+    git(f.root, "push", "-q", "upstream", node.branch);
+    if (node.baseBranch !== graph.target) {
+      git(f.root, "push", "-q", "upstream", `${node.base}:refs/heads/${node.baseBranch}`);
+    }
+  }
+  const [a, b, c, d] = graph.nodes;
+  b.head = git(f.root, "commit-tree", `${b.head}^{tree}`, "-p", b.head, "-m", "Unpublished b");
+  b.change.head = b.head;
+  b.ready = true;
+  b.signature = "preserve-unrelated-validation";
+  git(f.root, "update-ref", `refs/heads/${b.branch}`, b.head);
+  c.ready = true;
+  c.signature = "invalidate-dependent-validation";
+  d.retired = true;
+  delete d.pr;
+  state.save(f.ctx, graph);
+  const rewritten = git(f.root, "commit-tree", `${a.head}^{tree}`, "-p", a.head, "-m", "Updated a");
+  git(f.root, "push", "-q", "upstream", `${rewritten}:refs/heads/${a.branch}`);
+  prs[a.pr.id].head = rewritten;
+  f.ctx.providerFactory = () => ({ kind: "ado", get(id) {
+    return structuredClone(prs[id]);
+  } });
+  const spec = { id: graph.id, selective: true, targetSnapshot: graph.targetSha,
+    nodes: [{ id: a.id, head: rewritten, base: a.base, baseBranch: a.baseBranch }] };
+  return { ...f, graph, prs, spec, a, b, c, d, rewritten,
+    plan: () => createPlan(f.ctx, "adopt", { graph: graph.id, spec }) };
+}
+
+test("selective adoption preserves unpublished nodes and no-PR retired snapshots", (t) => {
+  const f = selectiveFixture(t);
+  const remote = git(f.root, "ls-remote", "--heads", "upstream");
+  const plan = f.plan();
+  assert.deepEqual(plan.updates, [{ branch: f.a.branch, expected: f.a.head, head: f.rewritten }]);
+  const result = applyPlan(f.ctx, plan, plan.approval, true);
+  assert.equal(result.graph.nodes[0].head, f.rewritten);
+  assert.deepEqual(result.graph.nodes[1], f.b);
+  assert.deepEqual(result.graph.nodes[3], f.d);
+  assert.equal(refId(f.root, `refs/heads/${f.b.branch}`), f.b.head);
+  assert.equal(refId(f.root, `refs/heads/${f.c.branch}`), f.c.head);
+  assert.equal(result.graph.nodes[2].head, f.c.head);
+  assert.deepEqual(result.graph.nodes[2].change, f.c.change);
+  assert.equal(result.graph.nodes[2].validation, null);
+  assert.equal(result.graph.nodes[2].ready, false);
+  assert.equal(result.graph.nodes[2].signature, undefined);
+  assert.equal(result.graph.targetSha, f.graph.targetSha);
+  assert.equal(result.graph.integration.verifiedAt, undefined);
+  assert.equal(git(f.root, "ls-remote", "--heads", "upstream"), remote);
+  assert.equal(refId(f.root, `refs/pr-graph/${plan.approval}/adoption/${f.b.head}`), f.b.head);
+});
+
+test("selective adoption requires explicit valid selection and unchanged unselected observations", (t) => {
+  const f = selectiveFixture(t);
+  const selected = f.spec.nodes;
+  f.spec.nodes = [];
+  assert.throws(f.plan, /cannot add, remove, or duplicate/);
+  f.spec.nodes = [...selected, ...selected];
+  assert.throws(f.plan, /cannot add, remove, or duplicate/);
+  f.spec.nodes = [{ ...selected[0], id: "unknown" }];
+  assert.throws(f.plan, /cannot add, remove, or duplicate/);
+  f.spec.nodes = selected;
+  f.spec.helperBranchPrefix = "different-bases";
+  assert.throws(f.plan, /cannot change the helper namespace/);
+  delete f.spec.helperBranchPrefix;
+  f.spec.targetSnapshot = f.head;
+  assert.throws(f.plan, /must preserve.*integration snapshot/);
+  f.spec.targetSnapshot = f.graph.targetSha;
+  const plan = f.plan();
+  f.prs[f.b.pr.id].head = f.b.head;
+  assert.throws(f.plan, /Unselected PR identity changed/);
+  assert.throws(() => applyPlan(f.ctx, plan, plan.approval, true), /PR changed/);
+  assert.equal(refId(f.root, `refs/heads/${f.a.branch}`), f.a.head);
+});
+
+test("complete adoption retains retired nodes without requiring a PR", (t) => {
+  const f = selectiveFixture(t);
+  git(f.root, "update-ref", `refs/heads/${f.b.branch}`, f.prs[f.b.pr.id].head, f.b.head);
+  f.spec.selective = false;
+  f.spec.nodes = f.graph.nodes.map((node) => node.retired
+    ? { id: node.id, head: node.head, base: node.base, baseBranch: node.baseBranch }
+    : { id: node.id, head: f.prs[node.pr.id].head, base: node.base, baseBranch: node.baseBranch });
+  const plan = f.plan();
+  assert.deepEqual(plan.graph.nodes[3], f.d);
+  f.spec.nodes[3].head = f.base;
+  assert.throws(f.plan, /Retired snapshot is immutable/);
+});

@@ -177,8 +177,14 @@ the option. Without it, reconstruction messages retain their existing behavior.
 
 ### Reusing a retained operation worktree
 
-For `sync`, `publish`, and `retarget`, `--reuse-worktree <operation-digest>` can
-reuse the worktree of a completed or explicitly aborted operation for the same
+`plan sync --local-only` refreshes local reconstruction without pushes, PR
+changes, or backup uploads. The approved plan pins this mode; continuation does
+not reread a CLI flag. It is valid only for sync and retains every normal
+freshness, lease, hook, validation, and worktree check.
+
+For `add`, `fold`, `sync`, `publish`, and `retarget`,
+`--reuse-worktree <operation-digest>` can reuse the worktree of a completed or
+explicitly aborted operation for the same
 graph and repository:
 
 ```text

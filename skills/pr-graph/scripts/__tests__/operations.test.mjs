@@ -8,6 +8,33 @@ import { tree, context } from "../lib/git.mjs";
 import { load, lock } from "../lib/state.mjs";
 import { createPlan, applyPlan } from "../lib/operations.mjs";
 
+test("local-only sync mode is pinned, CLI-supported, and rejected for other actions", (t) => {
+  const f = fixture({ names: ["a"] });
+  t.after(() => f.dispose());
+  f.apply("split", { spec: f.spec });
+  const planned = cli(f.root, "plan", "sync", "--graph", "example", "--local-only");
+  assert.equal(planned.status, 0, planned.stderr);
+  const plan = JSON.parse(planned.stdout);
+  assert.equal(plan.localOnly, true);
+  const tampered = { ...plan };
+  delete tampered.localOnly;
+  assert.throws(() => applyPlan(f.ctx, tampered, plan.approval, true), /approval/);
+  for (const action of ["publish", "ready", "adopt", "resolve"]) {
+    assert.throws(() => createPlan(f.ctx, action, { graph: "example", localOnly: true }),
+      /Local-only mode is supported only for sync/);
+  }
+  assert.throws(() => createPlan(f.ctx, "sync", { graph: "example", localOnly: "true" }),
+    /must be boolean/);
+  const file = path.join(f.dir, "local-sync.json");
+  fs.writeFileSync(file, JSON.stringify(plan));
+  assert.equal(cli(f.root, "plan", "publish", "--graph", "example", "--local-only").status, 1);
+  assert.equal(cli(f.root, "apply", "--plan", file, "--yes", "--approve", plan.approval,
+    "--local-only").status, 1);
+  const applied = cli(f.root, "apply", "--plan", file, "--yes", "--approve", plan.approval);
+  assert.equal(applied.status, 0, applied.stderr);
+  assert.equal(JSON.parse(applied.stdout).graph.revision, plan.graph.revision + 1);
+});
+
 test("CLI pins reconstruction trailers without changing PR titles or rereading the input", (t) => {
   const f = fixture({ names: ["a", "b"] });
   t.after(() => f.dispose());
