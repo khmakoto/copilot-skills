@@ -76,6 +76,9 @@ bounded at 4000 characters by the adapter. Propose a shorter body explicitly;
 do not truncate human text.
 
 ADO rejects a retarget request when the PR already targets that branch.
+Completed ADO PRs reject description edits. Footer refresh verifies their
+identity and preserves their immutable descriptions; refresh diagrams only on
+editable active PRs and report completed diagrams as historical.
 Read the current target and omit that field for unchanged targets; still
 apply and verify requested description/draft changes. For changed targets,
 send and verify the retarget separately before sending description/draft

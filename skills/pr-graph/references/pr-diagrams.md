@@ -11,15 +11,16 @@ all declared dependency edges. Use stable node IDs; optional short titles and
 known PR numbers help identify changes. Keep node cards compact: show the node
 name, PR number when known, lifecycle (`active`, `landed`, or `superseded`),
 eligibility (`eligible` or `blocked` when applicable), readiness (`unpublished`,
-`draft`, or `review-ready` when applicable), and a short textual freshness badge.
+`draft`, or `review-ready` when applicable). Do not add freshness information to
+node cards, including freshness badges, timestamps, or freshness-based styling.
 Keep these states distinct; do not imply that structural checks establish
 functional or merge readiness. Do not repeat authored commit IDs, structural
 check details, full timestamps, or explanatory prose in every node or edge.
 
-Move commit IDs and structural-check results into a concise graph-level snapshot
-summary, keyed by node ID where needed to preserve landed and superseded nodes'
-own evidence. Put the graph name, revision, observation time, integration
-snapshot/fetch start, and applicable grace expiry in that summary too. Keep it a
+Move freshness information, commit IDs, and structural-check results into a concise
+graph-level snapshot summary, keyed by node ID where needed to preserve landed and
+superseded nodes' own evidence. Put the graph name, revision, observation time,
+integration snapshot/fetch start, and applicable grace expiry in that summary too. Keep it a
 compact header or footer rather than a tall metadata card; use concise labels
 and omit no required evidence.
 
@@ -62,10 +63,11 @@ the rendering blocker; do not upload or reuse that image as an acceptable diagra
 
 ### Freshness evidence
 
-Also show each node's integration freshness (`current`, `grace`, `stale`, or
-`unknown`) independently of eligibility and readiness. Include the snapshot's
+Show each node's integration freshness (`current`, `grace`, `stale`, or
+`unknown`) in the graph-level snapshot summary, not in node cards or their styling.
+Keep it independent of eligibility and readiness. Include the snapshot's
 verification time (the recorded fetch start when supplied) and any grace expiry
-in the diagram or its legend, with an explicit observation time. A grace label
+in that summary, with an explicit observation time. A grace label
 is not a merge-ready claim; main/master
 grace lasts less than 90 minutes and never applies to merging. Refresh a depicted
 freshness transition rather than reusing an image that still claims grace after
@@ -76,19 +78,19 @@ preflight. Do not infer landings from closed PRs, or draw intended future
 changes as completed. If facts cannot be established, stop and report the
 blocker rather than publishing an apparently current diagram.
 
-For example, this compact source for the initial A-F graph shows lifecycle,
-eligibility/readiness, and freshness as separate text, with color as a supporting
-cue. The actual rendered image must also include the compact visual key and
-graph-level snapshot summary described above.
+For example, this compact source for the initial A-F graph shows lifecycle
+and eligibility/readiness as separate text, with color as a supporting cue.
+The actual rendered image must also include the compact visual key and
+graph-level snapshot summary, including freshness evidence, described above.
 
 ```mermaid
 flowchart TD
-    n_a["A · PR #101<br/>ACTIVE · ELIGIBLE · DRAFT<br/>FRESH: CURRENT"]
-    n_b["B · PR #102<br/>ACTIVE · ELIGIBLE · REVIEW-READY<br/>FRESH: GRACE"]
-    n_c["C · PR #103 · THIS PR<br/>ACTIVE · BLOCKED · DRAFT<br/>FRESH: STALE"]
-    n_d["D · unpublished<br/>ACTIVE · BLOCKED · UNPUBLISHED<br/>FRESH: UNKNOWN"]
-    n_e["E · PR #105<br/>LANDED<br/>FRESH: UNKNOWN"]
-    n_f["F · PR #106<br/>SUPERSEDED<br/>FRESH: UNKNOWN"]
+    n_a["A · PR #101<br/>ACTIVE · ELIGIBLE · DRAFT"]
+    n_b["B · PR #102<br/>ACTIVE · ELIGIBLE · REVIEW-READY"]
+    n_c["C · PR #103 · THIS PR<br/>ACTIVE · BLOCKED · DRAFT"]
+    n_d["D · unpublished<br/>ACTIVE · BLOCKED · UNPUBLISHED"]
+    n_e["E · PR #105<br/>LANDED"]
+    n_f["F · PR #106<br/>SUPERSEDED"]
     n_a --> n_c
     n_b --> n_c
     n_b --> n_d
@@ -190,14 +192,16 @@ Report hosted refreshes as pending without blocking local-sync completion.
 For `publish --nodes`, refresh only selected PRs; leave unselected and landed
 PRs unchanged. Report their needed refreshes as pending separate authorization.
 Apply the following refresh rules only within that authorized hosting scope.
+Completed ADO PR descriptions are immutable: leave their diagram blocks
+unchanged and report them as historical snapshots.
 
 After a PR is created, append its image before reporting the node's publication
 complete. After publishing a batch, refresh earlier PRs to include the final
 publication state and known PR identities. For an existing PR attached through
 `init`/`add` with `adoptPr`, apply the same requirement only within the approved
-hosting scope. The separate local-only `adopt` recovery performs no image uploads
+hosting scope. The separate local-only `adopt` and `import-graph` recoveries perform no image uploads
 or description edits; report any needed hosted refreshes as pending separate
-authorization without blocking completion of local adoption.
+authorization without blocking completion of local recovery.
 
 Refresh affected images on all existing graph PRs when dependencies, node
 membership, publication, draft/readiness state, or landing/supersession state

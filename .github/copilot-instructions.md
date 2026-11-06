@@ -87,7 +87,10 @@ Fixture coverage is not live provider certification.
   Store plans outside the managed product worktree, with a new file per revision.
 - `--auto` belongs to the skill, not the helper CLI, and is invocation-scoped.
   It never bypasses digest checks; merging, deletion/cleanup, backup transfers,
-  restore, and recovery decisions retain explicit approval requirements.
+  restore, and new recovery decisions retain explicit approval requirements.
+  Ordinary auto mode may reuse an already-approved matching conflict resolution
+  without a first-reuse prompt under the skill's current-input/context evidence
+  checks and a fresh exact recovery plan; other recovery approvals are unchanged.
 - Preserve stdout result shapes; send live progress to stderr. Helper `--quiet`
   suppresses progress only, not errors or final results. Progress is not proof of
   successful freshness checks, validation, or mutations; report completion only
@@ -105,7 +108,7 @@ Fixture coverage is not live provider certification.
   Freshness fetches/fast-forwards are a skill preflight, not automatic CLI behavior.
 - Preserve the user's branch, dirty files, index, occupied worktrees, hooks, and
   signing configuration. Mutations use retained operation worktrees and journals;
-  conflicts or uncertain remote effects require explicit recovery, not blind
+  new or unverifiable conflicts and uncertain remote effects require explicit recovery, not blind
   retries or silent repair. Preserve human PR text outside managed footer blocks.
 - Resolve bundled scripts via the installed skill path and pass `--repo` for the
   managed repository. Keep subprocesses shell-free with explicit argument arrays

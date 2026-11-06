@@ -36,12 +36,47 @@ review and approve exact routine in-scope plans and preflight commands without
 repeated human prompts. The helper's digest and all safety checks remain
 mandatory. This exception does not authorize merging, removal/deletion/cleanup,
 backup upload/download (including backup effects embedded in routine plans),
-restore, adoption, or checkpoint preservation. Conflicts, failed checks,
+restore, adoption, local graph import, or checkpoint preservation. New or unverifiable conflicts, failed checks,
 unexpected changes, and uncertain remote effects require a pause and a
 human-approved resolution/recovery plan. After
 that resolution, recheck inputs and resume auto mode only for the original task.
-Never treat auto mode as permission to resolve conflicts or retry ambiguous
-writes automatically.
+The bounded repeat-resolution exception below uses prior explicit approval,
+not permission to invent new fixes or retry ambiguous writes automatically.
+
+### Reusing an approved conflict resolution
+
+In ordinary auto mode, reuse a previously human-approved matching resolution
+within the original task without another prompt or a separate first-reuse
+opt-in. Preserve evidence of the exact approved patch, conflict inputs, parent
+and result trees, and successful commit. Before reuse, verify operation
+ownership, current conflict inputs, and the resolution's semantic applicability
+to the current target and prerequisite/consumer context. Matching paths or
+conflicted file blobs alone is not sufficient. Changed, missing, or uncertain
+context requires a new human-approved resolution.
+
+Prefer verified exact reconstruction receipts carried by an approved retained
+worktree transfer: unchanged parent, patch, complete requested message, and
+execution fingerprint can reuse the already-committed result rather than
+reconstruct it. The helper verifies the pinned result's parent, tree, and actual
+commit message. Its execution fingerprint is bounded hook/configuration and
+runtime evidence, not proof of external tooling or consumer behavior; if those
+changed or cannot be established, do not rely on an inherited hit.
+
+If a conflict still occurs, inspect and stage only the matching approved fix in
+the owned worktree, generate a fresh current-operation `resolve` plan, and review
+and approve its exact digest under auto mode. The old resolution is evidence,
+not approval of a different recovery payload. Run normal hooks, freshness,
+full-tree preservation and required validation checks. Failed checks or
+unexpected effects still pause. `reconcile`, `abort`, and `unlock` remain
+separately human-approved.
+
+Local `import-graph` recovery also requires exact human approval, even in auto
+mode. It can recover a changed DAG shape from another verified local clone
+without reconstruction or hosting writes. See
+[the recovery command](recovery-commands.md#importing-a-newer-dag-from-another-local-clone).
+Its pinned metadata/own-change comparisons have the same limited stale-target
+inspection exception as adoption; neither operation authorizes current-target
+source changes or claims validated dependency composition.
 
 ## Freshness before inspection or mutation
 
@@ -66,6 +101,13 @@ instead of prompting; expired main/master grace permits necessary safe updates,
 sync/replanning, and revalidation, not skipping freshness or extending the clock.
 Use explicit private fetch refspecs and compare-and-swap local updates; never
 trust cached tracking refs or arbitrary configured fetch mappings.
+
+Before a long reconstruction or continuation, use observed comparable durations
+plus hook/validation margin to check remaining grace. Insufficient headroom
+calls for safe refresh/replanning in auto mode before starting; do not keep
+rebuilding the same expiring snapshot. For a pending operation, establish
+recovery constraints before moving refs. This admission check never extends
+the clock or replaces the helper's freshness checks.
 
 Only behind, non-divergent, unoccupied branches may advance. Ahead branches keep
 their local commits. Unexplained divergence, inaccessible remotes, missing upstreams, moving

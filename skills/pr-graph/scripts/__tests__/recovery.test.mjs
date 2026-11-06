@@ -6,7 +6,7 @@ import os from "node:os";
 import { fixture, git } from "./fixtures.mjs";
 import { context, tree, refId } from "../lib/git.mjs";
 import { createPlan, applyPlan, inspect } from "../lib/operations.mjs";
-import { load, graphFile } from "../lib/state.mjs";
+import { load, graphFile, journalFile, readJson } from "../lib/state.mjs";
 
 test("remote snapshot restores full DAG and committed no-PR changes in another clone", (t) => {
   const f = fixture({ remote: true });
@@ -70,11 +70,24 @@ test("conflicts require a staged resolution approval and resume without losing w
   git(pending.worktree, "add", "shared.txt");
   const resolution = createPlan(f.ctx, "resolve", { operation: original.approval });
   applyPlan(f.ctx, resolution, resolution.approval, true);
+  const receipt = readJson(journalFile(f.ctx, original.approval)).resolutionReceipts[0];
+  assert.equal(receipt.plan.approval, resolution.approval);
+  assert.equal(receipt.plan.patch, resolution.patch);
+  assert.ok(receipt.conflictInputs.includes("shared.txt"));
+  assert.equal(receipt.beforeTree, tree(f.root, resolution.head));
+  assert.equal(receipt.tree, tree(f.root, receipt.head));
   const done = applyPlan(f.ctx, original, original.approval, true);
   assert.equal(done.graph.nodes.length, 2);
   assert.ok(done.graph.nodes.every((node) =>
     git(f.root, "show", "-s", "--format=%B", node.head).endsWith(commitTrailers[0])));
   assert.ok(git(f.root, "show", `${done.graph.combined}:shared.txt`).includes("a=2"));
+  const replayed = f.apply("fold", {
+    graph: "example", spec: f.spec, commitTrailers, reuseWorktree: done.operation,
+  });
+  const replay = readJson(journalFile(f.ctx, replayed.operation));
+  assert.ok(replay.reconstruction.inheritedCached > 0);
+  assert.equal(replay.reconstruction.applied, 0);
+  assert.equal(tree(f.root, replayed.graph.combined), tree(f.root, done.graph.combined));
 });
 
 test("corrupt state fails loudly and missing reconstruction content never publishes", (t) => {

@@ -10,7 +10,7 @@ Read the relevant action reference before preparing a plan:
   specs, splitting, adding, dependencies, folding, and removal.
 - [Lifecycle commands](lifecycle-commands.md): publication, sync, retargeting,
   readiness, merging, descriptions, and landing receipts.
-- [Backup and recovery commands](recovery-commands.md): checkpoint, adoption,
+- [Backup and recovery commands](recovery-commands.md): checkpoint, adoption, local graph import,
   backup/restore, interrupted operations, and cleanup.
 
 ```text
@@ -92,6 +92,11 @@ backup upload also requires approval. Blockers pause the workflow; after an
 approved resolution and rechecks, auto mode resumes for the original task.
 Without an explicit flag or unambiguous direct user instruction, all existing
 interactive approvals apply.
+
+`import-graph --source-repo <path>` is separately approved local recovery for
+changed DAG shape in another clone. See [recovery commands](recovery-commands.md).
+It never uploads or executes imported validation commands and is not included
+in auto-mode routine authorization.
 
 ### Freshness reports
 
@@ -206,6 +211,30 @@ the transfer are invalidated. Recovery and status use the retained path, not a
 new directory named after the current operation. Freshness, commit hooks,
 cleanliness checks, composition, and validation requirements are unchanged.
 Reusing a worktree does not reuse an expired snapshot or renew its fetch clock.
+
+New operation journals record versioned reconstruction receipts. An approved
+transfer carries verified, privately pinned receipts from a compatible source
+journal. Cache keys include the exact parent commit, patch digest, complete
+requested commit message (including trailers), and an opaque execution
+fingerprint. The helper verifies the result commit's sole parent, tree, and
+actual message before using it. Exact hits reuse the committed result without
+another patch application or commit-hook run; required validation and composition
+checks still run. The plan discloses the maximum receipt count to carry.
+
+The fingerprint covers selected hook/authoring configuration, regular hook-file
+contents and modes, author/committer overrides, helper implementation, and
+Node/Git versions. It is not a fingerprint of arbitrary external tooling.
+Unknown hook layouts or unreadable context disable inherited reuse. Changed
+parents, messages, patches or fingerprints miss the cache. Legacy journals
+retain their existing operation-local caching but do not export unverified
+entries. No global cache or persisted auto-mode authorization is introduced.
+
+`inspect` reports each operation's `reconstruction` counts: `applied` counts
+patch-application attempts (including failures), `cached` counts cache uses,
+and `inheritedCached` counts uses of transferred receipts. These are work
+counts, not unique commits or elapsed-time savings. Successful conflict recovery
+also records the exact approved resolve plan, captured conflict inputs, and
+before/result trees; inspect exposes its `resolutionReceipts` count.
 
 ```text
 node "<helper>" plan split --repo "<repo>" --spec "<spec.json>" --out "<plan.json>"

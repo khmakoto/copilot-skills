@@ -12,13 +12,14 @@ import { resolveProvider, identity, providerFor } from "./providers/index.mjs";
 import { createAdoptionPlan, applyAdoptionPlan } from "./adoption.mjs";
 import { createCheckpointPlan, applyCheckpointPlan } from "./checkpoint.mjs";
 import { createRetiredRemovalPlan, applyRetiredRemovalPlan } from "./retirement.mjs";
+import { createImportPlan, applyImportPlan } from "./import.mjs";
 import { nodeDetails, step } from "./progress.mjs";
 
 const SHAPE = new Set(["init", "split", "add", "deps", "split-node", "fold", "remove"]);
 const FORWARD_TARGET = new Set(["retarget", "describe"]);
 const ACTIONS = new Set([...SHAPE, "publish", "sync", "retarget", "ready", "merge", "backup",
   "fetch-backup", "restore", "resolve", "abort", "cleanup", "describe", "reconcile", "unlock",
-  "record-landing", "adopt", "checkpoint", "remove-retired"]);
+  "record-landing", "adopt", "checkpoint", "remove-retired", "import-graph"]);
 
 const now = (ctx) => ctx.now?.() ?? Date.now();
 
@@ -284,7 +285,70 @@ function planWorktreeReuse(ctx, operation, graphId) {
   const info = git.operationWorktreeInfo(ctx, worktreePath(ctx, source));
   requireValue(!git.out(info.path, ["status", "--porcelain", "--untracked-files=all"]),
     "Retained operation worktree has changes; preserve and handle them explicitly.");
-  return { operation, journalDigest: digest(source), ...info };
+  return { operation, journalDigest: digest(source), ...info,
+    cachedReconstructions: Object.values(source.reconstructionReceipts ?? {})
+      .filter((receipt) => receipt.recipe?.execution).length };
+}
+
+function executionFingerprint(cwd) {
+  try {
+    const config = {};
+    for (const key of ["core.hooksPath", "core.autocrlf", "commit.cleanup",
+      "commit.gpgSign", "gpg.format", "gpg.program", "gpg.ssh.program",
+      "gpg.x509.program", "user.name", "user.email", "user.signingKey",
+      "i18n.commitEncoding"]) {
+      const value = git.git(cwd, ["config", "--get", key], undefined, true);
+      if (![0, 1].includes(value.status)) return null;
+      config[key] = value.status === 0 ? value.stdout.trim() : null;
+    }
+    const directory = path.resolve(cwd, config["core.hooksPath"] ??
+      git.out(cwd, ["rev-parse", "--git-path", "hooks"]));
+    const hooks = [];
+    if (fs.existsSync(directory)) {
+      if (!fs.lstatSync(directory).isDirectory()) return null;
+      for (const name of fs.readdirSync(directory).sort()) {
+        const file = path.join(directory, name);
+        const stat = fs.lstatSync(file);
+        if (!stat.isFile()) return null;
+        hooks.push([name, stat.mode & 0o7777, digest(fs.readFileSync(file).toString("base64"))]);
+      }
+    }
+    const authoring = Object.fromEntries(["GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL",
+      "GIT_AUTHOR_DATE", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL",
+      "GIT_COMMITTER_DATE"].map((key) => [key, process.env[key] ?? null]));
+    // Persist only an opaque fingerprint, never configuration or identity values.
+    const implementation = ["operations.mjs", "changes.mjs", "git.mjs"]
+      .map((name) => [name, digest(fs.readFileSync(path.join(import.meta.dirname, name)).toString("base64"))]);
+    return digest({ config, hooks, authoring, implementation, node: process.version,
+      git: git.out(cwd, ["--version"]) });
+  } catch {
+    return null;
+  }
+}
+
+function verifyReconstructionReceipt(cwd, key, receipt) {
+  const sha = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
+  requireValue(receipt?.recipe && digest(receipt.recipe) === key &&
+    sha.test(receipt.recipe?.before) && sha.test(receipt.head) && sha.test(receipt.tree) &&
+    /^[0-9a-f]{64}$/.test(receipt.recipe?.patch) &&
+    (receipt.recipe.execution === null || /^[0-9a-f]{64}$/.test(receipt.recipe.execution)) &&
+    typeof receipt.recipe.message === "string" && typeof receipt.message === "string",
+  "Invalid reconstruction receipt; preserve it and inspect before reuse.");
+  requireValue(git.commitId(cwd, receipt.head) === receipt.head &&
+    git.tree(cwd, receipt.head) === receipt.tree &&
+    git.out(cwd, ["show", "-s", "--format=%P", receipt.head]) === receipt.recipe.before &&
+    git.out(cwd, ["show", "-s", "--format=%B", receipt.head]) === receipt.message,
+  "Reconstruction receipt no longer matches its exact commit.");
+}
+
+function recordReconstruction(cwd, journal, sha) {
+  const recipe = journal.pendingChange?.recipe;
+  if (!recipe) return;
+  journal.reconstructionReceipts ??= {};
+  journal.reconstructionReceipts[digest(recipe)] = {
+    recipe, head: sha, tree: git.tree(cwd, sha),
+    message: git.out(cwd, ["show", "-s", "--format=%B", sha]),
+  };
 }
 
 function requireWorktreeOwner(ctx, journal) {
@@ -321,6 +385,21 @@ function prepareWorktree(ctx, journal, target) {
     requireValue(!git.out(reuse.path, ["status", "--porcelain", "--untracked-files=all"]),
       "Retained operation worktree has changes; preserve and handle them explicitly.");
     if (!journal.worktreeReuseClaimed) {
+      if (journal.commitCacheVersion === 2 && source.commitCacheVersion === 2) {
+        journal.inheritedReconstructions ??= [];
+        journal.reconstructionReceipts ??= {};
+        for (const [key, receipt] of Object.entries(source.reconstructionReceipts ?? {})) {
+          if (receipt.recipe?.execution === null) continue;
+          verifyReconstructionReceipt(ctx.root, key, receipt);
+          requireValue(source.commits[key] === receipt.head &&
+            git.refId(ctx.root, `refs/pr-graph/${source.id}/commits/${key}`) === receipt.head,
+          "Reconstruction receipt lost its source operation pin.");
+          git.pin(ctx.root, journal.id, `commits/${key}`, receipt.head);
+          journal.commits[key] = receipt.head;
+          journal.reconstructionReceipts[key] = receipt;
+          journal.inheritedReconstructions.push(key);
+        }
+      }
       source.worktreeReusedBy = journal.id;
       saveJournal(ctx, source);
       journal.worktreeReuseClaimed = true;
@@ -366,6 +445,10 @@ export function createPlan(ctx, action, options = {}) {
       options.commitTrailers.every((line) => typeof line === "string" &&
         /^[A-Za-z0-9-]+: [^\r\n\0]+$/.test(line)),
     "Commit trailers require reconstruction and a nonempty array of single-line Key: value strings.");
+  }
+  if (action === "import-graph") {
+    requireValue(options.fetchObservation === undefined, "Graph import does not accept fetch-start observations.");
+    return createImportPlan(ctx, options);
   }
   if (action === "adopt" || action === "checkpoint") {
     requireValue(options.fetchObservation === undefined,
@@ -587,6 +670,7 @@ export function createPlan(ctx, action, options = {}) {
       ...(reuseWorktree ? [
         `Transfer ownership of clean detached worktree ${reuseWorktree.path} at ${reuseWorktree.head} from stopped operation ${reuseWorktree.operation}; retain its path and hook tooling without creating a new worktree.`,
         "Record the transfer in both operation journals. The previous owner can no longer reuse or clean this worktree; all freshness, hooks, cleanliness checks, and validation remain required.",
+        `Carry up to ${reuseWorktree.cachedReconstructions} pinned reconstruction receipts; reuse only exact parent, patch, message, and known execution-context matches. All composition and freshness checks remain required.`,
       ] : []),
       ...(["merge", "ready", "describe", "backup"].includes(action) ? [] :
         [options.publishNodes
@@ -613,7 +697,9 @@ export function createPlan(ctx, action, options = {}) {
       ...(action === "ready" ? [`Promote only ${options.node}, after dependency, target, diff, and validation checks.`] : []),
       ...(!localOnly && ["publish", "sync", "retarget", "ready", "merge"].includes(action)
         ? [options.publishNodes ? "Refresh managed graph footers only on selected PRs; leave unselected and landed PRs unchanged."
-          : "Refresh managed graph footers, including landed nodes; preserve human text."] : []),
+          : graph.repository.provider.kind === "ado"
+            ? "Refresh managed graph footers on editable PRs; preserve completed ADO PR descriptions and human text."
+            : "Refresh managed graph footers, including landed nodes; preserve human text."] : []),
       ...(action === "merge" ? [`Merge only ${options.node} using ${strategy}; no source-branch deletion, auto-merge, or policy bypass.`] : []),
       ...(landing ? [{ recordLanding: landing, node: options.node,
         observedDelta: git.git(ctx.root, ["diff", "--binary", "--full-index", `${landing}^1`, landing]).stdout,
@@ -743,18 +829,42 @@ function applyOwned(ctx, journal, cwd, change, title) {
   const before = git.commitId(cwd, "HEAD");
   const message = journal.plan.commitTrailers?.length
     ? `${title}\n\n${journal.plan.commitTrailers.join("\n")}` : title;
-  const key = digest({ before, patch: change.patch,
+  const recipe = journal.commitCacheVersion === 2 ? {
+    before, patch: digest(change.patch), message, execution: executionFingerprint(cwd),
+  } : null;
+  const key = recipe ? digest(recipe) : digest({ before, patch: change.patch,
     ...(journal.plan.commitTrailers?.length ? { message } : {}) });
-  const cached = journal.commits[key];
+  const inherited = journal.inheritedReconstructions?.includes(key);
+  const cached = !inherited || recipe?.execution ? journal.commits[key] : null;
+  journal.reconstruction ??= { cached: 0, inheritedCached: 0, applied: 0 };
   if (cached) {
+    if (recipe) {
+      const receipt = journal.reconstructionReceipts?.[key];
+      verifyReconstructionReceipt(cwd, key, receipt);
+      requireValue(receipt.head === cached, "Cached commit differs from its reconstruction receipt.");
+    }
+    journal.reconstruction.cached++;
+    if (inherited) journal.reconstruction.inheritedCached++;
+    saveJournal(ctx, journal);
     git.checkoutClean(cwd, cached);
     return cached;
   }
-  journal.pendingChange = { key, before, title: message, worktree: cwd };
+  journal.inheritedReconstructions = journal.inheritedReconstructions?.filter((item) => item !== key);
+  journal.reconstruction.applied++;
+  journal.pendingChange = { key, before, title: message, worktree: cwd,
+    ...(recipe ? { recipe } : {}) };
   saveJournal(ctx, journal);
-  const sha = applyChange(cwd, change, message);
+  let sha;
+  try {
+    sha = applyChange(cwd, change, message);
+  } catch (error) {
+    journal.pendingChange.conflictInputs = git.out(cwd, ["ls-files", "--unmerged", "-z"]);
+    saveJournal(ctx, journal);
+    throw error;
+  }
   git.pin(ctx.root, journal.id, `commits/${key}`, sha);
   journal.commits[key] = sha;
+  recordReconstruction(cwd, journal, sha);
   journal.pendingChange = null;
   saveJournal(ctx, journal);
   return sha;
@@ -1064,6 +1174,12 @@ function refreshFooters(ctx, graph, provider, journal) {
       requireValue(current.branch === node.branch && current.head === node.pr.head &&
         current.baseBranch === node.pr.baseBranch && current.state === node.pr.state,
       `PR changed during footer refresh: ${node.id}`);
+      if (provider.kind === "ado" && current.state !== "open") {
+        node.pr = current;
+        journal.prs[node.id] = current;
+        saveJournal(ctx, journal);
+        return;
+      }
       const body = updateFooter(current.body, footer(graph, { ...node, baseBranch: current.baseBranch }));
       if (body !== current.body) {
         journal.remoteStarted = true;
@@ -1106,6 +1222,7 @@ export function applyPlan(ctx, plan, approval, yes) {
     return { unlocked: owner };
   }
   return state.lock(ctx, () => {
+    if (plan.action === "import-graph") return step("Importing approved local DAG snapshot", () => applyImportPlan(ctx, plan));
     if (plan.action === "adopt") return step("Recovering approved external graph identities", () => applyAdoptionPlan(ctx, plan));
     if (plan.action === "checkpoint") return step("Preserving approved staged work on checkpoint branch", () => applyCheckpointPlan(ctx, plan));
     if (plan.action === "remove-retired") return step("Removing approved retired-node metadata", () => applyRetiredRemovalPlan(ctx, plan));
@@ -1140,7 +1257,7 @@ export function applyPlan(ctx, plan, approval, yes) {
     requireValue(!other.length, `Interrupted operation ${other[0]?.id} must be continued or explicitly aborted first.`);
     journal ??= {
       id: plan.approval, plan, status: "running", local: {}, remote: {}, prs: {},
-      commits: {}, pendingChange: null, remoteStarted: false,
+      commits: {}, commitCacheVersion: 2, pendingChange: null, remoteStarted: false,
     };
     for (const key of ["local", "remote", "prs", "commits"]) Object.setPrototypeOf(journal[key], null);
     saveJournal(ctx, journal);
@@ -1560,6 +1677,14 @@ function applyRecovery(ctx, plan) {
     const sha = git.commitStaged(cwd, journal.pendingChange.title);
     git.pin(ctx.root, journal.id, `commits/${journal.pendingChange.key}`, sha);
     journal.commits[journal.pendingChange.key] = sha;
+    recordReconstruction(cwd, journal, sha);
+    if (journal.pendingChange.conflictInputs) {
+      journal.resolutionReceipts ??= [];
+      journal.resolutionReceipts.push({
+        plan, conflictInputs: journal.pendingChange.conflictInputs,
+        beforeTree: git.tree(cwd, plan.head), head: sha, tree: git.tree(cwd, sha),
+      });
+    }
     journal.pendingChange = null;
     saveJournal(ctx, journal);
     return { resolved: sha, resume: journal.id };
@@ -1633,6 +1758,8 @@ export function inspect(ctx, id) {
     operations: state.journals(ctx).filter((j) => j.plan.graph?.id === id).map((j) => ({
       id: j.id, status: j.status, error: j.error, pending: j.pendingChange,
       worktree: worktreePath(ctx, j),
+      ...(j.reconstruction ? { reconstruction: j.reconstruction } : {}),
+      ...(j.resolutionReceipts ? { resolutionReceipts: j.resolutionReceipts.length } : {}),
       ...(j.worktreeReusedBy ? { worktreeReusedBy: j.worktreeReusedBy } : {}),
       ...(j.status === "running" ? {
         freshness: freshnessReport(ctx, j.candidate ?? j.plan.graph,
