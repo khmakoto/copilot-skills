@@ -1,40 +1,39 @@
-# Copilot Skills and Prompts
+# Copilot skills and prompts
 
 [![skills.sh](https://skills.sh/b/khmakoto/copilot-skills)](https://skills.sh/khmakoto/copilot-skills)
 
-A collection of portable skills and prompt templates for extending GitHub Copilot
-CLI with focused, repeatable software-engineering workflows across repositories.
-Skills package instructions, guardrails, and supporting references for consistent
-execution. Prompts provide ready-to-adapt starting points for branch and pull
-request maintenance.
+Skills and prompt templates for GitHub Copilot CLI. Each skill contains workflow
+instructions, approval rules, and supporting references. The prompts cover branch
+and pull request maintenance.
 
 The skills favor:
 
-- evidence-backed analysis grounded in code, documentation, and project history;
-- interactive triage that presents one actionable item at a time;
-- explicit confirmation before creating issues or posting comments;
-- provider-native workflows for GitHub and Azure DevOps; and
-- reusable guidance that remains independent of any single codebase.
+- Using code, documentation, and project history as evidence.
+- Interactive triage presenting one item at a time.
+- Creating issues or posting comments requires confirmation of the exact content.
+- GitHub and Azure DevOps workflows using each provider's tools.
+
+You can install the skills once and use them across repositories.
 
 ## Skills
 
-All skills can be invoked explicitly. `brainstorm`, `pr-walkthrough`, and
-`pr-graph` may also be selected automatically when a request matches their
-descriptions. The other skills require explicit invocation.
+Invoke any skill by name. Copilot can also select `brainstorm`, `pr-walkthrough`,
+or `pr-graph` when a request matches its description. The other skills require
+explicit invocation.
 
-| Skill                                                 | Purpose                                                                                                                                       |
-| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`brainstorm`](docs/skills.md#brainstorm)             | Rank repository improvements and triage them one at a time, with optional confirmed issue creation.                                           |
-| [`ci-triage`](docs/skills.md#ci-triage)               | Diagnose failing checks, builds, or tests from revision-pinned evidence; fixes, reproduction, and remote reruns require approval.             |
-| [`design-interview`](docs/skills.md#design-interview) | Interview the user about a selected improvement and agree on a design with observable acceptance criteria before implementation.              |
-| [`pr-description`](docs/skills.md#pr-description)     | Draft or refresh PR descriptions from current changes and validation evidence, preserving managed metadata and requiring approval to publish. |
-| [`pr-feedback`](docs/skills.md#pr-feedback)           | Validate PR feedback and implement individually approved fixes; remote actions need separate approval.                                        |
-| [`pr-reviewer`](docs/skills.md#pr-reviewer)           | Review PRs or local branches for actionable defects, with individually confirmed remote comments.                                             |
-| [`pr-walkthrough`](docs/skills.md#pr-walkthrough)     | Build a read-only, dependency-ordered route for human review.                                                                                 |
-| [`pr-graph`](docs/skills.md#pr-graph)                 | Manage a PR dependency DAG across local Git, GitHub/GHES, and Azure DevOps, with selective draft publication, local-only sync, and explicit approvals. |
-| [`session-distill`](docs/skills.md#session-distill)   | Turn session lessons into evidence-backed improvement proposals without automatically saving changes.                                         |
-| [`skill-doctor`](docs/skills.md#skill-doctor)         | Audit skill definitions and apply only specifically approved repairs.                                                                         |
-| [`unslop`](docs/skills.md#unslop)                     | Edit writing using Cursor's live upstream unslop rules, fetched on each explicit invocation.                                                  |
+| Skill                                                 | Purpose                                                                                                                                                                         |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`brainstorm`](docs/skills.md#brainstorm)             | Rank repository improvements and triage them one at a time. Create issues only after confirmation.                                                                              |
+| [`ci-triage`](docs/skills.md#ci-triage)               | Diagnose failing checks, builds, or tests at a recorded revision. Reproduction, fixes, and remote reruns require approval.                                                      |
+| [`design-interview`](docs/skills.md#design-interview) | Interview the user about a selected improvement and agree on a design with observable acceptance criteria before implementation.                                                |
+| [`pr-description`](docs/skills.md#pr-description)     | Draft or refresh PR descriptions from current changes and validation evidence. Preserve managed metadata and require approval to publish.                                       |
+| [`pr-feedback`](docs/skills.md#pr-feedback)           | Validate PR feedback and implement each approved fix. Remote actions need separate approval.                                                                                    |
+| [`pr-reviewer`](docs/skills.md#pr-reviewer)           | Review PRs or local branches for defects. Confirm each remote comment before posting.                                                                                           |
+| [`pr-walkthrough`](docs/skills.md#pr-walkthrough)     | Build a read-only, dependency-ordered route for human review.                                                                                                                   |
+| [`pr-graph`](docs/skills.md#pr-graph)                 | Manage a PR dependency graph in local Git, GitHub, GitHub Enterprise Server, or Azure DevOps. Publish selected nodes, sync locally, and recover graphs with explicit approvals. |
+| [`session-distill`](docs/skills.md#session-distill)   | Use session evidence to propose workflow improvements without saving changes automatically.                                                                                     |
+| [`skill-doctor`](docs/skills.md#skill-doctor)         | Audit skill definitions and apply only approved repairs.                                                                                                                        |
+| [`unslop`](docs/skills.md#unslop)                     | Edit writing with Cursor's upstream unslop rules. Fetch the rules on each explicit invocation.                                                                                  |
 
 See the [skill guide](docs/skills.md) for invocation examples, detailed behavior,
 requirements, and safety boundaries.
@@ -49,18 +48,18 @@ maintenance:
   after one pull request changes. Replace `[PR-NUMBER]`, `[updated/merged]`, and
   `[PR-STACK]` before using it.
 - [`update-pr-graph.md`](prompts/update-pr-graph.md) updates a PR DAG after a pull
-  request changes or merges, using `pr-graph` auto mode and the PR itself to
-  recover DAG context when needed.
+  request changes or merges. It uses `pr-graph` auto mode and recovers DAG context
+  from the PR when needed.
   Diagrams retain already-landed PRs even after they leave the internal DAG model.
   Replace `[PR-NUMBER]` and `[updated/merged]` before using it.
 - [`check-dag-for-changes.md`](prompts/check-dag-for-changes.md) checks whether
   session changes already exist elsewhere in the current branch's DAG and whether
   any new changes belong in another node.
 - [`commit-and-push.md`](prompts/commit-and-push.md) commits and pushes changes,
-  resolves active review comments addressed by those changes, and replies to any
-  resolved threads without referencing specific commits, then updates the DAG
-  for the changed branch/PR using `pr-graph` auto mode. Diagrams retain
-  already-landed PRs even after they leave the internal DAG model.
+  resolves active review comments that those changes address, and replies to
+  resolved threads without referencing specific commits. It then updates the DAG
+  for the changed branch or PR using `pr-graph` auto mode. Diagrams retain landed
+  PRs even after they leave the internal DAG model.
 
 ## Installation
 
@@ -90,8 +89,7 @@ for GitHub Copilot or another supported agent.
 
 ### Install manually
 
-Alternatively, copy a complete skill directory into one of Copilot CLI's
-supported locations:
+Copy a complete skill directory into one of Copilot CLI's supported locations:
 
 - personal skills: `~/.copilot/skills/` or `~/.agents/skills/`;
 - project skills: `.github/skills/`, `.agents/skills/`, or `.claude/skills/`.
@@ -100,6 +98,5 @@ Keep the full directory contents together so that `SKILL.md` can access files
 under `references/`. If Copilot CLI is already running, use `/skills reload`
 after adding or updating a skill manually.
 
-Each directory under `skills/` is self-contained and uses the standard `SKILL.md`
-format. Prompt templates under `prompts/` can be copied, customized, and submitted
-directly to Copilot CLI.
+Each directory under `skills/` is self-contained and uses the `SKILL.md` format.
+Copy and adapt templates from `prompts/`, then submit them to Copilot CLI.

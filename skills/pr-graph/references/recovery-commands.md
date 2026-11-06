@@ -5,6 +5,39 @@ and plan/approve/apply requirements before using these commands.
 
 ## Backup and recovery actions
 
+### Importing a newer DAG from another local clone
+
+```text
+node "<helper>" plan import-graph --repo "<destination>" --graph feature --source-repo "<source>" --out "<plan>"
+```
+
+Use this separately approved recovery when a verified local clone has newer
+node ownership or dependencies that `adopt` cannot represent. It can replace
+an existing graph's shape, but cannot omit unlanded nodes or hosted retired
+nodes, change integration targets, or change existing landing receipts.
+Approval is required even in auto mode.
+
+The plan pins both manifests, repository identities, source branches, live
+product/helper refs and PR bodies, states and heads. Apply fetches only exact
+local-clone snapshots into private refs, preserves the previous manifest and
+all previous branch/snapshot commits, then atomically moves only approved
+unoccupied branches with expected-old-SHA checks. Omitted branches remain.
+An unchanged occupied node and its dirty index/worktree remain untouched.
+Source and destination pending operations, source locks, unexpected changes,
+target rewinds and occupied rewrites block recovery.
+
+This never pushes, uploads backup, edits PRs, changes integration branches or
+worktrees, installs tools, or executes imported commands. Destination remote
+and backup settings remain. Imported checks, readiness, reconstruction and
+freshness evidence are cleared; configure repository-specific validation
+before subsequent source-changing operations. Lossless composition and
+current-target freshness remain unverified. Only pinned read-only comparisons
+are exempt from integration reconstruction, as for `adopt`.
+Continue an interrupted import with its original operation and approval digest;
+never edit manifests or journals manually to resume it.
+
+### Other backup and recovery actions
+
 `plan remove-retired --graph <id> --node <id> --out <plan>` removes only a
 retired node without a PR, landing, remote product branch, or dependents.
 It also removes historical `supersedes`/`replacedBy` references to that ID.

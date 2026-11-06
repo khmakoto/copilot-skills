@@ -344,6 +344,34 @@ function hostedFixture(f) {
   return { p, records, loseResponse: () => { loseResponse = true; } };
 }
 
+test("ADO publication preserves immutable completed descriptions while refreshing active footers", (t) => {
+  const f = fixture({ remote: true, names: ["a", "b"] });
+  t.after(() => f.dispose());
+  const host = hostedFixture(f);
+  f.apply("split", { spec: f.spec });
+  const published = f.apply("publish", { graph: "example" });
+  f.apply("ready", { graph: "example", node: "a" });
+  const merged = f.apply("merge", { graph: "example", node: "a" });
+  const completedId = merged.graph.nodes.find((n) => n.id === "a").pr.id;
+  const activeId = published.graph.nodes.find((n) => n.id === "b").pr.id;
+  const completedBody = host.records.get(completedId).body;
+  host.records.get(activeId).body = host.records.get(activeId).body
+    .replace("Integration snapshot:", "Outdated integration snapshot:");
+  host.p.kind = "ado";
+  const update = host.p.update;
+  const updated = [];
+  host.p.update = (id, fields) => {
+    assert.equal(host.records.get(id).state, "open", "Completed ADO PRs are immutable");
+    updated.push(id);
+    return update(id, fields);
+  };
+  const result = f.apply("publish", { graph: "example" });
+  assert.equal(host.records.get(completedId).body, completedBody);
+  assert.ok(updated.includes(activeId));
+  assert.ok(!host.records.get(activeId).body.includes("Outdated integration snapshot:"));
+  assert.equal(result.graph.nodes.find((n) => n.id === "a").pr.state, "merged");
+});
+
 test("selective publish creates only selected drafts and preserves landed and out-of-date unselected PRs", (t) => {
   const f = fixture({ remote: true, names: ["a", "b", "c", "e"] });
   t.after(() => f.dispose());

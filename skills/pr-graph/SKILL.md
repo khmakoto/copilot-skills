@@ -113,9 +113,16 @@ grace, retain the existing snapshot as documented. Inspection and metadata-only
 tasks do not trigger unnecessary source reconstruction. Merge remains strictly
 current-target.
 
+Before expensive reconstruction or continuation, compare the remaining grace
+with measured durations of comparable steps and a margin for hooks/validation.
+If there is insufficient headroom, refresh and replan before starting under
+auto mode rather than repeatedly reconstructing against an expiring snapshot.
+For an interrupted operation, establish its recovery constraints first. Never
+renew an old observation or bypass the helper's execution-time freshness gate.
+
 **Always ask for concrete approval** before merging, removal/deletion/cleanup
 (including `remove`, `remove-retired`, and closing retired PRs), backup uploads,
-backup downloads, restore, `adopt`, or `checkpoint`. Inspect all plan effects: a routine lifecycle
+backup downloads, restore, `adopt`, `import-graph`, or `checkpoint`. Inspect all plan effects: a routine lifecycle
 plan that also uploads an enabled backup needs human approval too. Auto mode never silently disables
 backup to avoid that prompt. Actions not listed as routine above also require
 human approval.
@@ -124,10 +131,15 @@ human approval.
 tooling, unexplained divergence, unsafe worktree updates, ambiguous repository/remote/target
 choices, inaccessible or moving refs, unexpected source/helper/PR changes,
 uncertain remote effects, or unknown/pending/failed merge policies. Inspect
-read-only evidence and propose a specific resolution; do not auto-resolve
-conflicts, stash, install dependencies, bypass checks, or blindly retry writes.
-Obtain approval for the exact fix and any `resolve`, `reconcile`, `abort`, or
-`unlock` recovery plan. After the approved resolution, recheck pinned inputs
+read-only evidence and propose a specific resolution; do not invent new conflict
+resolutions, stash, install dependencies, bypass checks, or blindly retry writes.
+Obtain approval for a new exact fix and any `reconcile`, `abort`, or `unlock`
+recovery plan. An already-approved matching conflict resolution may be reused
+in ordinary auto mode without another approval, including on its first reuse,
+only under the evidence checks in
+[safety and recovery](references/safety-and-recovery.md#reusing-an-approved-conflict-resolution).
+Review and approve a fresh current-operation `resolve` plan and digest; never
+reuse the old approval digest for a new payload. After resolution, recheck pinned inputs
 and freshness, then resume auto mode for the remaining original task without
 asking the user to enable it again.
 
@@ -424,8 +436,9 @@ Once each node's PR exists, generate a Mermaid diagram from the current full
 DAG, render it locally to an image, and attach it at the very end of that PR's
 description, after the helper footer. Clearly label and visually highlight
 **this PR's node**. Keep node cards compact, show each node's independent
-lifecycle, eligibility/readiness, and freshness, and move commit IDs, structural
-check details, and exact snapshot times into a compact graph summary. Use a
+lifecycle and eligibility/readiness. Do not add freshness information to node
+cards; keep it in a compact graph summary with commit IDs, structural check
+details, and exact snapshot times. Use a
 small visual key instead of a legend table or repeated edge labels, distinct
 status colors with explicit text labels, and a compact top-to-bottom layout
 with prerequisites above dependents. Route every arrow clear of unrelated nodes,
@@ -446,6 +459,8 @@ For `publish --nodes`, refresh only selected PRs; leave unselected and landed
 PRs unchanged and report any needed diagram refreshes as pending separate
 authorization. Reuse an unchanged image only if
 it still passes the visual acceptance check, rather than uploading duplicates.
+Completed ADO PR descriptions are immutable; preserve them and report their
+diagrams as historical rather than attempting a refresh.
 Replace only the managed diagram block and keep it
 at the end, preserving human text and the helper footer.
 
@@ -538,8 +553,11 @@ For `add`, `fold`, `sync`, `publish`, or `retarget`, an exact plan may explicitl
 reuse a clean detached worktree from a completed or separately approved aborted operation via
 `--reuse-worktree <operation-digest>`. Review the pinned source identity, HEAD,
 and ownership transfer. Its path and tooling remain intact; old owners cannot
-recover or clean the transferred worktree. Reuse never skips validation or
-freshness checks. See [commands](references/commands.md#reusing-a-retained-operation-worktree).
+recover or clean the transferred worktree. Matching verified reconstruction
+receipts also avoid repeating patch applications and commit hooks for unchanged
+results. Changed or unknown inputs reconstruct normally. Reuse never skips
+validation or freshness checks.
+See [commands](references/commands.md#reusing-a-retained-operation-worktree).
 
 If the worktree is created only during apply, disclose any unverified tooling
 prerequisite before execution. If a hook fails because tooling is missing, report
@@ -547,9 +565,10 @@ the exact blocker and use a separately authorized repository setup workflow.
 After setup, recheck the operation's pinned inputs before recovery; successful
 installation does not establish that the original plan is still current.
 
-- On a conflict, inspect the named isolated worktree. Propose a semantic fix.
-  Stage only that approved fix there, then obtain approval of a `resolve` plan
-  before resuming the original operation.
+- On a conflict, inspect the named isolated worktree. Reuse an already-approved
+  matching resolution only with the documented evidence checks in auto mode;
+  otherwise propose and obtain approval of a new semantic fix. Stage only that
+  fix there and approve the exact current `resolve` plan before resuming.
 - On an ambiguous remote failure, inspect server state and approve a
   `reconcile` plan. Never blindly retry PR creation or pretend remote effects
   were rolled back.

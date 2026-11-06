@@ -20,7 +20,8 @@ Prepare a concrete mutation plan:
   Actions: init, split, add, deps, split-node, fold, remove,
            publish, sync, retarget, ready, merge, describe, backup,
            fetch-backup, restore, resolve, reconcile, abort, cleanup, unlock,
-           record-landing, adopt, checkpoint, remove-retired
+           record-landing, adopt, checkpoint, remove-retired, import-graph
+  import-graph --source-repo <path>  Recover changed DAG shape from another verified local clone
   adopt --spec <json>         Local-only adoption of verified external PR rewrites
   checkpoint --spec <json>    Preserve staged source on a new local branch and release its occupied graph branch
   remove-retired --node <id>  Remove retired unpublished node metadata, preserving all Git refs and files
@@ -58,7 +59,7 @@ function args(argv) {
   const boolean = new Set(["yes", "allow-non-atomic", "retain-published-refs", "quiet", "local-only"]);
   const known = new Set(["repo", "graph", "spec", "out", "node", "strategy", "remote",
     "backup-ref", "backup-branch", "operation", "body-file", "plan", "approve", "base", "head", "landing",
-    "fetch-observation", "commit-trailers-file", "reuse-worktree", "nodes"]);
+    "fetch-observation", "commit-trailers-file", "reuse-worktree", "nodes", "source-repo"]);
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (!a.startsWith("--")) { positional.push(a); continue; }
@@ -83,6 +84,8 @@ export function main(argv) {
 }
 
 function execute(flags, command, action) {
+  requireValue(flags["source-repo"] === undefined || (command === "plan" && action === "import-graph"),
+    "Use --source-repo only when planning import-graph.");
   requireValue(flags.nodes === undefined || (command === "plan" && action === "publish"),
     "Use --nodes only when planning publish; apply and continue use the approved selection.");
   requireValue(flags["local-only"] === undefined || (command === "plan" && action === "sync"),
@@ -123,6 +126,7 @@ function execute(flags, command, action) {
     const spec = flags.spec ? state.readJson(path.resolve(flags.spec)) : undefined;
     result = createPlan(ctx, action, {
       graph: flags.graph, spec, node: flags.node, strategy: flags.strategy,
+      sourceRepo: flags["source-repo"],
       publishNodes: flags.nodes === undefined ? undefined : flags.nodes.split(","),
       landing: flags.landing,
       remote: flags.remote, backupRef: flags["backup-ref"], backupBranch: flags["backup-branch"],

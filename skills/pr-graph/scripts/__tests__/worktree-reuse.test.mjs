@@ -6,6 +6,108 @@ import { fixture, git, cli } from "./fixtures.mjs";
 import { createPlan, applyPlan, inspect } from "../lib/operations.mjs";
 import { atomicJson, journalFile, readJson } from "../lib/state.mjs";
 
+test("worktree transfer reuses exact reconstruction receipts without rerunning commit hooks", (t) => {
+  const f = fixture({ names: ["a", "b"] });
+  t.after(() => f.dispose());
+  const count = path.join(f.dir, "commit-count");
+  const hook = path.join(f.ctx.common, "hooks", "pre-commit");
+  fs.writeFileSync(hook, `#!/bin/sh\nprintf 'commit\\n' >> ${JSON.stringify(count)}\n`, { mode: 0o755 });
+  const original = f.apply("split", { spec: f.spec });
+  const before = fs.readFileSync(count, "utf8");
+  const done = f.apply("fold", {
+    graph: "example", spec: f.spec, reuseWorktree: original.operation,
+  });
+  assert.equal(fs.readFileSync(count, "utf8"), before);
+  const journal = readJson(journalFile(f.ctx, done.operation));
+  assert.ok(journal.reconstruction.inheritedCached > 0);
+  assert.equal(journal.reconstruction.applied, 0);
+  assert.equal(git(f.root, "rev-parse", `${done.graph.combined}^{tree}`),
+    git(f.root, "rev-parse", `${f.head}^{tree}`));
+  assert.equal(git(f.root, "branch", "--show-current"), "source");
+  assert.equal(git(f.root, "status", "--porcelain"), "");
+
+  fs.appendFileSync(hook, "# changed hook context\n");
+  const changed = f.apply("fold", {
+    graph: "example", spec: f.spec, reuseWorktree: done.operation,
+  });
+  assert.notEqual(fs.readFileSync(count, "utf8"), before);
+  assert.ok(readJson(journalFile(f.ctx, changed.operation)).reconstruction.applied > 0);
+});
+
+test("changed commit messages and integration parents do not reuse old reconstruction recipes", (t) => {
+  const f = fixture({ names: ["a", "b"] });
+  t.after(() => f.dispose());
+  const original = f.apply("split", { spec: f.spec });
+  const spec = { ...f.spec, nodes: f.spec.nodes.map((node) =>
+    ({ ...node, title: `${node.title} with revised metadata` })) };
+  const changed = f.apply("fold", { graph: "example", spec, reuseWorktree: original.operation });
+  assert.ok(readJson(journalFile(f.ctx, changed.operation)).reconstruction.applied > 0);
+  git(f.root, "checkout", "trunk");
+  fs.writeFileSync(path.join(f.root, "main.txt"), "new target content\n");
+  git(f.root, "add", "main.txt");
+  git(f.root, "commit", "-qm", "Advance target");
+  git(f.root, "checkout", "source");
+  const synced = f.apply("sync", { graph: "example", reuseWorktree: changed.operation });
+  assert.ok(readJson(journalFile(f.ctx, synced.operation)).reconstruction.applied > 0);
+  assert.equal(git(f.root, "show", `${synced.graph.combined}:main.txt`), "new target content");
+  assert.equal(git(f.root, "rev-parse", "HEAD"), f.head);
+});
+
+test("corrupt reconstruction receipts cannot be transferred as valid cached results", (t) => {
+  const f = fixture({ names: ["a"] });
+  t.after(() => f.dispose());
+  const original = f.apply("split", { spec: f.spec });
+  const file = journalFile(f.ctx, original.operation);
+  const source = readJson(file);
+  const receipt = Object.values(source.reconstructionReceipts)[0];
+  receipt.tree = git(f.root, "rev-parse", `${f.base}^{tree}`);
+  atomicJson(file, source);
+  assert.throws(() => f.apply("fold", {
+    graph: "example", spec: f.spec, reuseWorktree: original.operation,
+  }), /receipt no longer matches/);
+  assert.equal(git(f.root, "rev-parse", "HEAD"), f.head);
+  assert.equal(git(f.root, "status", "--porcelain"), "");
+});
+
+test("unknown hook layouts disable inherited caching without disabling local reconstruction", (t) => {
+  const f = fixture({ names: ["a"] });
+  t.after(() => f.dispose());
+  fs.mkdirSync(path.join(f.ctx.common, "hooks", "external-tooling"));
+  const original = f.apply("split", { spec: f.spec });
+  const source = readJson(journalFile(f.ctx, original.operation));
+  assert.ok(Object.values(source.reconstructionReceipts).every((receipt) =>
+    receipt.recipe.execution === null));
+  const done = f.apply("fold", {
+    graph: "example", spec: f.spec, reuseWorktree: original.operation,
+  });
+  const journal = readJson(journalFile(f.ctx, done.operation));
+  assert.equal(journal.reconstruction.inheritedCached, 0);
+  assert.ok(journal.reconstruction.applied > 0);
+  assert.ok(journal.reconstruction.cached > 0);
+  assert.equal(git(f.root, "rev-parse", `${done.graph.combined}^{tree}`),
+    git(f.root, "rev-parse", `${f.head}^{tree}`));
+});
+
+test("legacy retained journals transfer ownership but no unverified reconstruction cache", (t) => {
+  const f = fixture({ names: ["a"] });
+  t.after(() => f.dispose());
+  const original = f.apply("split", { spec: f.spec });
+  const file = journalFile(f.ctx, original.operation);
+  const source = readJson(file);
+  delete source.commitCacheVersion;
+  delete source.reconstructionReceipts;
+  atomicJson(file, source);
+  const done = f.apply("fold", {
+    graph: "example", spec: f.spec, reuseWorktree: original.operation,
+  });
+  const journal = readJson(journalFile(f.ctx, done.operation));
+  assert.equal(journal.reconstruction.inheritedCached, 0);
+  assert.ok(journal.reconstruction.applied > 0);
+  assert.equal(readJson(file).worktreeReusedBy, done.operation);
+  assert.equal(git(f.root, "rev-parse", `${done.graph.combined}^{tree}`),
+    git(f.root, "rev-parse", `${f.head}^{tree}`));
+});
+
 test("CLI reuse keeps the retained worktree and tooling, transfers ownership, and rejects old cleanup", (t) => {
   const f = fixture({ names: ["a"] });
   t.after(() => f.dispose());
