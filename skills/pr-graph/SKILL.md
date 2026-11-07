@@ -2,7 +2,7 @@
 name: pr-graph
 description: Split a large Git branch into small, independently reviewable changes and manage their multi-parent dependency graph. Create clean blocked draft PRs, add or reshape nodes, sync after prerequisites land, and explicitly ready or merge eligible changes. Supports local Git, GitHub, GitHub Enterprise Server, and Azure DevOps. Use when the user invokes /pr-graph or asks to split work into dependent PRs, manage a PR tree or DAG, or land independent parts of a change.
 compatibility: Requires Node.js 22+ and Git 2.31+. Hosted workflows require authenticated gh or az. Scripts are portable across Linux, macOS, and Windows; no package installation or build step.
-argument-hint: "[--auto] [split | view | add | sync | ready | merge | reshape | backup | restore] [repository, graph, or constraints]"
+argument-hint: "[--auto] [split | view | history | interdiff | add | sync | ready | merge | reshape | backup | restore] [repository, graph, or constraints]"
 ---
 
 # Pull Request Graph
@@ -186,7 +186,7 @@ live updates if the tool buffers output or blocks the agent.
 
 Before **any graph or change inspection or mutation**, explicitly establish
 each node's branch, integration-snapshot, and validation freshness. This includes `analyze`,
-`status`, `view`, `check`, `doctor`, planning, applying, continuing, and recovery.
+`status`, `view`, `history`, `interdiff`, `check`, `doctor`, planning, applying, continuing, and recovery.
 Only the minimal reads needed to identify the repository, applicable safety
 instructions, graph branches, remotes, upstreams, worktree occupancy, and pending
 operations may precede this gate. `help` does not inspect a repository.
@@ -334,6 +334,30 @@ operation before starting another mutation.
 For a new graph, inspect Git remotes and the intended integration branch.
 Unknown enterprise hosts and multiple remotes require explicit selection.
 Use `provider.kind: "local"` to opt out of hosting even when a remote exists.
+
+### Explain node evolution and review changes
+
+For questions about why a node changed, inspect its retained history:
+
+```text
+node "<skill-directory>/scripts/pr-graph.mjs" history --repo "<repo>" --graph "<id>" --node "<node>" --format text
+node "<skill-directory>/scripts/pr-graph.mjs" interdiff --repo "<repo>" --graph "<id>" --node "<node>" --from last-published --format text
+```
+
+Read [historical inspection](references/commands.md#node-history-and-interdiff)
+for exact version selectors and output. If a baseline is unavailable, report the
+gap and use an explicitly selected retained version; never infer publication
+from a push attempt. Present authored-patch changes separately from realization,
+prerequisite, integration, and metadata changes. Interdiff compares realized
+base/head deltas on a common base, including changes introduced by conflict
+resolutions even if the authored patch stayed the same.
+
+History follows explicit split/fold lineage without conflating node identities.
+Report candidate versus persisted snapshots, operation status and recovery
+receipts, and missing evidence. A recorded no-check rationale is not a test run.
+Inspection performs no hosting writes, validation, repair, or freshness renewal;
+the normal preflight still applies. An equal comparison never establishes
+semantic equivalence, current validation, readiness, or merge safety.
 
 ## 2. Analyze and design the DAG
 

@@ -248,7 +248,7 @@ export function applyAdoptionPlan(ctx, plan) {
   for (const update of plan.updates) journal.local[update.branch] = update.head;
   journal.finalizing = true;
   state.atomicJson(file, journal);
-  state.save(ctx, graph);
+  state.save(ctx, graph, plan);
   journal.status = "done";
   journal.error = null;
   state.atomicJson(file, journal);

@@ -256,7 +256,7 @@ export function applyImportPlan(ctx, plan) {
     git.out(ctx.root, ["update-ref", "--stdin"], `${commands.join("\n")}\n`));
   for (const update of plan.updates) journal.local[update.branch] = update.head;
   state.atomicJson(file, journal);
-  state.save(ctx, graph);
+  state.save(ctx, graph, plan);
   journal.status = "done";
   state.atomicJson(file, journal);
   return { graph, operation: plan.approval, updates: plan.updates,

@@ -25,6 +25,79 @@ node "<helper>" plan remove-retired --repo "<repo>" --graph feature --node stagi
 Commands emit JSON except `help` and `view`. Failures emit a JSON error to stderr
 and exit nonzero. Errors include the retained operation ID when applicable.
 `doctor` is read-only; it does not repair state implicitly.
+`history` and `interdiff` also accept `--format text`; their default is JSON.
+
+### Node history and interdiff
+
+```text
+node "<helper>" history --repo "<repo>" --graph feature --node model
+node "<helper>" history --repo "<repo>" --graph feature --node model --format text
+node "<helper>" interdiff --repo "<repo>" --graph feature --node model --from last-published
+node "<helper>" interdiff --repo "<repo>" --graph feature --node model --from last-validated --format text
+node "<helper>" interdiff --repo "<repo>" --graph feature --node model --from "<version-id>" --to "<version-id>"
+```
+
+Both commands require explicit graph and node IDs and perform local historical
+inspection, not live provider observation. The skill's normal freshness preflight
+still applies; neither command fetches, repairs state, moves refs, executes
+validation commands, publishes, or renews freshness/readiness evidence.
+
+`history` returns:
+
+- `current`, `versions`, and `baselines`: exact retained version IDs and their
+  snapshots. IDs are full 64-character digests of the graph snapshot and node
+  identity, not Git commit SHAs or mutable branch names. Even unrelated graph
+  metadata changes can produce another exact version ID.
+- `events`: operation digest, action, recorded time, journal status, before/after
+  version IDs, changed-aspect flags, publication/validation evidence, recovery
+  receipts, and any recorded error. `persisted` is independent of operation
+  status: a crash can leave a persisted graph with a still-running journal.
+- `lineage`: explicit `from`/`to` split/fold edges. Related versions keep their
+  own node IDs; many-to-many replacement is not flattened into one change.
+- `gaps`: incomplete legacy evidence, missing commits, or import/restore history
+  boundaries. Old journals without complete snapshots are labeled, not repaired
+  or silently upgraded. Events are ordered by graph revision, recorded time,
+  and receipt ID; an interrupted candidate follows its preceding revision,
+  and legacy timestamps can be unknown.
+
+An interrupted first operation is inspectable even before a graph file exists.
+Its `current` selector is unavailable; retained candidate version IDs remain
+explicitly distinguishable from persisted snapshots.
+
+`interdiff --from` is required. `--to` defaults to `current`. Either endpoint can
+be a retained version ID returned by history (including explicitly linked lineage
+nodes), `current`, `last-published`, or `last-validated`. Named baselines apply
+only to the selected node, not automatically to predecessors or replacements.
+Missing or unknown selectors are errors; no fallback is guessed.
+
+`last-published` requires an explicit matching readback receipt: remote product
+and helper refs for local-provider publication, or verified PR head/base branch,
+paths, body, and draft state for hosted publication. An attempted push or
+uncertain provider response is insufficient. A successful per-node publication
+can be recorded even if a later step leaves its operation interrupted.
+`last-validated` identifies the latest matching recorded validation result,
+including an explicit no-automated-check rationale. Reused validation is not a
+new run, and a no-check rationale is never reported as passing tests.
+
+Interdiff exposes separate changed-aspect flags and authored `ownChange`
+base/patch/fingerprint changes. Its `comparison` is scoped to
+`realized-own-change`: it derives each version's complete binary/full-index
+base-to-head diff and transports both onto the `to` version's realized base
+using three-way cached application. Comparing the resulting complete trees
+avoids presenting unrelated base movement as a node edit and includes realized
+conflict-resolution changes even when authored patches are unchanged.
+
+The comparison uses a temporary bare repository, index, and object directory
+with local objects as alternates and no source/global configuration or remotes.
+It cannot hydrate missing objects from a promisor remote, including on older
+supported Git versions. It removes its scratch directory afterward.
+It preserves the user's working tree, index, refs, and operation worktrees.
+`equal`/`different` describe the transported trees only. `inconclusive` reports
+an application conflict/failure with no invented patch; `unavailable` reports
+missing base/head snapshots or other unavailable local objects. Result tree IDs
+identify scratch results, not retained versions; only history version IDs are selectors.
+An empty interdiff or matching fingerprint is not proof of semantic equivalence,
+current validation, dependency eligibility, readiness, or merge safety.
 
 ### Live progress
 

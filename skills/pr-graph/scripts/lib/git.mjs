@@ -1,15 +1,16 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { requireValue } from "./graph.mjs";
 
-export function run(command, args, cwd, input) {
+export function run(command, args, cwd, input, env = {}) {
   requireValue(typeof command === "string" && Array.isArray(args), "Invalid command.");
   const result = spawnSync(command, args, {
     cwd, input, encoding: "utf8", maxBuffer: 128 * 1024 * 1024,
     shell: false, windowsHide: true,
     env: {
-      ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_PAGER: "cat",
+      ...process.env, ...env, GIT_TERMINAL_PROMPT: "0", GIT_PAGER: "cat",
       ...(command === "az" ? { AZURE_EXTENSION_USE_DYNAMIC_INSTALL: "no" } : {}),
     },
   });
@@ -26,6 +27,33 @@ export function git(cwd, args, input, allowFailure = false) {
 }
 
 export const out = (cwd, args, input) => git(cwd, args, input).stdout.trim();
+
+export function withObjectView(ctx, fn) {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "pr-graph-objects-"));
+  try {
+    const repository = path.join(temp, "repo.git");
+    const config = path.join(temp, "empty-config");
+    fs.writeFileSync(config, "");
+    const env = {
+      GIT_DIR: repository, GIT_WORK_TREE: undefined,
+      GIT_COMMON_DIR: undefined, GIT_NAMESPACE: undefined, GIT_SHALLOW_FILE: undefined,
+      GIT_INDEX_FILE: path.join(temp, "index"), GIT_OBJECT_DIRECTORY: undefined,
+      GIT_ALTERNATE_OBJECT_DIRECTORIES: JSON.stringify(out(ctx.root,
+        ["rev-parse", "--path-format=absolute", "--git-path", "objects"])),
+      GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: config, GIT_CONFIG_COUNT: "0",
+      GIT_CONFIG_PARAMETERS: undefined, GIT_CONFIG: undefined, GIT_ATTR_NOSYSTEM: "1",
+      GIT_NO_LAZY_FETCH: "1", GIT_OPTIONAL_LOCKS: "0",
+    };
+    const format = out(ctx.root, ["rev-parse", "--show-object-format"]);
+    const initialized = run("git", ["init", "--bare", "--template=", `--object-format=${format}`, repository], temp, undefined, env);
+    requireValue(initialized.status === 0, initialized.stderr);
+    // No remotes or source configuration: missing promisor objects cannot trigger
+    // network access even on Git versions without GIT_NO_LAZY_FETCH support.
+    return fn((args, input) => run("git", args, temp, input, env));
+  } finally {
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
+}
 
 export function commitId(cwd, ref) {
   requireValue(typeof ref === "string" && ref && !ref.startsWith("-"), "Invalid commit reference.");

@@ -116,3 +116,15 @@ Restoration deliberately clears validation commands and results.
 
 No ten-node limit or fixed files/lines target is imposed. Explain review size
 using the target repository's norms and the complexity of the actual change.
+
+## Historical comparison
+
+Node history tracks explicit graph snapshots and split/fold lineage, rather than
+treating Git commit ancestry as logical change evolution. Interdiff reports
+authored own-change changes separately from reconstruction and compares realized
+base/head deltas on a common base. This captures reviewable resolution changes
+that need not alter the immutable authored patch. A conflict makes that
+comparison inconclusive; matching transported trees prove neither semantic
+equivalence nor current validation. See
+[history and interdiff](commands.md#node-history-and-interdiff) for baseline
+selection, retained evidence, and output.

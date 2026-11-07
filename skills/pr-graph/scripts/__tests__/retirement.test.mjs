@@ -5,6 +5,7 @@ import path from "node:path";
 import { fixture, git } from "./fixtures.mjs";
 import { createPlan, applyPlan } from "../lib/operations.mjs";
 import * as state from "../lib/state.mjs";
+import { history } from "../lib/history.mjs";
 
 function retiredFixture(t, remote = false) {
   const f = fixture({ remote, names: ["a", "b"] });
@@ -61,6 +62,20 @@ test("retired removal rejects active, hosted, referenced and remotely published 
   state.save(f.ctx, f.graph);
   git(f.root, "push", "-q", "upstream", b.branch);
   assert.throws(f.plan, /published remote branch/);
+});
+
+test("retired removal records legacy history without adding retention refs", (t) => {
+  const f = retiredFixture(t);
+  const refs = git(f.root, "for-each-ref", "--format=%(refname)", "refs/pr-graph/history");
+  for (const ref of refs.split("\n").filter(Boolean)) git(f.root, "update-ref", "-d", ref);
+  const before = git(f.root, "show-ref");
+  const plan = f.plan();
+  applyPlan(f.ctx, plan, plan.approval, true);
+  assert.equal(git(f.root, "show-ref"), before);
+  const event = history(f.ctx, "example", "b").events.find((e) => e.operation === plan.approval && e.node === "b");
+  assert.equal(event.persisted, true);
+  assert.equal(event.after, null);
+  assert.ok(event.before);
 });
 
 test("retired removal rejects stale plans and pending operations before writes", (t) => {

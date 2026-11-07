@@ -69,7 +69,7 @@ export function applyRetiredRemovalPlan(ctx, plan) {
     local: {}, remote: {}, prs: {}, commits: {}, pendingChange: null, remoteStarted: false };
   journal.candidate = graph;
   state.atomicJson(file, journal);
-  state.save(ctx, graph);
+  state.save(ctx, graph, plan);
   journal.status = "done";
   state.atomicJson(file, journal);
   return { graph, operation: plan.approval };

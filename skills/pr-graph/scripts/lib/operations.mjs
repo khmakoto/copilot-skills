@@ -732,6 +732,13 @@ function saveJournal(ctx, journal) {
   state.atomicJson(state.journalFile(ctx, journal.id), journal);
 }
 
+function recordRecovery(ctx, journal, plan) {
+  journal.recoveries ??= [];
+  if (!journal.recoveries.some((r) => r.operation === plan.approval)) {
+    journal.recoveries.push({ operation: plan.approval, action: plan.action, recordedAt: now(ctx) });
+  }
+}
+
 function fetchRemote(ctx, graph, journal) {
   if (!graph.repository.remote) return;
   return step("Fetching pinned remote snapshots", () => {
@@ -1000,7 +1007,14 @@ function publish(ctx, graph, provider, plan, journal) {
     ...(n.baseBranch !== graph.target ? [[n.baseBranch, n.base]] : []),
     [n.branch, n.head],
   ]), plan, journal);
-  if (provider.kind === "local") return;
+  if (provider.kind === "local") {
+    journal.published ??= {};
+    for (const node of active) journal.published[node.id] = {
+      head: node.head, base: node.base, baseBranch: node.baseBranch, scope: "remote-refs",
+    };
+    saveJournal(ctx, journal);
+    return;
+  }
   for (const node of active) {
     step(node.pr ? "Updating and verifying PR" : "Creating or locating draft PR and verifying it", () => {
       verifyIntegration(ctx, plan, journal,
@@ -1025,6 +1039,11 @@ function publish(ctx, graph, provider, plan, journal) {
         `PR draft state readback mismatch: ${node.id}`);
       node.requiresDraft = false;
       journal.prs[node.id] = node.pr;
+      journal.published ??= {};
+      journal.published[node.id] = {
+        head: node.head, base: node.base, baseBranch: node.baseBranch, scope: "hosted-pr",
+        pr: { id: node.pr.id, head: node.pr.head, base: node.pr.base, baseBranch: node.pr.baseBranch },
+      };
       saveJournal(ctx, journal);
     }, nodeDetails(graph, node));
   }
@@ -1257,7 +1276,7 @@ export function applyPlan(ctx, plan, approval, yes) {
     requireValue(!other.length, `Interrupted operation ${other[0]?.id} must be continued or explicitly aborted first.`);
     journal ??= {
       id: plan.approval, plan, status: "running", local: {}, remote: {}, prs: {},
-      commits: {}, commitCacheVersion: 2, pendingChange: null, remoteStarted: false,
+      commits: {}, commitCacheVersion: 2, historyVersion: 1, pendingChange: null, remoteStarted: false,
     };
     for (const key of ["local", "remote", "prs", "commits"]) Object.setPrototypeOf(journal[key], null);
     saveJournal(ctx, journal);
@@ -1381,7 +1400,7 @@ export function applyPlan(ctx, plan, approval, yes) {
       journal.finalizing = true;
       saveJournal(ctx, journal);
       step("Persisting graph state and recovery journal", () => {
-        state.save(ctx, graph);
+        state.save(ctx, graph, plan);
         journal.candidate = graph;
         journal.status = "done";
         journal.error = null;
@@ -1442,7 +1461,7 @@ function applyRestore(ctx, plan, journal) {
   journal.candidate = graph;
   journal.finalizing = true;
   saveJournal(ctx, journal);
-  state.save(ctx, graph);
+  state.save(ctx, graph, plan);
   journal.status = "done";
   saveJournal(ctx, journal);
   return { graph, operation: journal.id,
@@ -1666,6 +1685,7 @@ function applyRecovery(ctx, plan) {
     }
     journal.candidate = candidate;
     journal.error = null;
+    recordRecovery(ctx, journal, plan);
     saveJournal(ctx, journal);
     return { reconciled: journal.id, next: "Continue the original approved operation." };
   }
@@ -1686,6 +1706,7 @@ function applyRecovery(ctx, plan) {
       });
     }
     journal.pendingChange = null;
+    recordRecovery(ctx, journal, plan);
     saveJournal(ctx, journal);
     return { resolved: sha, resume: journal.id };
   }
@@ -1697,6 +1718,7 @@ function applyRecovery(ctx, plan) {
       journal.status = "aborted";
       journal.retainedPublication = plan.retainedPublication;
       journal.error = null;
+      recordRecovery(ctx, journal, plan);
       saveJournal(ctx, journal);
       return { aborted: journal.id, retained: cwd, retainedPublication: plan.retainedPublication };
     }
@@ -1711,6 +1733,7 @@ function applyRecovery(ctx, plan) {
       if (original) git.writeBranch(ctx.root, branch, original, candidate);
     }
     journal.status = "aborted";
+    recordRecovery(ctx, journal, plan);
     saveJournal(ctx, journal);
     return { aborted: journal.id, retained: cwd };
   }
@@ -1739,7 +1762,7 @@ function applyRecovery(ctx, plan) {
         requireValue(!git.remoteRefs(ctx.root, graph.repository.remote)[`refs/heads/${branch}`], "Remote branch was not deleted.");
       }
     }
-    state.save(ctx, graph);
+    state.save(ctx, graph, plan);
   }
   if (plan.worktree) {
     requireValue(git.out(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"]) === ctx.common,
