@@ -8,12 +8,16 @@ import * as state from "./lib/state.mjs";
 import { requireValue, render, validateGraph } from "./lib/graph.mjs";
 import { createPlan, applyPlan, inspect } from "./lib/operations.mjs";
 import { ProgressReporter, setProgressSink, step } from "./lib/progress.mjs";
+import { history, interdiff, renderHistory, renderInterdiff } from "./lib/history.mjs";
 
 const HELP = `pr-graph (Node.js 22+, Git 2.31+)
 
 Read-only:
   analyze --base <ref> --head <ref>
   status|view|check|doctor --graph <id>
+  history --graph <id> --node <id> [--format json|text]
+  interdiff --graph <id> --node <id> --from <version|last-published|last-validated|current>
+            [--to <version|current>] [--format json|text]
 
 Prepare a concrete mutation plan:
   plan <action> --graph <id> [--spec <json>] --out <file>
@@ -59,7 +63,8 @@ function args(argv) {
   const boolean = new Set(["yes", "allow-non-atomic", "retain-published-refs", "quiet", "local-only"]);
   const known = new Set(["repo", "graph", "spec", "out", "node", "strategy", "remote",
     "backup-ref", "backup-branch", "operation", "body-file", "plan", "approve", "base", "head", "landing",
-    "fetch-observation", "commit-trailers-file", "reuse-worktree", "nodes", "source-repo"]);
+    "fetch-observation", "commit-trailers-file", "reuse-worktree", "nodes", "source-repo",
+    "from", "to", "format"]);
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (!a.startsWith("--")) { positional.push(a); continue; }
@@ -84,6 +89,11 @@ export function main(argv) {
 }
 
 function execute(flags, command, action) {
+  const historical = ["history", "interdiff"].includes(command);
+  requireValue(flags.format === undefined || (historical && ["json", "text"].includes(flags.format)),
+    "Use --format json|text only with history or interdiff.");
+  requireValue((flags.from === undefined && flags.to === undefined) || command === "interdiff",
+    "Use --from/--to only with interdiff.");
   requireValue(flags["source-repo"] === undefined || (command === "plan" && action === "import-graph"),
     "Use --source-repo only when planning import-graph.");
   requireValue(flags.nodes === undefined || (command === "plan" && action === "publish"),
@@ -92,7 +102,13 @@ function execute(flags, command, action) {
     "Use --local-only only when planning sync; apply and continue use the approved plan's mode.");
   const ctx = step("Locating repository", () => git.context(flags.repo ?? process.cwd()));
   let result;
-  if (command === "analyze") {
+  if (historical) {
+    requireValue(flags.graph && flags.node, "Select --graph and --node explicitly.");
+    result = command === "history" ? history(ctx, flags.graph, flags.node) :
+      interdiff(ctx, flags.graph, flags.node, flags.from, flags.to);
+    if (flags.format === "text") return process.stdout.write(
+      `${command === "history" ? renderHistory(result) : renderInterdiff(result)}\n`);
+  } else if (command === "analyze") {
     requireValue(flags.base && flags.head, "Analyze requires explicit --base and --head.");
     const target = git.commitId(ctx.root, flags.base);
     const head = git.commitId(ctx.root, flags.head);
