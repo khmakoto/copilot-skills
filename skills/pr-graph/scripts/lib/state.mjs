@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { digest, requireValue, validateGraph } from "./graph.mjs";
+import * as git from "./git.mjs";
 
 export function readJson(file, optional = false) {
   if (optional && !fs.existsSync(file)) return null;
@@ -36,8 +37,39 @@ export function load(ctx, id, optional = false) {
   return value && validateGraph(value);
 }
 
-export function save(ctx, graph) {
+export function save(ctx, graph, plan) {
   validateGraph(graph);
+  if (plan) {
+    const before = load(ctx, graph.id, true);
+    if (digest(before) !== digest(graph)) {
+      const payload = { version: 1, operation: plan.approval, action: plan.action, before, after: graph };
+      const id = digest(payload);
+      const file = path.join(ctx.dir, "history", graph.id, `${id}.json`);
+      if (!fs.existsSync(file)) {
+        const snapshots = plan.action === "remove-retired" ? [] : [before, graph];
+        const commits = new Set(snapshots.filter(Boolean).flatMap((g) => [
+          g.targetSha, g.combined, g.source?.base, g.source?.head,
+          ...g.nodes.flatMap((n) => [n.change.base, n.change.head, n.base, n.head,
+            n.validation?.head, n.pr?.head, n.pr?.base, n.landing?.commit]),
+        ]).filter(Boolean));
+        const prefix = `refs/pr-graph/history/${graph.id}/`;
+        const retained = new Map(git.out(ctx.root,
+          ["for-each-ref", "--format=%(refname) %(objectname)", prefix])
+          .split("\n").filter(Boolean).map((line) => line.split(" ")));
+        git.withObjectView(ctx, (run) => {
+          for (const sha of commits) {
+            if (/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(sha) &&
+              run(["cat-file", "-e", `${sha}^{commit}`]).status === 0) {
+              const existing = retained.get(`${prefix}${sha}`);
+              requireValue(!existing || existing === sha, "Historical retention ref changed; inspect explicitly.");
+              if (!existing) git.out(ctx.root, ["update-ref", `${prefix}${sha}`, sha, "0".repeat(sha.length)]);
+            }
+          }
+        });
+        atomicJson(file, { ...payload, id, recordedAt: ctx.now?.() ?? Date.now() });
+      }
+    }
+  }
   atomicJson(graphFile(ctx, graph.id), graph);
 }
 

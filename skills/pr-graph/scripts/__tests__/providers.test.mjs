@@ -10,6 +10,7 @@ import { createPlan, applyPlan, inspect } from "../lib/operations.mjs";
 import { git as gitResult, tree } from "../lib/git.mjs";
 import { setProgressSink } from "../lib/progress.mjs";
 import { digest } from "../lib/graph.mjs";
+import { history, interdiff } from "../lib/history.mjs";
 
 test("provider detection handles GitHub, GHES, ADO SSH/HTTPS and local Git", () => {
   assert.equal(resolveProvider("git@github.com:me/repo.git").kind, "github");
@@ -343,6 +344,33 @@ function hostedFixture(f) {
   f.ctx.providerFactory = () => p;
   return { p, records, loseResponse: () => { loseResponse = true; } };
 }
+
+test("node history distinguishes uncertain PR creation, reconciliation, and verified publication", (t) => {
+  const f = fixture({ remote: true, names: ["a"] });
+  t.after(() => f.dispose());
+  const host = hostedFixture(f);
+  f.apply("split", { spec: f.spec });
+  const plan = createPlan(f.ctx, "publish", { graph: "example" });
+  host.loseResponse();
+  assert.throws(() => applyPlan(f.ctx, plan, plan.approval, true), /response was lost/);
+  let timeline = history(f.ctx, "example", "a");
+  assert.equal(timeline.baselines["last-published"], null);
+  assert.equal(timeline.events.find((e) => e.operation === plan.approval).status, "running");
+  assert.equal(timeline.events.at(-1).operation, plan.approval);
+  assert.equal(timeline.events.at(-1).persisted, false);
+  const recovery = createPlan(f.ctx, "reconcile", { operation: plan.approval });
+  applyPlan(f.ctx, recovery, recovery.approval, true);
+  timeline = history(f.ctx, "example", "a");
+  assert.deepEqual(timeline.events.find((e) => e.operation === plan.approval).recoveries.map((r) => r.action), ["reconcile"]);
+  applyPlan(f.ctx, plan, plan.approval, true);
+  timeline = history(f.ctx, "example", "a");
+  const events = timeline.events.filter((e) => e.operation === plan.approval);
+  assert.equal(events.length, 1);
+  assert.equal(events[0].status, "done");
+  assert.equal(events[0].publication.scope, "hosted-pr");
+  assert.equal(events[0].publication.pr.head, timeline.versions.find((v) => v.id === timeline.current).snapshot.node.head);
+  assert.equal(interdiff(f.ctx, "example", "a", "last-published").comparison.status, "equal");
+});
 
 test("ADO publication preserves immutable completed descriptions while refreshing active footers", (t) => {
   const f = fixture({ remote: true, names: ["a", "b"] });

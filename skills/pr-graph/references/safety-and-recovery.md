@@ -7,6 +7,7 @@ Local state lives in `<git-common-dir>/pr-graph/`, shared by linked worktrees:
 ```text
 graphs/<graph-id>.json
 operations/<approval-digest>.json
+history/<graph-id>/<receipt-digest>.json
 mutation.lock
 trees/<operation-id>/
 ```
@@ -20,6 +21,26 @@ before transfer. Reuse does not copy validation or renew freshness; see the
 
 Git refs under `refs/pr-graph/` pin original snapshots, candidate commits, and
 downloaded metadata. They are not product branches.
+
+Graph saves retain digest-checked before/after history receipts tied to the
+approved operation. Available commits referenced by those snapshots are pinned
+under `refs/pr-graph/history/<graph-id>/<commit-sha>`; unchanged commits reuse
+existing retention refs, and missing objects are
+not fetched to complete history. Metadata-only `remove-retired` never adds refs;
+legacy snapshots without retention pins can therefore lose objects to later GC.
+Receipts precede the graph write so an
+interruption cannot falsely imply persistence: historical inspection uses the
+current graph, later before snapshots, and completed matching journals to
+establish which snapshots persisted. Operation status remains independent.
+Recovery receipts distinguish successful reconcile/resolve/abort actions without
+claiming the original operation completed.
+
+History is clone-local and retained indefinitely; ordinary operation-worktree
+cleanup does not delete history receipts or their pins. Backup/restore and local
+graph import do not transfer the originating clone's operation history, so
+inspection reports those boundaries. Older evidence remains inspectable with
+explicit gaps; read-only inspection never backfills receipts or repairs journals.
+See [history and interdiff](commands.md#node-history-and-interdiff).
 
 Graph files are version-checked and atomically replaced. Corruption is an error,
 not an empty graph. Journals record intent before changes and individual write
