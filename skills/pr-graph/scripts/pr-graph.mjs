@@ -6,7 +6,7 @@ import { Worker, isMainThread, parentPort, workerData } from "node:worker_thread
 import * as git from "./lib/git.mjs";
 import * as state from "./lib/state.mjs";
 import { requireValue, render, validateGraph } from "./lib/graph.mjs";
-import { createPlan, applyPlan, inspect } from "./lib/operations.mjs";
+import { createPlan, applyPlan, inspect, previewSelection } from "./lib/operations.mjs";
 import { ProgressReporter, setProgressSink, step } from "./lib/progress.mjs";
 import { history, interdiff, renderHistory, renderInterdiff } from "./lib/history.mjs";
 
@@ -15,6 +15,7 @@ const HELP = `pr-graph (Node.js 22+, Git 2.31+)
 Read-only:
   analyze --base <ref> --head <ref>
   status|view|check|doctor --graph <id>
+  select --graph <id> --select <selector>
   history --graph <id> --node <id> [--format json|text]
   interdiff --graph <id> --node <id> --from <version|last-published|last-validated|current>
             [--to <version|current>] [--format json|text]
@@ -31,6 +32,7 @@ Prepare a concrete mutation plan:
   remove-retired --node <id>  Remove retired unpublished node metadata, preserving all Git refs and files
   --node <id>                 Select ready/merge/describe node
   --nodes <id,id>             Publish only selected nodes and their required helper bases
+  --select <selector>         Preview or plan publish: node:<id>, dependents:<id>, eligible, unpublished
   --strategy merge|squash|rebase
   --landing <sha>             Verified external local landing to record
   --remote <name>             Backup download/restore remote
@@ -64,7 +66,7 @@ function args(argv) {
   const known = new Set(["repo", "graph", "spec", "out", "node", "strategy", "remote",
     "backup-ref", "backup-branch", "operation", "body-file", "plan", "approve", "base", "head", "landing",
     "fetch-observation", "commit-trailers-file", "reuse-worktree", "nodes", "source-repo",
-    "from", "to", "format"]);
+    "from", "to", "format", "select"]);
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (!a.startsWith("--")) { positional.push(a); continue; }
@@ -98,11 +100,18 @@ function execute(flags, command, action) {
     "Use --source-repo only when planning import-graph.");
   requireValue(flags.nodes === undefined || (command === "plan" && action === "publish"),
     "Use --nodes only when planning publish; apply and continue use the approved selection.");
+  requireValue(flags.select === undefined || ((command === "select" ||
+    (command === "plan" && action === "publish")) &&
+    flags.nodes === undefined && flags.node === undefined && flags.spec === undefined),
+  "Use --select only with select or plan publish; do not combine with --nodes, --node, or --spec.");
   requireValue(flags["local-only"] === undefined || (command === "plan" && action === "sync"),
     "Use --local-only only when planning sync; apply and continue use the approved plan's mode.");
   const ctx = step("Locating repository", () => git.context(flags.repo ?? process.cwd()));
   let result;
-  if (historical) {
+  if (command === "select") {
+    requireValue(flags.graph && flags.select, "Select requires --graph and --select.");
+    result = previewSelection(ctx, flags.graph, flags.select);
+  } else if (historical) {
     requireValue(flags.graph && flags.node, "Select --graph and --node explicitly.");
     result = command === "history" ? history(ctx, flags.graph, flags.node) :
       interdiff(ctx, flags.graph, flags.node, flags.from, flags.to);
@@ -144,6 +153,7 @@ function execute(flags, command, action) {
       graph: flags.graph, spec, node: flags.node, strategy: flags.strategy,
       sourceRepo: flags["source-repo"],
       publishNodes: flags.nodes === undefined ? undefined : flags.nodes.split(","),
+      selector: flags.select,
       landing: flags.landing,
       remote: flags.remote, backupRef: flags["backup-ref"], backupBranch: flags["backup-branch"],
       operation: flags.operation, allowNonAtomic: flags["allow-non-atomic"],

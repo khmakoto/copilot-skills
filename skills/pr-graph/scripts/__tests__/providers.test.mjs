@@ -6,7 +6,7 @@ import { githubProvider } from "../lib/providers/github.mjs";
 import { adoProvider } from "../lib/providers/ado.mjs";
 import { resolveProvider } from "../lib/providers/index.mjs";
 import { fixture, git, cli } from "./fixtures.mjs";
-import { createPlan, applyPlan, inspect } from "../lib/operations.mjs";
+import { createPlan, applyPlan, inspect, previewSelection } from "../lib/operations.mjs";
 import { git as gitResult, tree } from "../lib/git.mjs";
 import { setProgressSink } from "../lib/progress.mjs";
 import { digest } from "../lib/graph.mjs";
@@ -505,6 +505,136 @@ test("CLI pins selective publication and rejects unsupported selections", (t) =>
   assert.notEqual(cli(f.root, "plan", "sync", "--graph", "example", "--nodes", "b").status, 0);
   assert.notEqual(cli(f.root, "plan", "publish", "--graph", "example", "--nodes", "b,b").status, 0);
   assert.notEqual(cli(f.root, "plan", "publish", "--graph", "example", "--nodes", "a,").status, 0);
+});
+
+test("selector preview and publication pin exact IDs, evidence, and prerequisite effects", (t) => {
+  const f = fixture({ remote: true, names: ["a", "b", "c", "d"] });
+  t.after(() => f.dispose());
+  const host = hostedFixture(f);
+  f.apply("split", { spec: f.spec });
+  const before = git(f.root, "show-ref");
+  const preview = previewSelection(f.ctx, "example", "dependents:b");
+  assert.deepEqual(preview.nodes, ["b", "c", "d"]);
+  assert.equal(git(f.root, "show-ref"), before);
+  assert.equal(host.records.size, 0);
+  assert.throws(() => createPlan(f.ctx, "publish", { graph: "example", selector: "dependents:b" }),
+    /Include unpublished or out-of-date prerequisite a/);
+  f.apply("publish", { graph: "example", publishNodes: ["a"] });
+  const plan = createPlan(f.ctx, "publish", { graph: "example", selector: "dependents:b" });
+  assert.deepEqual(plan.selection.nodes, preview.nodes);
+  assert.deepEqual(plan.publishNodes, preview.nodes);
+  assert.equal(plan.selection.evidence.graph, plan.previousDigest);
+  assert.equal(plan.selection.evidence.facts, digest(plan.facts));
+  const scope = plan.effects.find((effect) => effect.requested);
+  assert.deepEqual(scope.requested, ["b", "c", "d"]);
+  assert.deepEqual(scope.prerequisites, [
+    { id: "a", landed: false, selected: false }, { id: "b", landed: false, selected: true },
+  ]);
+  assert.deepEqual(scope.helperBases.map((n) => n.node), ["c", "d"]);
+  assert.deepEqual(scope.sourceRefs.map((n) => n.node), ["b", "c", "d"]);
+  assert.deepEqual(scope.validationNodes, ["a", "b", "c", "d"]);
+  const changed = structuredClone(plan);
+  changed.selection.nodes.push("a");
+  assert.throws(() => applyPlan(f.ctx, changed, plan.approval, true), /mismatched approval/);
+  const { approval, ...payload } = changed;
+  changed.approval = digest(payload);
+  assert.throws(() => applyPlan(f.ctx, changed, changed.approval, true), /Invalid pinned selection/);
+  host.loseResponse();
+  assert.throws(() => applyPlan(f.ctx, plan, plan.approval, true), /response was lost/);
+  const recovery = createPlan(f.ctx, "reconcile", { operation: plan.approval });
+  applyPlan(f.ctx, recovery, recovery.approval, true);
+  const result = applyPlan(f.ctx, plan, plan.approval, true);
+  assert.deepEqual(result.graph.nodes.filter((n) => n.pr).map((n) => n.id), ["a", "b", "c", "d"]);
+  assert.deepEqual(state.readJson(state.journalFile(f.ctx, plan.approval)).plan.selection, plan.selection);
+  assert.deepEqual(previewSelection(f.ctx, "example", "unpublished").nodes, []);
+  assert.throws(() => createPlan(f.ctx, "publish", { graph: "example", selector: "unpublished" }), /no active nodes/);
+});
+
+test("selector apply and continue reject graph, provider and integration drift without adding targets", (t) => {
+  for (const drift of ["graph", "provider", "target", "main-target"]) {
+    const f = fixture({ remote: true, names: ["a", "b"] });
+    t.after(() => f.dispose());
+    const host = hostedFixture(f);
+    if (drift === "main-target") {
+      git(f.root, "branch", "main", f.base);
+      git(f.root, "push", "-q", "upstream", "main");
+      f.spec.target = "main";
+    }
+    f.apply("split", { spec: f.spec });
+    const published = f.apply("publish", { graph: "example", publishNodes: ["a"] });
+    const plan = createPlan(f.ctx, "publish", { graph: "example", selector: "unpublished" });
+    assert.deepEqual(plan.selection.nodes, ["b"]);
+    host.loseResponse();
+    assert.throws(() => applyPlan(f.ctx, plan, plan.approval, true), /response was lost/);
+    if (drift === "graph") {
+      const graph = state.load(f.ctx, "example");
+      graph.nodes[0].pr = null;
+      state.atomicJson(state.graphFile(f.ctx, "example"), graph);
+    } else if (drift === "provider") {
+      host.records.get(published.graph.nodes[0].pr.id).body += "\nHuman edit";
+    } else {
+      const advanced = git(f.root, "commit-tree", `${f.base}^{tree}`, "-p", f.base, "-m", "New target");
+      git(f.root, "push", "-q", "upstream", `${advanced}:refs/heads/${f.spec.target}`);
+      if (drift === "main-target") {
+        assert.throws(() => createPlan(f.ctx, "publish", { graph: "example", selector: "node:a" }),
+          /current integration snapshot.*sync separately/);
+      }
+    }
+    assert.throws(() => applyPlan(f.ctx, plan, plan.approval, true), /Graph state changed|PR .*changed|Remote ref changed/);
+    const recovery = createPlan(f.ctx, "reconcile", { operation: plan.approval });
+    assert.throws(() => applyPlan(f.ctx, recovery, recovery.approval, true),
+      /Graph state changed|Unselected PR .*changed|Unexpected remote ref change/);
+    assert.deepEqual(state.readJson(state.journalFile(f.ctx, plan.approval)).plan.selection.nodes, ["b"]);
+  }
+});
+
+test("selector apply detects newly discovered unselected PRs and never adds them as targets", (t) => {
+  const f = fixture({ remote: true, names: ["a", "b"] });
+  t.after(() => f.dispose());
+  const host = hostedFixture(f);
+  const split = f.apply("split", { spec: f.spec });
+  const plan = createPlan(f.ctx, "publish", { graph: "example", selector: "node:b" });
+  host.p.create(split.graph.nodes[0], "External PR");
+  assert.deepEqual(previewSelection(f.ctx, "example", "unpublished").nodes, ["b"]);
+  assert.throws(() => createPlan(f.ctx, "publish", { graph: "example", selector: "node:a" }),
+    /Untracked PR exists.*adopt explicitly/);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    assert.throws(() => applyPlan(f.ctx, plan, plan.approval, true), /PR a changed/);
+  }
+  const recovery = createPlan(f.ctx, "reconcile", { operation: plan.approval });
+  assert.throws(() => applyPlan(f.ctx, recovery, recovery.approval, true), /Unselected PR a changed/);
+  assert.deepEqual(state.readJson(state.journalFile(f.ctx, plan.approval)).plan.selection.nodes, ["b"]);
+  assert.equal(git(f.root, "ls-remote", "--refs", "upstream", `refs/heads/${split.graph.nodes[1].branch}`), "");
+  assert.equal(host.records.size, 1);
+});
+
+test("CLI selectors preview empty sets and reject unsupported or ambiguous actions", (t) => {
+  const f = fixture({ remote: true, names: ["a", "b"] });
+  t.after(() => f.dispose());
+  f.apply("split", { spec: f.spec });
+  const selected = cli(f.root, "select", "--graph", "example", "--select", "eligible");
+  assert.equal(selected.status, 0, selected.stderr);
+  assert.deepEqual(JSON.parse(selected.stdout).nodes, ["a", "b"]);
+  const planned = cli(f.root, "plan", "publish", "--graph", "example", "--select", "node:b");
+  assert.equal(planned.status, 0, planned.stderr);
+  const plan = JSON.parse(planned.stdout);
+  assert.deepEqual(plan.selection.nodes, ["b"]);
+  applyPlan(f.ctx, plan, plan.approval, true);
+  assert.deepEqual(JSON.parse(cli(f.root, "select", "--graph", "example", "--select", "unpublished").stdout).nodes, ["a"]);
+  for (const action of ["sync", "ready", "merge", "describe", "remove", "restore", "resolve"]) {
+    assert.notEqual(cli(f.root, "plan", action, "--graph", "example", "--select", "eligible").status, 0);
+    assert.throws(() => createPlan(f.ctx, action, { graph: "example", selector: "eligible" }), /Selectors support only publish/);
+  }
+  for (const extra of [["--nodes", "a"], ["--node", "a"], ["--spec", "unused"]]) {
+    assert.notEqual(cli(f.root, "plan", "publish", "--graph", "example", "--select", "eligible", ...extra).status, 0);
+  }
+  assert.notEqual(cli(f.root, "continue", "--operation", plan.approval, "--select", "eligible").status, 0);
+  assert.notEqual(cli(f.root, "select", "--graph", "example", "--select", "node:missing").status, 0);
+  f.apply("publish", { graph: "example", selector: "unpublished" });
+  const empty = cli(f.root, "select", "--graph", "example", "--select", "unpublished");
+  assert.equal(empty.status, 0, empty.stderr);
+  assert.deepEqual(JSON.parse(empty.stdout).nodes, []);
+  assert.equal(JSON.parse(empty.stdout).excluded.every((n) => n.reason === "already published"), true);
 });
 
 test("local-only sync refreshes and validates local branches without any hosting or backup writes", (t) => {
