@@ -3,7 +3,7 @@ import path from "node:path";
 import os from "node:os";
 import {
   VERSION, digest, requireValue, validateGraph, topological, prerequisites,
-  eligible, footer, updateFooter, helperBranch, integrationFreshness, MAIN_FRESHNESS_MS,
+  eligible, footer, updateFooter, helperBranch, integrationFreshness, MAIN_FRESHNESS_MS, selectNodes,
 } from "./graph.mjs";
 import * as git from "./git.mjs";
 import * as state from "./state.mjs";
@@ -60,6 +60,7 @@ function fetchObservation(ctx, graph, input, target, observedAt) {
 }
 
 function permitsForwardTarget(ctx, plan) {
+  if (plan.selection) return false;
   if (FORWARD_TARGET.has(plan.action)) return true;
   const freshness = integrationFreshness(plan.graph, null, null, now(ctx));
   return plan.action !== "merge" && plan.graph.integration?.sha === plan.target &&
@@ -109,13 +110,17 @@ function graphRefs(graph) {
   ].filter(Boolean))].sort();
 }
 
-function observe(ctx, graph, provider) {
+function observe(ctx, graph, provider, discover = false) {
   return step("Observing local refs, remote refs, and PR state", () => {
     const branches = graphRefs(graph);
     const remote = git.remoteRefs(ctx.root, graph.repository.remote);
     const prs = {};
     for (const node of graph.nodes) {
       if (node.pr) prs[node.id] = step("Reading PR state", () => provider.get(node.pr.id), nodeDetails(graph, node));
+      else if (discover && provider.kind !== "local") {
+        const found = step("Looking for an existing PR", () => provider.find(node.branch), nodeDetails(graph, node));
+        if (found) prs[node.id] = found;
+      }
     }
     return {
       local: Object.fromEntries(branches.map((b) => [b, git.refId(ctx.root, `refs/heads/${b}`)])),
@@ -446,6 +451,9 @@ function validatePublicationNodes(graph, nodes, facts, target) {
 
 export function createPlan(ctx, action, options = {}) {
   requireValue(ACTIONS.has(action), `Unknown action: ${action}`);
+  requireValue(options.selector === undefined || (action === "publish" &&
+    options.publishNodes === undefined && options.node === undefined && options.spec === undefined),
+  "Selectors support only publish; do not combine with --nodes, --node, or --spec.");
   requireValue(options.publishNodes === undefined || (action === "publish" &&
     !options.node && Array.isArray(options.publishNodes) && options.publishNodes.length > 0 &&
     options.publishNodes.every((id) => typeof id === "string" && /^[a-z0-9][a-z0-9-]*$/.test(id)) &&
@@ -582,7 +590,20 @@ export function createPlan(ctx, action, options = {}) {
     }
   }
   const provider = getProvider(ctx, graph);
-  const facts = observe(ctx, graph, provider);
+  const facts = observe(ctx, graph, provider, options.selector !== undefined);
+  let selection;
+  if (options.selector !== undefined) {
+    selection = {
+      ...selectNodes(graph, options.selector, facts),
+      evidence: { graph: digest(previous), facts: digest(facts) },
+    };
+    requireValue(selection.nodes.length, "Selector resolved to no active nodes; preview exclusions and choose a new selection.");
+    for (const id of selection.nodes) {
+      requireValue(!facts.prs[id] || graph.nodes.find((n) => n.id === id).pr,
+        `Untracked PR exists for ${id}; adopt explicitly before selector publication.`);
+    }
+    options = { ...options, publishNodes: selection.nodes };
+  }
   if (options.spec?.helperBranchPrefix !== undefined &&
     (!previous || helperBranch(graph, "prefix-probe") !== helperBranch(previous, "prefix-probe"))) {
     for (const node of graph.nodes.filter((n) => !n.retired && !n.landing)) {
@@ -617,6 +638,8 @@ export function createPlan(ctx, action, options = {}) {
   if (options.publishNodes) {
     validatePublicationNodes(graph, options.publishNodes, facts, target);
   }
+  requireValue(!selection || target === observedTarget,
+    "Selector publication requires the current integration snapshot; sync separately and create a fresh plan.");
   const integration = target === snapshot.targetSha ? snapshot.integration : fetchedIntegration;
   requireValue(!fetched || target !== fetched.sha || target === observedTarget ||
     snapshotFreshness(ctx, { ...graph, integration }, observedTarget).status === "grace",
@@ -690,6 +713,7 @@ export function createPlan(ctx, action, options = {}) {
     ...(options.commitTrailers ? { commitTrailers: [...options.commitTrailers] } : {}),
     ...(reuseWorktree ? { reuseWorktree } : {}),
     ...(options.publishNodes ? { publishNodes: [...options.publishNodes].sort() } : {}),
+    ...(selection ? { selection } : {}),
     facts, target, source, node: options.node ?? null, strategy,
     ...(fetched ? { fetchObservation: fetched } : {}),
     freshness: freshnessReport(ctx, graph, facts),
@@ -704,8 +728,10 @@ export function createPlan(ctx, action, options = {}) {
     effects: [
       ...(graph.repository.remote ? [action === "retarget"
         ? `Fetch configured remote ${graph.repository.remote} and verify its integration branch still contains the approved snapshot before writes.`
-        : `Fetch configured remote ${graph.repository.remote} and recheck pinned refs before writes; integration fast-forwards are allowed only under the recorded freshness policy.`] : []),
-      ...(!FORWARD_TARGET.has(action) && permitsForwardTarget(ctx, { action, graph, target })
+        : selection
+          ? `Fetch configured remote ${graph.repository.remote} and recheck exact pinned refs and PR observations before writes; any external drift requires a fresh plan.`
+          : `Fetch configured remote ${graph.repository.remote} and recheck pinned refs before writes; integration fast-forwards are allowed only under the recorded freshness policy.`] : []),
+      ...(!FORWARD_TARGET.has(action) && permitsForwardTarget(ctx, { action, graph, target, selection })
         ? [`Permit forward-only movement of ${graph.target} until ${new Date(graph.integration.verifiedAt + MAIN_FRESHNESS_MS).toISOString()}; retain the approved authored snapshot and local target ref. Merge never uses this grace.`] : []),
       ...(options.commitTrailers ? [`Append these exact trailers to reconstruction commit messages, not PR titles:\n${options.commitTrailers.join("\n")}`] : []),
       ...(reuseWorktree ? [
@@ -713,6 +739,23 @@ export function createPlan(ctx, action, options = {}) {
         "Record the transfer in both operation journals. The previous owner can no longer reuse or clean this worktree; all freshness, hooks, cleanliness checks, and validation remain required.",
         `Carry up to ${reuseWorktree.cachedReconstructions} pinned reconstruction receipts; reuse only exact parent, patch, message, and known execution-context matches. All composition and freshness checks remain required.`,
       ] : []),
+      ...(selection ? [{
+        requested: selection.nodes,
+        prerequisites: topological(graph).filter((n) => selection.nodes.some((id) =>
+          prerequisites(graph, id).some((p) => p.id === n.id))).map((n) => ({
+          id: n.id, landed: Boolean(n.landing), selected: selection.nodes.includes(n.id),
+        })),
+        helperBases: topological(graph).filter((n) => selection.nodes.includes(n.id) &&
+          n.baseBranch !== graph.target).map((n) => ({ node: n.id, branch: n.baseBranch, head: n.base })),
+        sourceRefs: topological(graph).filter((n) => selection.nodes.includes(n.id))
+          .map((n) => ({ node: n.id, branch: n.branch, head: n.head })),
+        validationNodes: topological(graph).filter((n) => !n.retired && !n.landing).map((n) => n.id),
+        otherEffects: [
+          "Whole-graph composition and validation; persist graph metadata and validation receipts.",
+          "Only selected source/helper refs and PRs may be written; prerequisites are not implicitly published.",
+          ...(graph.backup.enabled ? ["Upload the enabled whole-graph backup under its separate approval boundary."] : []),
+        ],
+      }] : []),
       ...(["merge", "ready", "describe", "backup"].includes(action) ? [] :
         [options.publishNodes
           ? "Verify whole-graph composition and validation in an isolated worktree; update only the selected unoccupied node branches and their helper bases."
@@ -851,7 +894,7 @@ function verifyFacts(ctx, plan, provider, journal) {
     requireValue(git.commitId(ctx.root, ref) === sha, `Source reference changed: ${ref}`);
   }
   requireValue(localCurrent(ctx, plan) === plan.previousDigest, "Graph state changed; create a fresh plan.");
-  const current = observe(ctx, journal.candidate ?? plan.graph, provider);
+  const current = observe(ctx, journal.candidate ?? plan.graph, provider, Boolean(plan.selection));
   for (const [branch, before] of Object.entries(plan.facts.local)) {
     requireValue(current.local[branch] === (journal.local?.[branch] ?? journal.observedLocal?.[branch] ?? before),
       `Local ref changed: ${branch}`);
@@ -864,9 +907,10 @@ function verifyFacts(ctx, plan, provider, journal) {
   }
   const target = plan.graph.repository.remote ? current.remote[plan.graph.target] : current.local[plan.graph.target];
   verifyIntegration(ctx, plan, journal, target);
-  for (const id of new Set([...Object.keys(plan.facts.prs), ...Object.keys(journal.prs)])) {
+  for (const id of new Set([...Object.keys(plan.facts.prs), ...Object.keys(journal.prs),
+    ...(plan.selection ? Object.keys(current.prs) : [])])) {
     const expected = journal.prs?.[id] ?? plan.facts.prs[id];
-    requireValue(samePrFacts(ctx, journal.candidate ?? plan.graph, journal,
+    requireValue(expected && current.prs[id] && samePrFacts(ctx, journal.candidate ?? plan.graph, journal,
       expected, current.prs[id], current.remote[plan.graph.target]),
     `PR ${id} changed; reconcile and replan.`);
   }
@@ -1058,6 +1102,7 @@ function publish(ctx, graph, provider, plan, journal) {
   }
   for (const node of active) {
     step(node.pr ? "Updating and verifying PR" : "Creating or locating draft PR and verifying it", () => {
+      if (plan.selection) verifyFacts(ctx, plan, provider, journal);
       verifyIntegration(ctx, plan, journal,
         git.remoteRefs(ctx.root, graph.repository.remote)[`refs/heads/${graph.target}`]);
       const body = updateFooter(node.pr?.body ?? node.description, footer(graph, node));
@@ -1230,6 +1275,7 @@ function refreshFooters(ctx, graph, provider, journal) {
   for (const node of graph.nodes.filter((n) => n.pr &&
     (!journal.plan.publishNodes || journal.plan.publishNodes.includes(n.id)))) {
     step("Refreshing and verifying managed PR footer", () => {
+      if (journal.plan.selection) verifyFacts(ctx, journal.plan, provider, journal);
       const current = provider.get(node.pr.id);
       requireValue(current.branch === node.branch && current.head === node.pr.head &&
         current.baseBranch === node.pr.baseBranch && current.state === node.pr.state,
@@ -1263,6 +1309,13 @@ function graphPins(ctx, graph) {
 
 export function applyPlan(ctx, plan, approval, yes) {
   verifyApproval(plan, approval, yes);
+  if (plan.selection) {
+    requireValue(plan.action === "publish" && plan.selection.evidence?.graph === plan.previousDigest &&
+      plan.selection.evidence?.facts === digest(plan.facts) &&
+      Array.isArray(plan.selection.nodes) &&
+      digest([...plan.selection.nodes].sort()) === digest(plan.publishNodes),
+    "Invalid pinned selection; create a fresh plan.");
+  }
   requireValue(plan.publishNodes === undefined || (plan.action === "publish" && !plan.node &&
     Array.isArray(plan.publishNodes) && plan.publishNodes.length > 0 &&
     plan.publishNodes.every((id) => typeof id === "string" && /^[a-z0-9][a-z0-9-]*$/.test(id)) &&
@@ -1429,6 +1482,7 @@ export function applyPlan(ctx, plan, approval, yes) {
       if (!plan.localOnly && ["publish", "sync", "retarget", "ready", "merge"].includes(plan.action)) {
         refreshFooters(ctx, graph, provider, journal);
       }
+      if (plan.selection) verifyFacts(ctx, plan, provider, journal);
       const freshness = freshnessReport(ctx, graph, observe(ctx, graph, provider));
       graph.revision = plan.graph.revision + 1;
       graph.lastOperation = journal.id;
@@ -1523,7 +1577,8 @@ function retainedPublication(ctx, journal, graph) {
   const current = observe(ctx, candidate, provider);
   requireValue(digest(current.local) === digest(journal.plan.facts.local),
     "Publication changed local refs; retained-ref abort cannot restore them implicitly.");
-  const allowed = new Map(candidate.nodes.flatMap((n) => [
+  const allowed = new Map(candidate.nodes.filter((n) =>
+    !journal.plan.selection || journal.plan.publishNodes.includes(n.id)).flatMap((n) => [
     [n.branch, n.head], ...(n.baseBranch !== candidate.target ? [[n.baseBranch, n.base]] : []),
   ]));
   for (const [branch, actual] of Object.entries(current.remote)) {
@@ -1549,7 +1604,7 @@ function recoveryPlan(ctx, action, options) {
     requireValue(journal.status === "running", "Only running operations can be reconciled.");
     const candidate = journal.candidate ?? journal.plan.graph;
     const provider = getProvider(ctx, candidate);
-    const current = observe(ctx, candidate, provider);
+    const current = observe(ctx, candidate, provider, Boolean(journal.plan.selection));
     const discovered = {};
     for (const node of candidate.nodes) {
       if (!node.pr && provider.kind !== "local") {
@@ -1659,7 +1714,7 @@ function applyRecovery(ctx, plan) {
   if (plan.action === "reconcile") {
     const candidate = structuredClone(journal.candidate ?? journal.plan.graph);
     const provider = getProvider(ctx, candidate);
-    const current = observe(ctx, candidate, provider);
+    const current = observe(ctx, candidate, provider, Boolean(journal.plan.selection));
     const comparison = structuredClone(current);
     if (permitsForwardTarget(ctx, journal.plan) && plan.forwardTarget === candidate.target) {
       forwardTarget(ctx, candidate, journal, plan.current.remote[candidate.target], current.remote[candidate.target]);
@@ -1672,6 +1727,11 @@ function applyRecovery(ctx, plan) {
     }
     requireValue(digest(comparison) === digest(plan.current), "Observed state changed after reconciliation approval.");
     const observedPrs = { ...current.prs, ...plan.discovered };
+    if (journal.plan.selection) {
+      for (const id of Object.keys(journal.plan.facts.prs)) {
+        requireValue(observedPrs[id], `Selection PR ${id} disappeared; create a fresh plan.`);
+      }
+    }
     if (journal.plan.action === "merge") {
       const node = nodeById(candidate, journal.plan.node);
       const actual = observedPrs[node.id];
@@ -1682,7 +1742,10 @@ function applyRecovery(ctx, plan) {
         journal.mergeReceipt = { commit: actual.landing, source: node.head, target: candidate.target, strategy: journal.plan.strategy };
       }
     }
-    const allowed = new Map(candidate.nodes.flatMap((n) => [
+    requireValue(!journal.plan.selection || localCurrent(ctx, journal.plan) === journal.plan.previousDigest,
+      "Graph state changed; create a fresh selection plan.");
+    const allowed = new Map(candidate.nodes.filter((n) =>
+      !journal.plan.selection || journal.plan.publishNodes.includes(n.id)).flatMap((n) => [
       [n.branch, n.head], ...(n.baseBranch && n.baseBranch !== candidate.target ? [[n.baseBranch, n.base]] : []),
     ]));
     if (journal.mergeReceipt) allowed.set(candidate.target, journal.mergeReceipt.commit);
@@ -1711,6 +1774,17 @@ function applyRecovery(ctx, plan) {
     for (const [id, actual] of Object.entries(observedPrs)) {
       const node = nodeById(candidate, id);
       const baseline = journal.prs[id] ?? journal.plan.facts.prs[id];
+      if (journal.plan.selection && digest(baseline ?? null) !== digest(actual)) {
+        requireValue(journal.plan.publishNodes.includes(id),
+          `Unselected PR ${id} changed; create a fresh selection plan.`);
+        if (baseline) {
+          const intended = { ...baseline, head: node.head, baseBranch: node.baseBranch,
+            body: updateFooter(baseline.body, footer(candidate, node)),
+            draft: eligible(candidate, node) ? baseline.draft : true };
+          requireValue(digest(actual) === digest(intended),
+            `Selection PR ${id} changed outside approved effects; create a fresh plan.`);
+        }
+      }
       if (journal.plan.action === "describe" && baseline) {
         requireValue(samePrFacts(ctx, candidate, journal, baseline, actual, current.remote[candidate.target]),
           `Description inputs changed for ${id}; abort and replan without discarding human edits.`);
@@ -1828,6 +1902,15 @@ function applyRecovery(ctx, plan) {
     git.out(ctx.root, ["worktree", "remove", cwd]);
   }
   return { cleaned: plan.effects };
+}
+
+export function previewSelection(ctx, id, selector) {
+  const graph = validateGraph(state.load(ctx, id));
+  const facts = observe(ctx, graph, getProvider(ctx, graph), true);
+  return {
+    graph: id, ...selectNodes(graph, selector, facts),
+    evidence: { graph: digest(graph), facts },
+  };
 }
 
 export function inspect(ctx, id) {

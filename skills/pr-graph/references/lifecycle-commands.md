@@ -8,6 +8,7 @@ and plan/approve/apply requirements before using these commands.
 ```text
 node "<helper>" plan publish --repo "<repo>" --graph feature --out "<plan>"
 node "<helper>" plan publish --repo "<repo>" --graph feature --nodes model,consumer --out "<plan>"
+node "<helper>" plan publish --repo "<repo>" --graph feature --select "dependents:model" --out "<plan>"
 node "<helper>" plan sync --repo "<repo>" --graph feature --out "<plan>"
 node "<helper>" plan sync --repo "<repo>" --graph feature --local-only --out "<plan>"
 node "<helper>" plan sync --repo "<repo>" --graph feature --spec "<checks.json>" --out "<plan>"
@@ -32,6 +33,32 @@ Publish and sync preserve eligible existing PRs' observed draft/non-draft state,
 including manual transitions, even when reconstruction changes their head/base.
 Blocked or superseded nodes must be draft. A status change after planning
 invalidates approval; replan rather than overwriting it.
+
+`publish --select <selector>` expands the
+[fixed selection vocabulary](commands.md#graph-relative-node-selection) once at
+planning time into `selection.nodes` and the existing exact `publishNodes` list.
+The approval digest includes the selector, ordered resolved IDs, exclusions,
+graph digest, complete ref/PR observations, and operation effects. Plans show
+requested nodes separately from prerequisite IDs (including landed/selected
+status), selected helper bases and source refs with their SHAs, whole-graph
+validation nodes, metadata persistence, and any enabled whole-graph backup.
+Only selected nodes and their helper bases are published; prerequisite
+requirements are not permission to publish more nodes. Missing or out-of-date
+unselected prerequisites cause an error rather than automatic expansion.
+An untracked live PR on a selected node requires separate explicit adoption.
+
+Selector publication requires the current integration snapshot; sync separately
+if it is behind, even within main/master grace. Apply and continue use only the
+approved exact IDs, never reevaluating the selector against moving state.
+They recheck graph state, local/remote refs (including the integration target),
+and live PR observations, including PRs newly discovered for previously
+unpublished nodes. External changes require a fresh selection plan, not a larger
+target set or a renewed approval. Reconciliation may recognize only approved
+selected-node effects after an uncertain response; it cannot adopt unselected
+PR/ref changes or target movement under the old selection.
+Abort/compensate an interrupted operation under the existing recovery contract
+before replanning when necessary. Explicit `--nodes` behavior is unchanged.
+Selectors add no authorization for readiness, merging, deletion, backup, or recovery.
 
 `sync --local-only` reconstructs on the approved fresh target, runs validation,
 and persists local branches and graph state without pushing refs or making any

@@ -19,6 +19,7 @@ node "<helper>" analyze --repo "<repo>" --base "<integration-ref>" --head "<sour
 node "<helper>" status --repo "<repo>" --graph feature
 node "<helper>" view --repo "<repo>" --graph feature
 node "<helper>" check --repo "<repo>" --graph feature
+node "<helper>" select --repo "<repo>" --graph feature --select "dependents:model"
 node "<helper>" plan remove-retired --repo "<repo>" --graph feature --node staging --out "<plan.json>"
 ```
 
@@ -26,6 +27,39 @@ Commands emit JSON except `help` and `view`. Failures emit a JSON error to stder
 and exit nonzero. Errors include the retained operation ID when applicable.
 `doctor` is read-only; it does not repair state implicitly.
 `history` and `interdiff` also accept `--format text`; their default is JSON.
+
+### Graph-relative node selection
+
+`select --graph <id> --select <selector>` is a read-only JSON preview. It returns
+`nodes` as exact IDs in stable dependency-first graph order, deduplicating shared
+descendants, and `excluded` with an ID and reason for every omitted node.
+It also returns the graph digest and live local/remote ref and PR observations
+as `evidence`. It does not fetch, move refs, run checks, renew freshness, or
+authorize mutations.
+
+| Selector          | Meaning                                                                                                                                                               |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `node:<id>`       | Exactly this node, if active.                                                                                                                                         |
+| `dependents:<id>` | This node **including the root**, plus all transitive dependents. Multi-parent descendants appear once; their other prerequisites are not selected implicitly.        |
+| `eligible`        | Active nodes whose complete prerequisite closure has landing receipts in the intended target.                                                                         |
+| `unpublished`     | Active nodes without a hosted PR, including live branch-based PR discovery. For local Git, nodes without a remote product branch; without a remote, all active nodes. |
+
+Active means neither retired nor landed. These exclusions apply even to an
+exact selector or the root of `dependents`; traversal still reaches active
+descendants through excluded nodes. Missing root IDs and invalid syntax are
+errors. An inactive exact root or no matches returns a successful empty preview
+with reasons; a mutation plan rejects an empty selection. Published but stale
+content is not `unpublished`; use an exact selector for republication.
+Eligibility is dependency eligibility only, not passing validation, readiness,
+current integration/branch identity, or provider-policy success. Preview uses
+recorded landing receipts, not an implicit reconciliation of external merges.
+
+Only `plan publish --select <selector>` currently accepts selectors for mutation.
+All other actions reject them, including sync, ready, merge, shape changes, and
+recovery. Do not combine `--select` with `--nodes`, `--node`, or `--spec`.
+This is a fixed vocabulary, not an expression language: no unions, shell
+evaluation, stored executable expressions, or implicit batch merge.
+See [selective publication](lifecycle-commands.md) for effects and approval.
 
 ### Node history and interdiff
 
@@ -218,7 +252,11 @@ fetch starts. After the fetch succeeds and the fetched commit is available
 locally, save the observation outside the product worktree:
 
 ```json
-{ "target": "main", "sha": "<full-live-target-SHA-at-fetch-start>", "startedAt": 1792605600000 }
+{
+  "target": "main",
+  "sha": "<full-live-target-SHA-at-fetch-start>",
+  "startedAt": 1792605600000
+}
 ```
 
 Pass the file to planning, not application:
@@ -317,7 +355,10 @@ node "<helper>" apply --repo "<repo>" --plan "<plan.json>" --yes --approve "<dig
 For example, save the required trailer lines outside the product worktree:
 
 ```json
-["Co-authored-by: Contributor <contributor@example.invalid>", "Session: example"]
+[
+  "Co-authored-by: Contributor <contributor@example.invalid>",
+  "Session: example"
+]
 ```
 
 Then include them in the reconstruction plan:

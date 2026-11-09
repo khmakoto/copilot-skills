@@ -138,6 +138,37 @@ export function eligible(graph, node) {
   return !node.retired && !node.landing && prerequisites(graph, node.id).every((n) => n.landing);
 }
 
+export function selectNodes(graph, selector, facts = {}) {
+  requireValue(typeof selector === "string", "Specify a node selector.");
+  const match = /^(node|dependents):([a-z0-9][a-z0-9-]*)$/.exec(selector);
+  requireValue(match || ["eligible", "unpublished"].includes(selector),
+    "Invalid selector. Use node:<id>, dependents:<id>, eligible, or unpublished.");
+  const ordered = topological(graph);
+  const scope = new Set();
+  if (match) {
+    requireValue(ordered.some((n) => n.id === match[2]), `Unknown node: ${match[2]}`);
+    scope.add(match[2]);
+    if (match[1] === "dependents") {
+      for (const node of ordered) {
+        if (node.dependencies.some((id) => scope.has(id))) scope.add(node.id);
+      }
+    }
+  }
+  const nodes = [];
+  const excluded = [];
+  for (const node of ordered) {
+    const published = Boolean(node.pr || facts.prs?.[node.id] ||
+      (graph.repository?.provider?.kind === "local" && facts.remote?.[node.branch]));
+    const reason = node.retired ? "retired" : node.landing ? "landed" :
+      match ? scope.has(node.id) ? null : "outside selection" :
+        selector === "eligible" ? eligible(graph, node) ? null : "unlanded prerequisites" :
+          published ? "already published" : null;
+    if (reason) excluded.push({ id: node.id, reason });
+    else nodes.push(node.id);
+  }
+  return { selector, nodes, excluded };
+}
+
 const BEGIN = "<!-- pr-graph:begin -->";
 const END = "<!-- pr-graph:end -->";
 

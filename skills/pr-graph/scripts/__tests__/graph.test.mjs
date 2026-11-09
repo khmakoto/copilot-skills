@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { validateGraph, eligible, prerequisites, digest, updateFooter, footer, integrationFreshness } from "../lib/graph.mjs";
+import { validateGraph, eligible, prerequisites, digest, updateFooter, footer, integrationFreshness, selectNodes } from "../lib/graph.mjs";
 
 function graph() {
   const edges = { a: [], b: [], c: ["a", "b"], d: ["b"], e: [], f: ["c", "d", "e"] };
@@ -24,6 +24,53 @@ test("A-F review eligibility requires every prerequisite", () => {
   land("e");
   assert.deepEqual(ready(), ["f"]);
   assert.deepEqual(prerequisites(g, "f").map((n) => n.id), ["a", "b", "c", "d", "e"]);
+});
+
+test("selectors include roots and deduplicate descendants in stable dependency order", () => {
+  for (const { edges, expected } of [
+    { edges: { a: [], b: ["a"], c: ["b"] }, expected: ["a", "b", "c"] },
+    { edges: { a: [], b: ["a"], c: ["a"], d: ["b", "c"] }, expected: ["a", "b", "c", "d"] },
+    { edges: { a: [], b: [], c: ["a", "b"], d: ["b"], e: [], f: ["c", "d", "e"] },
+      expected: ["a", "c", "f"] },
+  ]) {
+    const g = graph();
+    g.nodes = Object.entries(edges).map(([id, dependencies]) =>
+      ({ ...g.nodes[0], id, dependencies, branch: `nodes/${id}` }));
+    const selected = selectNodes(g, "dependents:a");
+    assert.deepEqual(selected.nodes, expected);
+    g.nodes.reverse();
+    for (const node of g.nodes) node.dependencies.reverse();
+    assert.deepEqual(selectNodes(g, "dependents:a"), selected);
+    assert.deepEqual(selectNodes(g, "node:a").nodes, ["a"]);
+  }
+});
+
+test("selectors explain inactive, ineligible, published and outside-scope exclusions", () => {
+  const g = graph();
+  g.nodes[0].landing = { commit: "landed" };
+  g.nodes[1].pr = { id: 1 };
+  g.nodes[4].retired = true;
+  assert.deepEqual(selectNodes(g, "eligible").nodes, ["b"]);
+  assert.deepEqual(selectNodes(g, "unpublished").nodes, ["c", "d", "f"]);
+  assert.deepEqual(selectNodes(g, "node:a"), {
+    selector: "node:a", nodes: [], excluded: [
+      { id: "a", reason: "landed" }, { id: "b", reason: "outside selection" },
+      { id: "c", reason: "outside selection" }, { id: "d", reason: "outside selection" },
+      { id: "e", reason: "retired" }, { id: "f", reason: "outside selection" },
+    ],
+  });
+  assert.deepEqual(selectNodes(g, "dependents:a").nodes, ["c", "f"]);
+  assert.equal(selectNodes(g, "eligible").excluded.find((n) => n.id === "c").reason, "unlanded prerequisites");
+  assert.deepEqual(selectNodes(g, "unpublished", { prs: { c: { id: 2 } } }).nodes, ["d", "f"]);
+  g.repository = { provider: { kind: "local" } };
+  delete g.nodes[1].pr;
+  assert.deepEqual(selectNodes(g, "unpublished", { remote: { "nodes/c": "sha" } }).nodes, ["b", "d", "f"]);
+  for (const selector of ["node:missing", "dependents:missing"]) {
+    assert.throws(() => selectNodes(g, selector), /Unknown node/);
+  }
+  for (const selector of ["", "all", "node:a|node:b", "node:a;exit", "dependents:", null]) {
+    assert.throws(() => selectNodes(g, selector), /selector/);
+  }
 });
 
 test("rejects cycles, missing nodes, duplicate IDs and malformed footers", () => {
