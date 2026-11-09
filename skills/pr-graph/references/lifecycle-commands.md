@@ -10,6 +10,7 @@ node "<helper>" plan publish --repo "<repo>" --graph feature --out "<plan>"
 node "<helper>" plan publish --repo "<repo>" --graph feature --nodes model,consumer --out "<plan>"
 node "<helper>" plan sync --repo "<repo>" --graph feature --out "<plan>"
 node "<helper>" plan sync --repo "<repo>" --graph feature --local-only --out "<plan>"
+node "<helper>" plan sync --repo "<repo>" --graph feature --spec "<checks.json>" --out "<plan>"
 node "<helper>" plan retarget --repo "<repo>" --graph feature --spec "<target.json>" --out "<plan>"
 node "<helper>" plan ready --repo "<repo>" --graph feature --node model --out "<plan>"
 node "<helper>" plan merge --repo "<repo>" --graph feature --node model --strategy squash --out "<plan>"
@@ -39,6 +40,21 @@ PR identities and backup configuration; remote publication remains pending.
 The flag is pinned in the plan and survives continuation. It is accepted only
 for sync and does not relax freshness, leases, hooks, validation, or worktree
 ownership. Worktree reuse is supported as for ordinary sync.
+
+For recovered nodes without validation configuration, `plan sync --spec <json>`
+can approve checks without a separate shape operation. The spec contains only
+the graph `id` and a nonempty `validations` map from active, unlanded node IDs
+to nonempty executable-plus-argv arrays:
+
+```json
+{"id":"feature","validations":{"model":[{"command":"yarn","args":["test"]}]}}
+```
+
+Only named nodes' checks are replaced. Changed checks clear their validation and
+readiness receipts; all checks are pinned in the plan digest and run normally.
+This option cannot change dependencies, source ownership, or landed nodes,
+and does not permit omitting validation through an empty check list.
+It can be combined with `--local-only` to defer publication.
 
 `retarget` migrates a fully realized, unlanded graph to another integration
 branch. Its spec contains only `{"id":"feature","target":"main"}`. The new

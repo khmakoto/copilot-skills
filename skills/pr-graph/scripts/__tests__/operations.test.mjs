@@ -5,8 +5,9 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fixture, git, cli } from "./fixtures.mjs";
 import { tree, context } from "../lib/git.mjs";
-import { load, lock } from "../lib/state.mjs";
+import { load, lock, save } from "../lib/state.mjs";
 import { createPlan, applyPlan } from "../lib/operations.mjs";
+import { history, interdiff } from "../lib/history.mjs";
 
 test("local-only sync mode is pinned, CLI-supported, and rejected for other actions", (t) => {
   const f = fixture({ names: ["a"] });
@@ -58,6 +59,68 @@ test("CLI pins reconstruction trailers without changing PR titles or rereading t
     assert.equal(git(f.root, "show", "-s", "--format=%B", node.head),
       `${node.title}\n\n${trailers.join("\n")}`);
   }
+});
+
+test("sync pins explicit checks for recovered nodes and never rereads their spec", (t) => {
+  const f = fixture({ names: ["a"] });
+  t.after(() => f.dispose());
+  const graph = f.apply("split", { spec: f.spec }).graph;
+  graph.nodes[0].validations = [];
+  graph.nodes[0].validationReason = null;
+  graph.nodes[0].validation = null;
+  save(f.ctx, graph);
+  const checks = [{ command: process.execPath, args: ["-e", "process.exit(0)"] }];
+  const spec = path.join(f.dir, "checks.json");
+  const planFile = path.join(f.dir, "sync.json");
+  fs.writeFileSync(spec, JSON.stringify({ id: graph.id, validations: { a: checks } }));
+  const planned = cli(f.root, "plan", "sync", "--graph", graph.id, "--spec", spec, "--local-only", "--out", planFile);
+  assert.equal(planned.status, 0, planned.stderr);
+  const plan = JSON.parse(planned.stdout);
+  assert.deepEqual(plan.graph.nodes[0].validations, checks);
+  fs.writeFileSync(spec, JSON.stringify({ id: graph.id, validations: { a: [] } }));
+  const applied = cli(f.root, "apply", "--plan", planFile, "--yes", "--approve", plan.approval);
+  assert.equal(applied.status, 0, applied.stderr);
+  const node = JSON.parse(applied.stdout).graph.nodes[0];
+  assert.deepEqual(node.validations, checks);
+  assert.equal(node.validation.head, node.head);
+  const timeline = history(f.ctx, graph.id, "a");
+  assert.equal(timeline.baselines["last-validated"], timeline.current);
+  assert.equal(timeline.events.at(-1).changes.validation, true);
+  assert.equal(interdiff(f.ctx, graph.id, "a", "last-validated").comparison.status, "equal");
+});
+
+test("sync rejects invalid validation overrides and invalidates only changed check receipts", (t) => {
+  const f = fixture({ names: ["a", "b"] });
+  t.after(() => f.dispose());
+  const graph = f.apply("split", { spec: f.spec }).graph;
+  graph.nodes[0].ready = true;
+  save(f.ctx, graph);
+  const checks = [{ command: process.execPath, args: ["-e", "process.exit(0)"] }];
+  const plan = createPlan(f.ctx, "sync", {
+    graph: graph.id, spec: { id: graph.id, validations: { a: checks } },
+  });
+  assert.equal(plan.graph.nodes[0].validation, null);
+  assert.equal(plan.graph.nodes[0].ready, false);
+  assert.deepEqual(plan.graph.nodes[1].validations, graph.nodes[1].validations);
+  assert.deepEqual(plan.graph.nodes[1].validation, graph.nodes[1].validation);
+  assert.equal(plan.graph.nodes[1].validationReason, graph.nodes[1].validationReason);
+  for (const spec of [
+    { id: "other", validations: { a: checks } },
+    { id: graph.id, validations: {} },
+    { id: graph.id, validations: { a: [] } },
+    { id: graph.id, validations: { missing: checks } },
+    { id: graph.id, validations: { a: [{ command: "", args: [] }] } },
+    { id: graph.id, validations: { a: [{ command: "node", args: "unsafe" }] } },
+    { id: graph.id, validations: { a: [{ command: "node", args: [], shell: true }] } },
+    { id: graph.id, validations: { a: checks }, target: "other" },
+  ]) {
+    assert.throws(() => createPlan(f.ctx, "sync", { graph: graph.id, spec }));
+  }
+  graph.nodes[0].landing = { commit: graph.nodes[0].head, source: graph.nodes[0].head, target: graph.target };
+  save(f.ctx, graph);
+  assert.throws(() => createPlan(f.ctx, "sync", {
+    graph: graph.id, spec: { id: graph.id, validations: { a: checks } },
+  }), /active unlanded node/);
 });
 
 test("reconstruction trailer input rejects injected messages and unsupported actions", (t) => {

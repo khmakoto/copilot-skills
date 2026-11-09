@@ -7,7 +7,8 @@ const staged = (ctx) => git.git(ctx.root, [
 ]).stdout;
 
 function pending(ctx, operation) {
-  const running = state.journals(ctx).find((j) => j.status === "running" && j.id !== operation);
+  const running = state.journals(ctx, ({ id, status }) => ({ id, status }))
+    .find((j) => j.status === "running" && j.id !== operation);
   requireValue(!running, `Interrupted operation ${running?.id} must be recovered first.`);
 }
 

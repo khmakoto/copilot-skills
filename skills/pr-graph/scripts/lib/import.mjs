@@ -15,7 +15,8 @@ function snapshots(graph) {
 }
 
 function noPending(ctx, operation) {
-  const pending = state.journals(ctx).find((j) => j.status === "running" && j.id !== operation);
+  const pending = state.journals(ctx, ({ id, status }) => ({ id, status }))
+    .find((j) => j.status === "running" && j.id !== operation);
   requireValue(!pending, `Interrupted operation ${pending?.id} must be recovered first.`);
 }
 

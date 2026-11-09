@@ -230,6 +230,17 @@ separate approvals.
 
 ### Resuming or aborting an interrupted operation
 
+If a normal commit hook created a commit before the approved-tree check rejected
+its formatting, `plan resolve` can propose recording that existing commit.
+This requires the recorded hook-tree error, an empty conflict index, a clean
+owned worktree, exactly the pending parent, and the complete requested message.
+The new plan pins the full parent-to-result patch, HEAD, tree, and message.
+Review and approve that exact resolution separately; apply rechecks every pinned
+input without rewriting the commit, bypassing hooks, or accepting validation.
+Unrelated commits and changed HEADs block recovery. The original hook discrepancy
+still fails; `continue` never accepts it implicitly. Recovery remains recorded
+in the original operation's historical evidence.
+
 After the freshness preflight, run `status` first. If an interrupted operation
 prevents safe fast-forwarding, limit initial reads to its journal, refs, and
 worktree safety facts and resolve that blocker explicitly. A running journal
