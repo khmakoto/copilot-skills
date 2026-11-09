@@ -3,8 +3,7 @@
 This guide covers how each skill works and how to invoke it. The instructions
 and references under [`skills/`](../skills/) define each workflow. For an
 overview, see the [README](../README.md). Install complete skill directories
-as described in the
-[installation instructions](../README.md#installation).
+as described in the [installation instructions](../README.md#installation).
 
 Invoke any skill with the commands below. Agents can also select `brainstorm`,
 `pr-walkthrough`, or `pr-graph` when a request matches their description. The other
@@ -12,9 +11,9 @@ skills require explicit invocation.
 
 ## `brainstorm`
 
-The skill analyzes a local or remote repository and ranks possible improvements
-to the product, engineering, reliability, security, accessibility, delivery, and
-design.
+The skill analyzes a local or remote repository. It ranks possible improvements
+to the product, engineering practices, reliability, security, accessibility,
+delivery, and design.
 
 The skill presents one suggestion at a time for refinement or triage. It can
 prepare a GitHub issue or Azure DevOps work item after the user confirms the
@@ -27,8 +26,9 @@ exact payload.
 ## `ci-triage`
 
 The skill investigates failing GitHub or Azure DevOps PR checks, workflow or
-build runs, and local build or test commands. It records the tested revision, run
-attempt, job or matrix entry, and relevant configuration before tracing the failure.
+build runs, and local build or test commands. Before tracing the failure, it
+records the tested revision, run attempt, job or matrix entry, and relevant
+configuration.
 
 The skill classifies causes as change-related, pre-existing, test-fixture,
 infrastructure or environment, flaky, or undetermined. It gives evidence and a
@@ -37,8 +37,9 @@ retry alone does not prove that a failure is unrelated or flaky.
 
 The skill presents one root cause at a time for triage. Discovery is read-only.
 Local reproduction, fixes, and remote reruns each require separate approval.
-Diagnose-only mode makes no changes and runs no retries. Reports distinguish local
-validation from hosted results and queued reruns from completed checks.
+Diagnose-only mode makes no changes and runs no retries. Reports separate local
+validation from hosted results. They also distinguish queued reruns from
+completed checks.
 
 ```text
 /ci-triage <pull-request-url | run-url | failing-command> [diagnose-only] [scope or constraints]
@@ -72,9 +73,9 @@ validation evidence. It supports GitHub Enterprise Server and legacy Azure DevOp
 URLs through each provider's tools.
 
 The skill preserves references, attachments, managed graph footers and diagram
-blocks, and human-maintained content outside the requested scope. It distinguishes
-validation evidence for the current PR head from historical results and reports
-pending, failed, or unavailable checks.
+blocks, and human-maintained content outside the requested scope. It separates
+validation evidence for the current PR head from historical results. It also
+reports pending, failed, or unavailable checks.
 
 The user can edit the complete body and must approve its exact content before
 publication. The skill checks for intervening changes and reads back the saved
@@ -87,7 +88,7 @@ changes code, review threads, graph state, or other PR metadata.
 
 ## `pr-feedback`
 
-The skill validates incoming GitHub or Azure DevOps pull request feedback against
+The skill validates GitHub or Azure DevOps pull request feedback against
 the current code, classifies each concern, and presents review threads one at a
 time for interactive triage.
 
@@ -102,18 +103,18 @@ explicit approval.
 ## `pr-reviewer`
 
 The skill reviews a GitHub or Azure DevOps pull request or a local Git branch with a
-specialist code-review agent. It reports concrete defects, regressions,
-vulnerabilities, compatibility problems, and meaningful test gaps.
+specialist code-review agent. It reports defects, regressions, vulnerabilities,
+compatibility problems, and gaps in test coverage.
 
-The review covers every changed hunk and checks state and lifecycle behavior,
-test validity, and behavioral branch coverage. It also runs
-focused checks when relevant for UI interactions, wrappers and adapters, design
-systems, reactive state, service contracts, and package boundaries.
+The review covers every changed hunk. It checks state and lifecycle behavior,
+test validity, and behavioral branch coverage. It runs focused checks where
+relevant for UI interactions, wrappers and adapters, design systems, reactive
+state, service contracts, and package boundaries.
 
 The skill presents one finding at a time. Keeping a local finding does not change
 the worktree. Remote review comments can include suggestion blocks that the
-reviewer can apply. The skill lets the user edit each comment and requires
-confirmation of the exact text before posting.
+reviewer can apply. The user can edit each comment and must confirm its exact
+text before the skill posts it.
 
 ```text
 /pr-reviewer <pull-request-url | local-branch-name> [base branch or constraints]
@@ -153,15 +154,15 @@ unchanged. The skill reports their diagrams as historical snapshots.
 The read-only helper command `history --graph <id> --node <id>` shows retained
 versions, operation status, recovery receipts, what changed, and explicit
 split and fold lineage. Node identity stays the same when Git commit IDs change.
-Receipts record the before and after snapshots. These receipts and available
-commit pins stay in the local clone. The command reports legacy gaps, missing
+Receipts record the before and after snapshots. The local clone retains these
+receipts and pins available commits. The command reports legacy gaps, missing
 evidence, and import or restore boundaries without repairing them.
 
 The helper command `interdiff --graph <id> --node <id> --from <version|last-published|last-validated>`
 compares against `current` by default, or a version selected with `--to`.
 It separates authored-patch changes from changes to the base or prerequisites.
-It compares each version's realized base-to-head diff on a common base,
-including conflict-resolution changes. The `last-published` baseline requires
+It compares each version's realized base-to-head diff on a common base. This
+includes conflict-resolution changes. The `last-published` baseline requires
 verified readback, not an attempted write. The `last-validated` baseline can
 include a recorded reason for running no automated checks, which the output
 labels as such. Missing baselines produce errors rather than inferred history.
@@ -176,19 +177,27 @@ merge safety. See the
 
 ### Publication and local sync
 
-The helper command `plan publish --nodes <id,id>` limits publication to selected
-nodes and their required helper bases. It leaves unselected and landed PRs unchanged.
-Unpublished or out-of-date prerequisites must also be selected. Selective
+The helper command `plan publish --nodes <id,id>` publishes only selected nodes
+and their required helper bases. It leaves unselected and landed PRs unchanged.
+The selection must include unpublished or out-of-date prerequisites. Selective
 publication retains the existing integration snapshot and refuses reconstruction
 that would change unselected nodes. Sync separately when needed.
 
 The helper command `plan sync --local-only` reconstructs and validates local
 branches without pushes, PR updates, draft changes, hosted footer refreshes, or
-backup uploads.
-The helper preserves hosting identities and backup configuration. Publication
-remains pending. Approved plans record the publication selection and local-only
-mode, and continuation uses those settings. Neither option bypasses safety
-checks or marks nodes ready.
+backup uploads. The helper preserves hosting identities and backup configuration.
+Publication remains pending. Approved plans record the publication selection and
+local-only mode, and continuation uses those settings. Neither option bypasses
+safety checks or marks nodes ready.
+
+Use `plan sync --spec <json>` to configure validation for recovered nodes without
+a separate reshape. The spec contains only the graph `id` and a nonempty
+`validations` map. Each entry names an active, unlanded node and supplies a
+nonempty list of executable-plus-argv checks. Only named checks change. Changing
+checks clears the node's validation and readiness records. The approved plan
+pins the checks, and the helper runs them normally. Combine this option with
+`--local-only` to defer publication. The helper rejects empty check lists and
+changes to ownership or dependencies.
 
 Preflight checks the journal to distinguish pending publication after approved
 local reconstruction from unexplained divergence. It never pushes or repairs
@@ -211,9 +220,9 @@ Use `--auto` to authorize routine plans within the current task without repeated
 prompts. It also covers safe freshness fetches and fast-forwards, sync and
 revalidation after the grace period expires, and diagram updates.
 
-The skill may reuse an already-approved matching conflict resolution, including
-on its first reuse, without another prompt. It must verify the current inputs
-and context and review a fresh, exact recovery plan. New or unverifiable conflicts
+The skill may reuse an already-approved matching conflict resolution without
+another prompt, even on its first reuse. It must verify the current inputs and
+context, then review a fresh, exact recovery plan. New or unverifiable conflicts
 and other safety blockers require human approval before auto mode resumes.
 Merges, removal, deletion, cleanup, backup transfers, and restore still require
 confirmation. Helper plan digests and safety checks remain mandatory.
@@ -222,7 +231,7 @@ An unambiguous instruction such as "Split this branch using auto mode" enables
 the same behavior for the current task, even when the agent selects `pr-graph`
 automatically. Mentioning or asking about auto mode does not enable it.
 
-The helper reports live progress to stderr by default. It shows each node's
+The helper reports progress to stderr by default. It shows each node's
 phases, branch, PR identity, validation commands and results, and elapsed time.
 Results on stdout remain unchanged. Interactive terminals use colors and
 spinners. Redirected output uses plain lines. Quiet steps emit a heartbeat every
@@ -237,9 +246,9 @@ Per-node reports distinguish integration freshness, branch identity, and
 validation status. Integration branches named `main` or `master` allow a
 90-minute freshness grace for verified forward movement outside merging. This
 avoids repeated source rewrites during review. The clock starts immediately before
-the last successful fetch for the latest tip begins, not at fetch completion or
-plan application. Merge always requires the current integration tip. Other
-integration branch names have no grace.
+the latest successful fetch of the current tip begins. It does not start at fetch
+completion or plan application. Merge always requires the current integration
+tip. Other integration branch names have no grace.
 
 For GitHub, GitHub Enterprise Server, and Azure DevOps, exact server-side
 ancestry checks can verify remote-only integration and PR-target commits
@@ -255,6 +264,14 @@ pending operations before moving refs.
 
 ### Reconstruction and recovery
 
+If a commit hook creates a commit whose tree differs from the approved tree,
+use a separately approved `resolve` plan to record that commit. Recovery requires
+a clean owned worktree and the exact pending parent and full message. The plan
+pins the HEAD, tree, and complete parent-to-result patch. The `apply` command
+rechecks those inputs without rewriting the commit or bypassing hooks.
+Continuation never accepts the change implicitly. Recovery does not establish
+validation or readiness. Historical inspection retains the recovery evidence.
+
 Reconstruction plans accept `--commit-trailers-file <json>`. The helper records
 the required trailers in the approved payload and adds them to generated commit
 messages, including during conflict recovery. It does not change PR titles. The
@@ -262,12 +279,12 @@ option applies to one operation and changes neither Git configuration nor
 graph-wide policy.
 
 For `add`, `fold`, `sync`, `publish`, and `retarget`, helper plans accept
-`--reuse-worktree <operation-digest>`. This reuses a completed or aborted
-operation's clean detached worktree for the same graph and repository. Plans
-record its identity and HEAD. The helper rechecks both when applying the plan and
-records the ownership transfer in both journals. It preserves the path and
-ignored installed tooling. Earlier owners cannot recover or clean the transferred
-worktree.
+`--reuse-worktree <operation-digest>`. This option reuses a clean detached
+worktree from a completed or aborted operation for the same graph and repository.
+The plan records the worktree's identity and HEAD. The helper rechecks both before
+applying the plan. It records the ownership transfer in both journals and
+preserves the path and ignored installed tooling. Earlier owners cannot recover
+or clean the transferred worktree.
 
 The helper can also transfer verified, pinned reconstruction receipts from
 compatible journals. It reuses committed results only when the parent, patch,
@@ -275,8 +292,8 @@ full message, and execution fingerprint match exactly. Reuse avoids repeated
 patch applications and commit hooks. Changed or unknown inputs require
 reconstruction. The helper still checks validation, full-tree composition, and
 freshness. Legacy journals export no unverified cache entries. Inspection reports
-patch application and inherited-cache-use counts. Reuse does not renew the fetch
-clock.
+how many patches the helper applied and how many cached results it reused from
+another journal. Reuse does not renew the fetch clock.
 
 Whole-graph retargeting reconstructs unlanded work on another integration branch
 without changing which node owns each change or replacing existing PRs. Batch
@@ -289,7 +306,7 @@ checkouts from interrupted older operations untouched.
 The `adopt` recovery requires separate approval. It imports verified externally
 rewritten PRs and landings into local graph state without publishing or claiming
 validation. An adoption spec with `"selective": true` can name only the externally
-updated nodes while retaining the integration snapshot, helper namespace, and
+updated nodes. It retains the integration snapshot, helper namespace, and
 unselected unpublished work. Unselected hosted heads and targets must still match
 recorded identities. The helper clears validation and readiness for selected
 nodes and active descendants. Adoption does not reconstruct or publish them.
@@ -298,18 +315,18 @@ nodes and active descendants. Adoption does not reconstruct or publish them.
 occupied graph node. It uses normal hooks and signing. Both `adopt` and
 `checkpoint` require human approval even in auto mode.
 
-The `import-graph --source-repo <path>` recovery requires separate approval. It
-recovers changed node ownership or dependencies from another verified local clone
-when `adopt` cannot represent the new DAG shape. The plan records both manifests
-and live hosted identities. The helper preserves prior snapshots and the
-destination's remote and backup settings. It atomically updates only approved,
-unoccupied local branches. It never pushes, edits PRs, changes integration
-branches or worktrees, uploads backups, or executes imported commands.
-It clears imported validation commands and results, readiness,
-freshness timestamps, and composition evidence. Configure validation before
-subsequent source-changing operations. It requires human approval even in auto
-mode. Resume interrupted imports with `continue` and the original operation and
-digest.
+The `import-graph --source-repo <path>` recovery requires separate human approval,
+even in auto mode. It recovers changed node ownership or dependencies from
+another verified local clone when `adopt` cannot represent the new DAG shape.
+The plan records both manifests and live hosted identities. The helper preserves
+prior snapshots and the destination's remote and backup settings. It atomically
+updates only approved, unoccupied local branches. It never pushes, edits PRs,
+changes integration branches or worktrees, uploads backups, or executes imported
+commands.
+It clears imported validation commands and results, readiness, freshness
+timestamps, and composition evidence. Configure validation before subsequent
+source-changing operations. Resume interrupted imports with `continue` and the
+original operation and digest.
 
 `remove-retired --node <id>` removes only retired unpublished node metadata and
 historical `supersedes`/`replacedBy` references to it. It refuses nodes with a PR,
@@ -323,7 +340,7 @@ write.
 ### PR diagrams and requirements
 
 Each PR description ends with a rendered Mermaid DAG image that highlights that
-PR's node. Diagrams use compact node cards, a small visual key, and a concise
+PR's node. Diagrams use compact node cards, a small visual key, and a short
 snapshot summary. Put freshness information in the summary, not in node cards or
 their styling.
 
@@ -375,10 +392,10 @@ workflow defects involving triggers, inputs, tools, authorization, evidence,
 failure handling, interaction, and completion criteria.
 
 The skill presents one finding at a time and applies a repair only after the user
-approves the specific change.
+approves that change.
 
-The skill returns to deferred findings after the other unreviewed findings.
-If the user defers the only remaining finding again, triage ends and that finding
+After reviewing the other findings, the skill returns to deferred findings.
+If the user defers the only remaining finding again, triage ends. That finding
 stays deferred.
 
 ```text

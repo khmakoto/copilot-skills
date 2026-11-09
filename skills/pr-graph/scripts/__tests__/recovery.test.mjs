@@ -7,6 +7,7 @@ import { fixture, git } from "./fixtures.mjs";
 import { context, tree, refId } from "../lib/git.mjs";
 import { createPlan, applyPlan, inspect } from "../lib/operations.mjs";
 import { load, graphFile, journalFile, readJson } from "../lib/state.mjs";
+import { history, interdiff } from "../lib/history.mjs";
 
 test("remote snapshot restores full DAG and committed no-PR changes in another clone", (t) => {
   const f = fixture({ remote: true });
@@ -148,6 +149,60 @@ test("hook rewrites are errors rather than success-shaped source changes", (t) =
   assert.throws(() => f.apply("split", { spec: f.spec }), /hooks changed the approved tree/);
   assert.equal(refId(f.root, "refs/heads/pr-graph/example/nodes/a"), null);
   assert.equal(git(f.root, "rev-parse", "HEAD"), f.head);
+});
+
+test("a rejected hook-created commit needs an exact resolution plan before recording", (t) => {
+  const f = fixture({ names: ["a"] });
+  t.after(() => f.dispose());
+  f.spec.source = undefined;
+  fs.writeFileSync(path.join(f.root, ".git", "hooks", "pre-commit"),
+    "#!/bin/sh\ngrep -q '^hook rewrite$' shared.txt || printf '\\nhook rewrite\\n' >> shared.txt\ngit add shared.txt\n",
+    { mode: 0o755 });
+  const commitTrailers = ["Copilot-Session: hook-recovery-fixture"];
+  const original = createPlan(f.ctx, "init", { spec: f.spec, commitTrailers });
+  assert.throws(() => applyPlan(f.ctx, original, original.approval, true), /hooks changed the approved tree/);
+  const pending = inspect(f.ctx, "example").operations[0];
+  const head = git(pending.worktree, "rev-parse", "HEAD");
+  const resolution = createPlan(f.ctx, "resolve", { operation: original.approval });
+  assert.equal(resolution.existingCommit.head, head);
+  assert.ok(resolution.existingCommit.message.endsWith(commitTrailers[0]));
+  assert.ok(resolution.patch.includes("+hook rewrite"));
+  assert.deepEqual(resolution.effects[0], { recordExistingCommit: resolution.existingCommit });
+  assert.ok(readJson(journalFile(f.ctx, original.approval)).pendingChange);
+  assert.throws(() => applyPlan(f.ctx, resolution, "unapproved", true), /approval/i);
+  applyPlan(f.ctx, resolution, resolution.approval, true);
+  const recorded = readJson(journalFile(f.ctx, original.approval));
+  assert.equal(recorded.pendingChange, null);
+  assert.equal(recorded.resolutionReceipts[0].head, head);
+  assert.equal(recorded.resolutionReceipts[0].beforeTree, tree(f.root, resolution.existingCommit.before));
+  assert.equal(git(pending.worktree, "rev-parse", "HEAD"), head);
+  const recovered = history(f.ctx, "example", "a").events.find((event) => event.operation === original.approval);
+  assert.deepEqual(recovered.recoveries.map((receipt) => receipt.action), ["resolve"]);
+  const done = applyPlan(f.ctx, original, original.approval, true);
+  assert.equal(done.graph.nodes[0].head, head);
+  assert.ok(git(f.root, "show", `${done.graph.combined}:shared.txt`).includes("hook rewrite"));
+  assert.equal(interdiff(f.ctx, "example", "a", "last-validated").comparison.status, "equal");
+});
+
+test("hook-created resolution refuses an unrelated commit and changed approved HEAD", (t) => {
+  const f = fixture({ names: ["a"] });
+  t.after(() => f.dispose());
+  f.spec.source = undefined;
+  fs.writeFileSync(path.join(f.root, ".git", "hooks", "pre-commit"),
+    "#!/bin/sh\ngrep -q '^hook rewrite$' shared.txt || printf '\\nhook rewrite\\n' >> shared.txt\ngit add shared.txt\n",
+    { mode: 0o755 });
+  const original = createPlan(f.ctx, "init", { spec: f.spec });
+  assert.throws(() => applyPlan(f.ctx, original, original.approval, true), /hooks changed the approved tree/);
+  const pending = inspect(f.ctx, "example").operations[0];
+  const resolution = createPlan(f.ctx, "resolve", { operation: original.approval });
+  fs.writeFileSync(path.join(pending.worktree, "untracked.txt"), "preserve this work\n");
+  assert.throws(() => applyPlan(f.ctx, resolution, resolution.approval, true), /not clean/);
+  fs.unlinkSync(path.join(pending.worktree, "untracked.txt"));
+  git(pending.worktree, "commit", "--allow-empty", "-qm", "Unrelated work");
+  assert.throws(() => createPlan(f.ctx, "resolve", { operation: original.approval }), /parent differs/);
+  assert.throws(() => applyPlan(f.ctx, resolution, resolution.approval, true), /parent differs/);
+  assert.ok(readJson(journalFile(f.ctx, original.approval)).pendingChange);
+  assert.equal(refId(f.root, "refs/heads/pr-graph/example/nodes/a"), null);
 });
 
 test("partial publication can retain verified pushes and replan permitted helper names without changing node heads", (t) => {

@@ -100,8 +100,9 @@ export function journalFile(ctx, id) {
   return path.join(ctx.dir, "operations", `${id}.json`);
 }
 
-export function journals(ctx) {
+export function journals(ctx, project = (journal) => journal) {
   const dir = path.join(ctx.dir, "operations");
   if (!fs.existsSync(dir)) return [];
-  return fs.readdirSync(dir).filter((n) => n.endsWith(".json")).map((n) => readJson(path.join(dir, n)));
+  return fs.readdirSync(dir).filter((n) => n.endsWith(".json"))
+    .map((n) => project(readJson(path.join(dir, n))));
 }

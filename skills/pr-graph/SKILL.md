@@ -495,6 +495,10 @@ product PR into a helper base or create a product PR for a helper branch.
 Use explicit `sync` when target freshness requires it or nodes land. It reconstructs
 affected work, verifies clean diffs, retargets newly eligible nodes, and reports
 eligibility. It does **not** promote drafts or merge anything.
+To configure checks for recovered nodes during sync, use an id/validations-only
+`--spec` mapping active, unlanded node IDs to nonempty executable-plus-argv checks.
+Only named checks change; changed checks invalidate validation/readiness and are
+pinned in the approved plan. See [lifecycle commands](references/lifecycle-commands.md).
 When publication is not authorized, use an approved `sync --local-only` plan.
 It reconstructs and validates local branches without pushes, PR updates,
 draft changes, hosted footer refreshes, or backup uploads. Hosting identities
@@ -593,6 +597,10 @@ installation does not establish that the original plan is still current.
   matching resolution only with the documented evidence checks in auto mode;
   otherwise propose and obtain approval of a new semantic fix. Stage only that
   fix there and approve the exact current `resolve` plan before resuming.
+- If a hook created a commit with a rejected tree change, inspect its exact
+  parent-to-result patch and obtain separate approval of a `resolve` plan
+  recording that existing commit. Require the clean owned worktree and exact
+  parent, HEAD, tree, and full message; never accept it through `continue` alone.
 - On an ambiguous remote failure, inspect server state and approve a
   `reconcile` plan. Never blindly retry PR creation or pretend remote effects
   were rolled back.

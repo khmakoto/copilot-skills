@@ -351,6 +351,24 @@ function recordReconstruction(cwd, journal, sha) {
   };
 }
 
+function existingResolutionCommit(cwd, journal) {
+  const pending = journal.pendingChange;
+  requireValue(journal.error?.includes("Commit hooks changed the approved tree") &&
+    pending?.recipe && pending.conflictInputs === "",
+  "No rejected hook-created commit to record.");
+  requireValue(!git.out(cwd, ["status", "--porcelain", "--untracked-files=all"]),
+    "Hook-created resolution worktree is not clean.");
+  const head = git.commitId(cwd, "HEAD");
+  requireValue(head !== pending.before &&
+    git.out(cwd, ["show", "-s", "--format=%P", head]) === pending.before &&
+    pending.recipe.before === pending.before,
+  "Hook-created resolution parent differs from the pending recipe.");
+  const message = git.out(cwd, ["show", "-s", "--format=%B", head]);
+  requireValue(message === pending.recipe.message && message === pending.title,
+    "Hook-created resolution message differs from the pending recipe.");
+  return { head, before: pending.before, tree: git.tree(cwd, head), message };
+}
+
 function requireWorktreeOwner(ctx, journal) {
   requireValue(!journal.worktreeReusedBy,
     `Operation worktree was transferred to ${journal.worktreeReusedBy}; recover or clean its latest owner instead.`);
@@ -539,6 +557,29 @@ export function createPlan(ctx, action, options = {}) {
   } else {
     requireValue(previous, "Select an existing graph with --graph.");
     graph = structuredClone(previous);
+  }
+  if (action === "sync" && options.spec !== undefined) {
+    const spec = options.spec;
+    requireValue(spec?.id === graph.id && Object.keys(spec).every((key) =>
+      ["id", "validations"].includes(key)) && spec.validations &&
+      typeof spec.validations === "object" && !Array.isArray(spec.validations) &&
+      Object.keys(spec.validations).length > 0,
+    "Sync validation spec requires only this graph's id and a nonempty validations map.");
+    for (const [id, checks] of Object.entries(spec.validations)) {
+      const node = nodeById(graph, id);
+      requireValue(!node.landing && !node.retired, `Sync validation requires an active unlanded node: ${id}`);
+      requireValue(Array.isArray(checks) && checks.length > 0 && checks.every((check) =>
+        check && Object.keys(check).every((key) => ["command", "args"].includes(key)) &&
+        typeof check.command === "string" && check.command.trim() &&
+        Array.isArray(check.args) && check.args.every((arg) => typeof arg === "string")),
+      `Sync validation requires nonempty executable-plus-argv checks: ${id}`);
+      if (digest(node.validations) !== digest(checks)) {
+        node.validation = null;
+        node.ready = false;
+      }
+      node.validations = structuredClone(checks);
+      node.validationReason = null;
+    }
   }
   const provider = getProvider(ctx, graph);
   const facts = observe(ctx, graph, provider);
@@ -1272,7 +1313,8 @@ export function applyPlan(ctx, plan, approval, yes) {
         freshness: freshnessReport(ctx, graph, observe(ctx, graph, getProvider(ctx, graph))) };
     }
     requireValue(!journal || !["aborted", "superseded"].includes(journal.status), "Operation was aborted or superseded.");
-    const other = state.journals(ctx).filter((j) => j.id !== plan.approval && j.status === "running");
+    const other = state.journals(ctx, ({ id, status }) => ({ id, status }))
+      .filter((j) => j.id !== plan.approval && j.status === "running");
     requireValue(!other.length, `Interrupted operation ${other[0]?.id} must be continued or explicitly aborted first.`);
     journal ??= {
       id: plan.approval, plan, status: "running", local: {}, remote: {}, prs: {},
@@ -1533,12 +1575,19 @@ function recoveryPlan(ctx, action, options) {
     requireValue(!git.out(cwd, ["diff", "--name-only", "--diff-filter=U"]), "Unmerged index entries remain.");
     requireValue(git.git(cwd, ["diff", "--quiet"], undefined, true).status === 0, "Stage the approved resolution; unstaged changes remain.");
     requireValue(!git.out(cwd, ["ls-files", "--others", "--exclude-standard"]), "Untracked operation files require explicit handling.");
-    const patch = git.git(cwd, ["diff", "--cached", "--binary", "--full-index"]).stdout;
+    let patch = git.git(cwd, ["diff", "--cached", "--binary", "--full-index"]).stdout;
+    const existingCommit = patch.trim() ? null : existingResolutionCommit(cwd, journal);
+    if (existingCommit) {
+      patch = git.git(cwd, ["diff", "--binary", "--full-index",
+        existingCommit.before, existingCommit.head]).stdout;
+    }
     requireValue(patch.trim(), "No staged resolution.");
     return seal({ version: VERSION, action, repository: ctx.root, common: ctx.common,
       operation: journal.id, journalDigest: digest(journal),
       head: git.commitId(cwd, "HEAD"), patch,
-      effects: [{ commitResolution: patch }, "Record the approved resolution; then resume the original approved operation."] });
+      ...(existingCommit ? { existingCommit } : {}),
+      effects: [existingCommit ? { recordExistingCommit: existingCommit } : { commitResolution: patch },
+        "Record the approved resolution; then resume the original approved operation."] });
   }
   if (action === "abort") {
     requireValue(journal.status === "running", "Operation is not running.");
@@ -1691,18 +1740,27 @@ function applyRecovery(ctx, plan) {
   }
   if (plan.action === "resolve") {
     requireWorktreeOwner(ctx, journal);
-    requireValue(git.commitId(cwd, "HEAD") === plan.head &&
-      git.git(cwd, ["diff", "--cached", "--binary", "--full-index"]).stdout === plan.patch,
-    "Resolution changed after approval.");
-    const sha = git.commitStaged(cwd, journal.pendingChange.title);
+    let sha;
+    if (plan.existingCommit) {
+      const actual = existingResolutionCommit(cwd, journal);
+      requireValue(actual.head === plan.head && digest(actual) === digest(plan.existingCommit) &&
+        git.git(cwd, ["diff", "--binary", "--full-index", actual.before, actual.head]).stdout === plan.patch,
+      "Resolution changed after approval.");
+      sha = actual.head;
+    } else {
+      requireValue(git.commitId(cwd, "HEAD") === plan.head &&
+        git.git(cwd, ["diff", "--cached", "--binary", "--full-index"]).stdout === plan.patch,
+      "Resolution changed after approval.");
+      sha = git.commitStaged(cwd, journal.pendingChange.title);
+    }
     git.pin(ctx.root, journal.id, `commits/${journal.pendingChange.key}`, sha);
     journal.commits[journal.pendingChange.key] = sha;
     recordReconstruction(cwd, journal, sha);
-    if (journal.pendingChange.conflictInputs) {
+    if (journal.pendingChange.conflictInputs || plan.existingCommit) {
       journal.resolutionReceipts ??= [];
       journal.resolutionReceipts.push({
         plan, conflictInputs: journal.pendingChange.conflictInputs,
-        beforeTree: git.tree(cwd, plan.head), head: sha, tree: git.tree(cwd, sha),
+        beforeTree: git.tree(cwd, plan.existingCommit?.before ?? plan.head), head: sha, tree: git.tree(cwd, sha),
       });
     }
     journal.pendingChange = null;
@@ -1778,7 +1836,7 @@ export function inspect(ctx, id) {
     graph,
     freshness: graph ? freshnessReport(ctx, graph, observe(ctx, graph, getProvider(ctx, graph))) : {},
     eligible: graph?.nodes.filter((n) => eligible(graph, n)).map((n) => n.id) ?? [],
-    operations: state.journals(ctx).filter((j) => j.plan.graph?.id === id).map((j) => ({
+    operations: state.journals(ctx, (j) => j.plan.graph?.id === id ? ({
       id: j.id, status: j.status, error: j.error, pending: j.pendingChange,
       worktree: worktreePath(ctx, j),
       ...(j.reconstruction ? { reconstruction: j.reconstruction } : {}),
@@ -1788,7 +1846,7 @@ export function inspect(ctx, id) {
         freshness: freshnessReport(ctx, j.candidate ?? j.plan.graph,
           observe(ctx, j.candidate ?? j.plan.graph, getProvider(ctx, j.candidate ?? j.plan.graph))),
       } : {}),
-    })),
+    }) : null).filter(Boolean),
     uncommitted: Boolean(git.out(ctx.root, ["status", "--porcelain", "--untracked-files=all"])),
     backup: graph?.backup ?? null,
   };
