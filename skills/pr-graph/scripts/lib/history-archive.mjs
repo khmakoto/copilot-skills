@@ -119,9 +119,9 @@ function closure(run, roots, sha) {
 function outside(ctx, file) {
   requireValue(typeof file === "string" && file, "History transfer requires --archive <file>.");
   const resolved = path.resolve(file);
-  const parent = fs.realpathSync(path.dirname(resolved));
+  const parent = fs.realpathSync.native(path.dirname(resolved));
   const target = path.join(parent, path.basename(resolved));
-  const relative = path.relative(fs.realpathSync(ctx.root), target);
+  const relative = path.relative(fs.realpathSync.native(ctx.root), target);
   requireValue(relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative),
     "Keep history archives outside the product working tree.");
   const stat = fs.lstatSync(target, { throwIfNoEntry: false });

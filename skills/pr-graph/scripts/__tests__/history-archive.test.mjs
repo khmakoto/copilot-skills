@@ -365,6 +365,24 @@ test("history transfers pin the approved payload and reject changed evidence, un
   assert.deepEqual(historyArchives(destination, "example"), []);
 });
 
+test("history transfers reject worktree destinations across Windows path aliases", {
+  skip: process.platform !== "win32",
+}, (t) => {
+  const f = fixture({ names: ["a"] });
+  t.after(() => f.dispose());
+  const canonicalRoot = fs.realpathSync.native(f.root);
+  const roots = [f.root, canonicalRoot, path.toNamespacedPath(canonicalRoot)];
+  for (const root of roots) {
+    for (const destination of roots) {
+      for (const action of ["export-history", "import-history"]) {
+        assert.throws(() => createPlan({ ...f.ctx, root }, action, {
+          graph: "example", archive: path.join(destination, "unsafe.json"),
+        }), /outside/);
+      }
+    }
+  }
+});
+
 test("SHA-256 archives round-trip only into repositories with the matching object format", (t) => {
   const f = fixture({ names: ["a"], objectFormat: "sha256" });
   t.after(() => f.dispose());
