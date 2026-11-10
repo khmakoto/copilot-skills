@@ -12,6 +12,8 @@ Read the relevant action reference before preparing a plan:
   readiness, merging, descriptions, and landing receipts.
 - [Backup and recovery commands](recovery-commands.md): checkpoint, adoption, local graph import,
   backup/restore, interrupted operations, and cleanup.
+- [Portable history archives](history-archives.md): separately approved offline
+  evidence export/import, provenance, completeness and retention.
 
 ```text
 node "<helper>" help
@@ -132,6 +134,15 @@ missing base/head snapshots or other unavailable local objects. Result tree IDs
 identify scratch results, not retained versions; only history version IDs are selectors.
 An empty interdiff or matching fingerprint is not proof of semantic equivalence,
 current validation, dependency eligibility, readiness, or merge safety.
+
+For offline inspection in another clone, use separately approved
+`plan export-history|import-history --graph <id> --archive <file>` and normal
+`apply --yes --approve <digest>`. `history-archives --graph <id>` lists imported
+archives. `history` and `interdiff` accept `--archive <archive-digest>` to select
+one imported timeline explicitly; local baselines remain unchanged.
+Imported `current` is unavailable: use a retained ID with `--to`.
+Read the [archive contract](history-archives.md) before transfer, including
+sensitive-source preview, incomplete evidence, origin trust, and deletion limits.
 
 ### Live progress
 

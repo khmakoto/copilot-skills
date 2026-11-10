@@ -2,7 +2,7 @@
 name: pr-graph
 description: Split a large Git branch into small, independently reviewable changes and manage their multi-parent dependency graph. Create clean blocked draft PRs, add or reshape nodes, sync after prerequisites land, and explicitly ready or merge eligible changes. Supports local Git, GitHub, GitHub Enterprise Server, and Azure DevOps. Use when the user invokes /pr-graph or asks to split work into dependent PRs, manage a PR tree or DAG, or land independent parts of a change.
 compatibility: Requires Node.js 22+ and Git 2.31+. Hosted workflows require authenticated gh or az. Scripts are portable across Linux, macOS, and Windows; no package installation or build step.
-argument-hint: "[--auto] [split | view | select | history | interdiff | add | sync | ready | merge | reshape | backup | restore] [repository, graph, or constraints]"
+argument-hint: "[--auto] [split | view | select | history | interdiff | export-history | import-history | add | sync | ready | merge | reshape | backup | restore] [repository, graph, or constraints]"
 ---
 
 # Pull Request Graph
@@ -133,7 +133,8 @@ renew an old observation or bypass the helper's execution-time freshness gate.
 
 **Always ask for concrete approval** before merging, removal/deletion/cleanup
 (including `remove`, `remove-retired`, and closing retired PRs), backup uploads,
-backup downloads, restore, `adopt`, `import-graph`, or `checkpoint`. Inspect all plan effects: a routine lifecycle
+backup downloads, restore, `adopt`, `import-graph`, `checkpoint`, `export-history`,
+or `import-history`. Inspect all plan effects: a routine lifecycle
 plan that also uploads an enabled backup needs human approval too. Auto mode never silently disables
 backup to avoid that prompt. Actions not listed as routine above also require
 human approval.
@@ -194,6 +195,13 @@ step every two minutes when the execution environment permits; do not claim
 live updates if the tool buffers output or blocks the agent.
 
 ## 0. Mandatory branch freshness preflight
+
+Narrow offline exception: evidence-only `export-history`, `import-history`,
+`history-archives`, and `history`/`interdiff` with an explicit imported `--archive`
+do not require live freshness/provider checks. Read
+[portable history](references/history-archives.md), inspect local safety/lock
+state, and preserve all current execution state. This exception never permits
+ordinary graph execution or makes historical observations current.
 
 Before **any graph or change inspection or mutation**, explicitly establish
 each node's branch, integration-snapshot, and validation freshness. This includes `analyze`,
@@ -369,6 +377,18 @@ receipts, and missing evidence. A recorded no-check rationale is not a test run.
 Inspection performs no hosting writes, validation, repair, or freshness renewal;
 the normal preflight still applies. An equal comparison never establishes
 semantic equivalence, current validation, readiness, or merge safety.
+
+To transfer history across clones, read
+[portable history archives](references/history-archives.md). Prepare
+`plan export-history` or `plan import-history` with an explicit external
+`--archive <file>` and require separate human approval of the complete payload
+and destination, even in auto mode. Preview discarded source, old descriptions,
+origin and completeness; warn about sensitive material and retention cost.
+Never transfer raw executable journals or silently attach history to a push,
+backup, restore or `import-graph`. Imported evidence stays separate:
+list it with `history-archives`, select `--archive <digest>` for inspection,
+report its origin and gaps, and choose explicit version IDs for `--to`.
+Imported `current` is unavailable and imported validation commands never run.
 
 ## 2. Analyze and design the DAG
 

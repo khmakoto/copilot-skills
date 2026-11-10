@@ -5,6 +5,12 @@ and plan/approve/apply requirements before using these commands.
 
 ## Backup and recovery actions
 
+Portable node history is a separate, evidence-only transfer:
+`plan export-history|import-history --graph <id> --archive <file>`.
+Read the [archive contract](history-archives.md) and approve each exact payload
+separately. Backup/restore and `import-graph` do not silently transfer originating
+clone history, and importing an archive does not authorize or resume recovery.
+
 ### Importing a newer DAG from another local clone
 
 ```text

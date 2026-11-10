@@ -4,10 +4,10 @@ import os from "node:os";
 import path from "node:path";
 import { requireValue } from "./graph.mjs";
 
-export function run(command, args, cwd, input, env = {}) {
+export function run(command, args, cwd, input, env = {}, encoding = "utf8") {
   requireValue(typeof command === "string" && Array.isArray(args), "Invalid command.");
   const result = spawnSync(command, args, {
-    cwd, input, encoding: "utf8", maxBuffer: 128 * 1024 * 1024,
+    cwd, input, encoding, maxBuffer: 128 * 1024 * 1024,
     shell: false, windowsHide: true,
     env: {
       ...process.env, ...env, GIT_TERMINAL_PROMPT: "0", GIT_PAGER: "cat",
@@ -28,7 +28,7 @@ export function git(cwd, args, input, allowFailure = false) {
 
 export const out = (cwd, args, input) => git(cwd, args, input).stdout.trim();
 
-export function withObjectView(ctx, fn) {
+export function withObjectView(ctx, fn, { isolated = false } = {}) {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), "pr-graph-objects-"));
   try {
     const repository = path.join(temp, "repo.git");
@@ -38,7 +38,7 @@ export function withObjectView(ctx, fn) {
       GIT_DIR: repository, GIT_WORK_TREE: undefined,
       GIT_COMMON_DIR: undefined, GIT_NAMESPACE: undefined, GIT_SHALLOW_FILE: undefined,
       GIT_INDEX_FILE: path.join(temp, "index"), GIT_OBJECT_DIRECTORY: undefined,
-      GIT_ALTERNATE_OBJECT_DIRECTORIES: JSON.stringify(out(ctx.root,
+      GIT_ALTERNATE_OBJECT_DIRECTORIES: isolated ? undefined : JSON.stringify(out(ctx.root,
         ["rev-parse", "--path-format=absolute", "--git-path", "objects"])),
       GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: config, GIT_CONFIG_COUNT: "0",
       GIT_CONFIG_PARAMETERS: undefined, GIT_CONFIG: undefined, GIT_ATTR_NOSYSTEM: "1",
@@ -49,7 +49,7 @@ export function withObjectView(ctx, fn) {
     requireValue(initialized.status === 0, initialized.stderr);
     // No remotes or source configuration: missing promisor objects cannot trigger
     // network access even on Git versions without GIT_NO_LAZY_FETCH support.
-    return fn((args, input) => run("git", args, temp, input, env));
+    return fn((args, input, encoding) => run("git", args, temp, input, env, encoding));
   } finally {
     fs.rmSync(temp, { recursive: true, force: true });
   }

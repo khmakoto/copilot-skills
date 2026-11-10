@@ -30,7 +30,7 @@ explicit invocation.
 | [`pr-feedback`](docs/skills.md#pr-feedback)           | Validate PR feedback and implement each approved fix. Remote actions need separate approval.                                              |
 | [`pr-reviewer`](docs/skills.md#pr-reviewer)           | Review PRs or local branches for defects. Confirm each remote comment before posting.                                                     |
 | [`pr-walkthrough`](docs/skills.md#pr-walkthrough)     | Build a read-only, dependency-ordered route for human review.                                                                             |
-| [`pr-graph`](docs/skills.md#pr-graph)                 | Manage a PR dependency graph in local Git, GitHub, GitHub Enterprise Server, or Azure DevOps.                                             |
+| [`pr-graph`](docs/skills.md#pr-graph)                 | Manage a PR dependency graph across Git providers, with separately approved portable historical evidence.                               |
 | [`session-distill`](docs/skills.md#session-distill)   | Use session evidence to propose workflow improvements without saving changes automatically.                                               |
 | [`skill-doctor`](docs/skills.md#skill-doctor)         | Audit skill definitions and apply only approved repairs.                                                                                  |
 | [`unslop`](docs/skills.md#unslop)                     | Edit writing with Cursor's upstream unslop rules. Fetch the rules on each explicit invocation.                                            |

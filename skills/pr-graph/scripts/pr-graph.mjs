@@ -9,6 +9,7 @@ import { requireValue, render, validateGraph } from "./lib/graph.mjs";
 import { createPlan, applyPlan, inspect, previewSelection } from "./lib/operations.mjs";
 import { ProgressReporter, setProgressSink, step } from "./lib/progress.mjs";
 import { history, interdiff, renderHistory, renderInterdiff } from "./lib/history.mjs";
+import { historyArchives } from "./lib/history-archive.mjs";
 
 const HELP = `pr-graph (Node.js 22+, Git 2.31+)
 
@@ -17,6 +18,8 @@ Read-only:
   status|view|check|doctor --graph <id>
   select --graph <id> --select <selector>
   history --graph <id> --node <id> [--format json|text]
+  history-archives --graph <id>
+  history|interdiff ... --archive <imported-archive-digest>  Explicit imported evidence only
   interdiff --graph <id> --node <id> --from <version|last-published|last-validated|current>
             [--to <version|current>] [--format json|text]
 
@@ -25,7 +28,9 @@ Prepare a concrete mutation plan:
   Actions: init, split, add, deps, split-node, fold, remove,
            publish, sync, retarget, ready, merge, describe, backup,
            fetch-backup, restore, resolve, reconcile, abort, cleanup, unlock,
-           record-landing, adopt, checkpoint, remove-retired, import-graph
+           record-landing, adopt, checkpoint, remove-retired, import-graph,
+           export-history, import-history
+  export-history|import-history --archive <file>  Separately approved evidence-only local transfer
   import-graph --source-repo <path>  Recover changed DAG shape from another verified local clone
   adopt --spec <json>         Local-only adoption of verified external PR rewrites
   checkpoint --spec <json>    Preserve staged source on a new local branch and release its occupied graph branch
@@ -66,7 +71,7 @@ function args(argv) {
   const known = new Set(["repo", "graph", "spec", "out", "node", "strategy", "remote",
     "backup-ref", "backup-branch", "operation", "body-file", "plan", "approve", "base", "head", "landing",
     "fetch-observation", "commit-trailers-file", "reuse-worktree", "nodes", "source-repo",
-    "from", "to", "format", "select"]);
+    "from", "to", "format", "select", "archive"]);
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (!a.startsWith("--")) { positional.push(a); continue; }
@@ -92,6 +97,9 @@ export function main(argv) {
 
 function execute(flags, command, action) {
   const historical = ["history", "interdiff"].includes(command);
+  requireValue(flags.archive === undefined || historical ||
+    (command === "plan" && ["export-history", "import-history"].includes(action)),
+  "Use --archive only with history/interdiff or plan export-history/import-history.");
   requireValue(flags.format === undefined || (historical && ["json", "text"].includes(flags.format)),
     "Use --format json|text only with history or interdiff.");
   requireValue((flags.from === undefined && flags.to === undefined) || command === "interdiff",
@@ -108,13 +116,16 @@ function execute(flags, command, action) {
     "Use --local-only only when planning sync; apply and continue use the approved plan's mode.");
   const ctx = step("Locating repository", () => git.context(flags.repo ?? process.cwd()));
   let result;
-  if (command === "select") {
+  if (command === "history-archives") {
+    requireValue(flags.graph, "Select --graph explicitly.");
+    result = historyArchives(ctx, flags.graph);
+  } else if (command === "select") {
     requireValue(flags.graph && flags.select, "Select requires --graph and --select.");
     result = previewSelection(ctx, flags.graph, flags.select);
   } else if (historical) {
     requireValue(flags.graph && flags.node, "Select --graph and --node explicitly.");
-    result = command === "history" ? history(ctx, flags.graph, flags.node) :
-      interdiff(ctx, flags.graph, flags.node, flags.from, flags.to);
+    result = command === "history" ? history(ctx, flags.graph, flags.node, flags.archive) :
+      interdiff(ctx, flags.graph, flags.node, flags.from, flags.to, flags.archive);
     if (flags.format === "text") return process.stdout.write(
       `${command === "history" ? renderHistory(result) : renderInterdiff(result)}\n`);
   } else if (command === "analyze") {
@@ -151,6 +162,7 @@ function execute(flags, command, action) {
     const spec = flags.spec ? state.readJson(path.resolve(flags.spec)) : undefined;
     result = createPlan(ctx, action, {
       graph: flags.graph, spec, node: flags.node, strategy: flags.strategy,
+      archive: flags.archive,
       sourceRepo: flags["source-repo"],
       publishNodes: flags.nodes === undefined ? undefined : flags.nodes.split(","),
       selector: flags.select,

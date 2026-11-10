@@ -52,10 +52,9 @@ implementation and supplied materials, then asks one structured question at a
 time about goals, tradeoffs, and constraints. It supports visual interfaces,
 terminal output, APIs, and agent workflows.
 
-The design records explicit decisions, proposed defaults, and assumptions
-separately. It defines scope, non-goals, observable acceptance criteria, and
-proposed validation. The user must resolve choices that affect the design
-before it is final.
+The design distinguishes decisions, proposed defaults, and assumptions. It
+defines scope, non-goals, observable acceptance criteria, and proposed validation.
+The user must resolve choices that affect the design before approving it.
 
 The workflow is read-only. The user must approve the final design. That approval
 does not authorize implementation, saving a document, running validation, or
@@ -88,9 +87,9 @@ changes code, review threads, graph state, or other PR metadata.
 
 ## `pr-feedback`
 
-The skill validates GitHub or Azure DevOps pull request feedback against
-the current code, classifies each concern, and presents review threads one at a
-time for interactive triage.
+The skill checks GitHub or Azure DevOps pull request feedback against the current
+code. It classifies each concern and presents one review thread at a time for
+triage.
 
 The skill can implement each approved fix and run focused validation. Replies,
 thread resolution, commits, pushes, and other remote changes require separate
@@ -152,21 +151,24 @@ unchanged. The skill reports their diagrams as historical snapshots.
 ### Node history and interdiff
 
 The read-only helper command `history --graph <id> --node <id>` shows retained
-versions, operation status, recovery receipts, and what changed. It also records
+versions, operation status, recovery receipts, and what changed. It also shows
 how nodes were split or folded. Node identity stays the same when Git commit IDs
 change.
+
 Receipts record the before and after snapshots. The local clone retains these
-receipts and pins available commits. The command reports legacy gaps, missing
-evidence, and import or restore boundaries without repairing them.
+receipts and pins available commits. The command reports missing evidence,
+including gaps in legacy records. It also marks where history stops at an import
+or restore. It does not repair these gaps.
 
 The helper command `interdiff --graph <id> --node <id> --from <version|last-published|last-validated>`
-compares against `current` by default, or a version selected with `--to`.
+compares against `current` by default. Use `--to` to select another version.
 It separates authored-patch changes from changes to the base or prerequisites.
 It compares each version's realized base-to-head diff on a common base. This
 includes conflict-resolution changes. The `last-published` baseline requires
 verified readback, not an attempted write. The `last-validated` baseline can
-include a recorded reason for running no automated checks, which the output
-labels as such. Missing baselines produce errors rather than inferred history.
+include a recorded reason for running no automated checks. The output labels
+that reason rather than reporting passing tests. Missing baselines produce
+errors. The helper does not infer them.
 
 Both commands default to JSON and accept `--format text`. They preserve user
 worktrees, refs, and indexes. Neither command fetches objects, writes to the
@@ -175,6 +177,41 @@ The normal skill preflight still applies. Conflicting comparisons are
 inconclusive. Equal transported trees do not prove semantic equivalence or
 merge safety. See the
 [historical inspection contract](../skills/pr-graph/references/commands.md#node-history-and-interdiff).
+
+### Portable historical evidence
+
+Use `plan export-history --graph <id> --archive <file>` to export historical
+snapshots and a self-contained Git pack. Use `plan import-history` with the same
+flags to import them. Each plan requires separate approval.
+
+The archive preserves version IDs, interrupted candidate versions, split and fold
+lineage, and historical publication and validation baselines. You can inspect
+them offline without the source checkout. Missing objects block export. The
+archive reports gaps in incomplete legacy evidence.
+
+Review the full payload before approving export. Discarded code, commit ancestry
+and old descriptions can contain sensitive material. Keeping full history
+increases storage and retention costs.
+
+`history-archives --graph <id>` lists imports. Select one exact
+`--archive <digest>` with `history` or `interdiff`. The output identifies the
+archive's origin and the source of each baseline. Imported baselines never
+replace local selectors. Imported `current` is unavailable. Choose an exact
+`--to` version instead.
+
+Digests detect changes to the payload. They do not authenticate its author or
+prove that its results are trustworthy. Import does not restore current
+validation, readiness or freshness. It never executes imported commands, resumes
+recovery, moves product refs, or changes user worktrees, indexes or existing
+approvals. The helper stores evidence and object-retention refs in separate
+archive namespaces.
+
+Transfers require human approval even in auto mode and work offline, without
+the skill's normal live freshness preflight. Backup, restore and `import-graph`
+still require separate approval and do not include the source clone's history
+automatically. There is no automatic remote transfer or archive deletion.
+Evidence and private refs remain until the user approves their removal. See the
+[archive format, trust and retention contract](../skills/pr-graph/references/history-archives.md).
 
 ### Publication and local sync
 
@@ -185,7 +222,7 @@ publication retains the existing integration snapshot and refuses reconstruction
 that would change unselected nodes. Sync separately when needed.
 
 The read-only command `select --graph <id> --select <selector>` previews exact
-node IDs in stable dependency order. It explains why it excluded each omitted node.
+node IDs in stable dependency order. It gives a reason for each excluded node.
 
 | Selector          | What it selects                                                               |
 | ----------------- | ----------------------------------------------------------------------------- |
@@ -205,7 +242,7 @@ them for other actions and rejects combinations with `--nodes`, `--node`, or
 and helper bases. They disclose all effects, including whole-graph validation
 and enabled backups.
 
-The approval digest pins the selector, resolved IDs, graph state, and provider
+The approval digest covers the selector, resolved IDs, graph state, and provider
 observations. Apply and continue use that exact selection without reevaluating
 or expanding it. External changes to the graph, refs, or PRs require a new plan.
 The helper never silently publishes prerequisites. Selection does not authorize
@@ -220,8 +257,8 @@ local-only mode, and continuation uses those settings. Neither option bypasses
 safety checks or marks nodes ready.
 
 Use `plan sync --spec <json>` to configure validation for recovered nodes without
-a separate reshape. The spec contains only the graph `id` and a nonempty
-`validations` map. Each entry names an active, unlanded node and supplies a
+a separate graph-reshaping operation. The spec contains only the graph `id` and a
+nonempty `validations` map. Each entry names an active, unlanded node and supplies a
 nonempty list of checks. Each check specifies an executable and its argument
 array. The helper replaces checks only for the named nodes and clears their
 validation and readiness records when their checks change. The approved plan
@@ -250,9 +287,9 @@ Use `--auto` to authorize routine plans within the current task without repeated
 prompts. It also covers safe freshness fetches and fast-forwards, sync and
 revalidation after the grace period expires, and diagram updates.
 
-The skill may reuse an already-approved matching conflict resolution without
-another prompt, even on its first reuse. It must verify the current inputs and
-context, then review a fresh, exact recovery plan. New or unverifiable conflicts
+The skill may reuse an approved conflict resolution without another prompt,
+even on its first reuse. It must verify that the current inputs and context
+match, then review a fresh, exact recovery plan. New or unverifiable conflicts
 and other safety blockers require human approval before auto mode resumes.
 Merges, removal, deletion, cleanup, backup transfers, and restore still require
 confirmation. Helper plan digests and safety checks remain mandatory.
@@ -314,10 +351,10 @@ For `add`, `fold`, `sync`, `publish`, and `retarget`, helper plans accept
 worktree from a completed or aborted operation for the same graph and repository.
 The plan records the worktree's identity and HEAD. The helper rechecks both before
 applying the plan. It records the ownership transfer in both journals and
-preserves the path and ignored installed tooling. Earlier owners cannot recover
-or clean the transferred worktree.
+preserves the path and installed tools that Git ignores. Earlier owners cannot
+recover or clean the transferred worktree.
 
-The helper can also transfer verified, pinned reconstruction receipts from
+The helper can also transfer verified reconstruction receipts pinned in
 compatible journals. It reuses committed results only when the parent, patch,
 full message, and execution fingerprint match exactly. Reuse avoids repeated
 patch applications and commit hooks. Changed or unknown inputs require
@@ -348,14 +385,13 @@ occupied graph node. It uses normal hooks and signing. Both `adopt` and
 `checkpoint` require human approval even in auto mode.
 
 The `import-graph --source-repo <path>` recovery requires separate human approval,
-even in auto mode. It recovers changed node ownership or dependencies from
-another verified local clone when `adopt` cannot represent the new DAG shape.
+even in auto mode. It imports changed node ownership or dependencies from another
+verified local clone when `adopt` cannot represent the new graph.
 The plan records both manifests and live hosted identities. The helper preserves
 prior snapshots and the destination's remote and backup settings. It atomically
 updates only approved, unoccupied local branches. It never pushes, edits PRs,
 changes integration branches or worktrees, uploads backups, or executes imported
-commands.
-It clears imported validation commands and results, readiness, freshness
+commands. It clears imported validation commands and results, readiness, freshness
 timestamps, and composition evidence. Configure validation before subsequent
 source-changing operations. Resume interrupted imports with `continue` and the
 original operation ID and approval digest.
@@ -383,7 +419,7 @@ reuse. The workflow refreshes diagrams as graph state changes. It requires an
 approved local renderer and a supported provider attachment mechanism.
 
 ```text
-/pr-graph [--auto] [split | view | select | history | interdiff | add | sync | retarget | ready | merge | describe | reshape | adopt | import-graph | checkpoint | remove-retired | backup | restore]
+/pr-graph [--auto] [split | view | select | history | interdiff | export-history | import-history | add | sync | retarget | ready | merge | describe | reshape | adopt | import-graph | checkpoint | remove-retired | backup | restore]
 ```
 
 The helper requires Node.js 22+ and Git 2.31+. Hosted operations also require

@@ -3,6 +3,7 @@ import path from "node:path";
 import { digest, prerequisites, requireValue, validateGraph } from "./graph.mjs";
 import * as git from "./git.mjs";
 import * as state from "./state.mjs";
+import { importedHistory } from "./history-archive.mjs";
 
 const WARNING = "Historical evidence only: comparisons do not establish semantic equivalence, current freshness, validation, readiness, or merge safety.";
 
@@ -33,15 +34,18 @@ function differences(before, after) {
       before.node.retired, before.node.supersedes, before.node.replacedBy],
     after && [after.node.title, after.node.description, after.node.branch,
       after.node.retired, after.node.supersedes, after.node.replacedBy]),
-    validation: changed([before?.node.validations, before?.node.validationReason, before?.node.validation],
-      [after?.node.validations, after?.node.validationReason, after?.node.validation]),
+    validation: changed([before?.node.validationCommandsDigest ?? before?.node.validations,
+      before?.node.validationReason, before?.node.validation],
+    [after?.node.validationCommandsDigest ?? after?.node.validations,
+      after?.node.validationReason, after?.node.validation]),
     readiness: changed(before?.node.ready, after?.node.ready),
     publication: changed(before?.node.pr, after?.node.pr),
     landing: changed(before?.node.landing, after?.node.landing),
   };
 }
 
-export function history(ctx, graphId, nodeId) {
+export function history(ctx, graphId, nodeId, archive) {
+  if (archive) return importedHistory(ctx, graphId, nodeId, archive);
   return git.withObjectView(ctx, (run) => readHistory(ctx, graphId, nodeId, run));
 }
 
@@ -184,8 +188,8 @@ function readHistory(ctx, graphId, nodeId, run) {
   };
 }
 
-export function interdiff(ctx, graphId, nodeId, from, to = "current") {
-  const timeline = history(ctx, graphId, nodeId);
+export function interdiff(ctx, graphId, nodeId, from, to = "current", archive) {
+  const timeline = history(ctx, graphId, nodeId, archive);
   const resolve = (selector) => {
     const id = selector === "current" ? timeline.current : timeline.baselines[selector] ?? selector;
     const version = timeline.versions.find((v) => v.id === id);
@@ -204,6 +208,7 @@ export function interdiff(ctx, graphId, nodeId, from, to = "current") {
       fingerprintChanged: old.snapshot.node.change.fingerprint !== next.snapshot.node.change.fingerprint,
     },
     comparison: null, gaps: timeline.gaps, warning: WARNING,
+    ...(timeline.provenance ? { provenance: timeline.provenance } : {}),
   };
   if ([old, next].some((v) => !v.snapshot.node.base || !v.snapshot.node.head ||
     v.missingCommits.some((sha) => [v.snapshot.node.base, v.snapshot.node.head].includes(sha)))) {
@@ -250,12 +255,14 @@ export function interdiff(ctx, graphId, nodeId, from, to = "current") {
 export function renderHistory(value) {
   return [
     `${value.graph} / ${value.node}`,
+    ...(value.provenance ? [`Imported archive: ${value.provenance.archive}; origin: ${value.provenance.origin} (untrusted historical evidence)`] : []),
     `Current: ${value.current ?? "absent"}; last-published: ${value.baselines["last-published"] ?? "unavailable"}; last-validated: ${value.baselines["last-validated"] ?? "unavailable"}`,
     ...value.events.map((e) => `${e.action} ${e.node}: ${e.status}${e.persisted ? ", persisted" : ", candidate"} ` +
       `(${e.operation})\n  ${e.before ?? "unavailable"} -> ${e.after ?? "unavailable"}\n  ` +
       Object.entries(e.changes).filter(([, changed]) => changed).map(([name]) => name).join(", ") +
       (e.recoveries.length ? `; recovery: ${e.recoveries.map((r) => r.action).join(", ")}` : "") +
-      (e.validation ? `; ${e.validation.reason && !value.versions.find((v) => v.id === e.after)?.snapshot.node.validations.length
+      (e.validation ? `; ${e.validation.reason && !(value.versions.find((v) => v.id === e.after)?.snapshot.node.automatedChecks ??
+        value.versions.find((v) => v.id === e.after)?.snapshot.node.validations?.length)
         ? "no automated checks (recorded rationale)" : "checks passed"}` : "")),
     ...value.gaps.map((gap) => `Gap: ${gap}`), value.warning,
   ].join("\n");
@@ -264,6 +271,7 @@ export function renderHistory(value) {
 export function renderInterdiff(value) {
   return [
     `${value.graph} / ${value.node}: ${value.from.id} -> ${value.to.id}`,
+    ...(value.provenance ? [`Imported archive: ${value.provenance.archive}; origin: ${value.provenance.origin} (untrusted historical evidence)`] : []),
     `Own patch: ${value.ownChange.patchChanged ? "changed" : "unchanged"}; realization: ${value.changes.realization ? "changed" : "unchanged"}`,
     `Common-base comparison: ${value.comparison.status}`,
     value.comparison.reason ?? "", value.comparison.patch ?? "",

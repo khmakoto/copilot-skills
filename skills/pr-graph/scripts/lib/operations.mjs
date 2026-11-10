@@ -13,13 +13,14 @@ import { createAdoptionPlan, applyAdoptionPlan } from "./adoption.mjs";
 import { createCheckpointPlan, applyCheckpointPlan } from "./checkpoint.mjs";
 import { createRetiredRemovalPlan, applyRetiredRemovalPlan } from "./retirement.mjs";
 import { createImportPlan, applyImportPlan } from "./import.mjs";
+import { createHistoryTransferPlan, applyHistoryTransferPlan } from "./history-archive.mjs";
 import { nodeDetails, step } from "./progress.mjs";
 
 const SHAPE = new Set(["init", "split", "add", "deps", "split-node", "fold", "remove"]);
 const FORWARD_TARGET = new Set(["retarget", "describe"]);
 const ACTIONS = new Set([...SHAPE, "publish", "sync", "retarget", "ready", "merge", "backup",
   "fetch-backup", "restore", "resolve", "abort", "cleanup", "describe", "reconcile", "unlock",
-  "record-landing", "adopt", "checkpoint", "remove-retired", "import-graph"]);
+  "record-landing", "adopt", "checkpoint", "remove-retired", "import-graph", "export-history", "import-history"]);
 
 const now = (ctx) => ctx.now?.() ?? Date.now();
 
@@ -471,6 +472,9 @@ export function createPlan(ctx, action, options = {}) {
       options.commitTrailers.every((line) => typeof line === "string" &&
         /^[A-Za-z0-9-]+: [^\r\n\0]+$/.test(line)),
     "Commit trailers require reconstruction and a nonempty array of single-line Key: value strings.");
+  }
+  if (["export-history", "import-history"].includes(action)) {
+    return createHistoryTransferPlan(ctx, action, options);
   }
   if (action === "import-graph") {
     requireValue(options.fetchObservation === undefined, "Graph import does not accept fetch-start observations.");
@@ -1335,6 +1339,7 @@ export function applyPlan(ctx, plan, approval, yes) {
     return { unlocked: owner };
   }
   return state.lock(ctx, () => {
+    if (["export-history", "import-history"].includes(plan.action)) return applyHistoryTransferPlan(ctx, plan);
     if (plan.action === "import-graph") return step("Importing approved local DAG snapshot", () => applyImportPlan(ctx, plan));
     if (plan.action === "adopt") return step("Recovering approved external graph identities", () => applyAdoptionPlan(ctx, plan));
     if (plan.action === "checkpoint") return step("Preserving approved staged work on checkpoint branch", () => applyCheckpointPlan(ctx, plan));
