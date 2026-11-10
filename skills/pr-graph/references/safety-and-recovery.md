@@ -61,18 +61,24 @@ payloads need a new digest. Occupied graph branches are rejected before
 reconstruction and checked again at writes. Attribution conflicts and failed
 validation use the same retained-worktree recovery gates, not silent retries.
 Absorb performs no hosting or backup writes and never authorizes readiness.
-It requires human approval even in auto mode; see
+It requires human approval unless requested allocation satisfies the skill's
+[conditional auto policy](../SKILL.md#conditional-auto-approvals); see
 [the absorb contract](change-specs.md#allocate-follow-up-edits-with-absorb).
 
 The skill's explicit, invocation-scoped
 [`--auto` mode](../SKILL.md#invocation-scoped-auto-mode) authorizes the agent to
 review and approve exact routine in-scope plans and preflight commands without
 repeated human prompts. The helper's digest and all safety checks remain
-mandatory. This exception does not authorize merging, removal/deletion/cleanup,
-backup upload/download (including backup effects embedded in routine plans),
-restore, adoption, local graph import, or checkpoint preservation. New or unverifiable conflicts, failed checks,
-unexpected changes, and uncertain remote effects require a pause and a
-human-approved resolution/recovery plan. After
+mandatory. The [conditional allowances](../SKILL.md#conditional-auto-approvals)
+cover only verified dead-owner unlock, exact-effect reconciliation, local abort
+for replanning with no remote effects, requested unambiguous absorb and retired
+metadata removal, previously approved unchanged backup uploads, and requested
+private-ref backup downloads. History transfer needs its separate invocation
+opt-in. Merging, source/ref/worktree deletion and cleanup, PR closure, restore,
+adoption, local graph import and checkpoint preservation still need human
+approval. New or unverifiable conflicts, fixes for failed checks/hooks, setup,
+unexpected changes, and remote effects still uncertain after readback require
+a pause and human-approved resolution/recovery. After
 that resolution, recheck inputs and resume auto mode only for the original task.
 The bounded repeat-resolution exception below uses prior explicit approval,
 not permission to invent new fixes or retry ambiguous writes automatically.
@@ -101,8 +107,8 @@ the owned worktree, generate a fresh current-operation `resolve` plan, and revie
 and approve its exact digest under auto mode. The old resolution is evidence,
 not approval of a different recovery payload. Run normal hooks, freshness,
 full-tree preservation and required validation checks. Failed checks or
-unexpected effects still pause. `reconcile`, `abort`, and `unlock` remain
-separately human-approved.
+unexpected effects still pause. `reconcile`, local `abort`, and `unlock` may
+use only their conditional auto allowances; other recovery requires human approval.
 
 Local `import-graph` recovery also requires exact human approval, even in auto
 mode. It can recover a changed DAG shape from another verified local clone
@@ -170,7 +176,9 @@ gate.
 `plan remove-retired --graph <id> --node <id>` removes only a retired node
 without a PR, landing, remote product branch, or dependents, along with historical
 `supersedes`/`replacedBy` references to it. It requires separate human approval
-even in auto mode; it is not source removal or branch/PR cleanup.
+unless auto mode covers the user's requested removal of that identified
+metadata. Never prune it opportunistically; it is not source removal or
+branch/PR cleanup.
 
 The plan pins the previous manifest and local/remote product branch observations.
 Apply rechecks them before writing graph metadata and retains the complete prior
@@ -267,7 +275,10 @@ prevents unrelated mutations.
 - Approve/apply the resolution, then continue the original operation.
 - If a remote request may have succeeded before its response was recorded,
   create a `reconcile` plan. It shows observed refs and PRs, including
-  discoverable graph-identified PRs. Approve only understood effects.
+  discoverable graph-identified PRs. Approve only understood effects. Auto mode
+  may reconcile effects proved to match the original approved operation, but
+  not adopt unexpected human edits, identities, content or landings. An
+  unresolved outcome still requires a pause, not a retry.
 - Reconciliation accepts only states consistent with the original candidate.
   Unknown content/landings remain blocked and require explicit investigation
   and compensation; do not edit journal JSON to bypass the check.
@@ -278,11 +289,17 @@ refs, snapshots, and the worktree. Abort refuses automatic rollback when remote
 effects may exist. A push-only failure with no provider writes can be aborted
 after an approved readback proves the relevant remote refs remain at their
 original values. Do not promise that a remote API call can be undone.
+Auto mode may approve this local abort only to safely replan the original task,
+after proving no remote effects, passing expected-ref/occupancy checks, and
+preserving dirty work and retained resources. Do not abandon the task or
+compensate remote effects automatically.
 
 If a process died while holding a lock, `plan unlock` requires a same-host owner
 whose PID is verifiably dead and rechecks that owner on apply. A live or
 unobservable owner is not automatically overridden. Different-host lock
 diagnosis requires environment-specific assistance.
+Auto mode may approve removal of that exact dead-owner lock after the helper's
+apply-time recheck; age alone is never evidence that a lock is abandoned.
 
 For a first publication interrupted during pushes, `plan abort
 --retain-published-refs` can stop the operation without rolling back verified
@@ -294,6 +311,7 @@ the full readback, which is rechecked on apply. All refs, snapshots and the
 worktree remain; only the operation is marked aborted. Replan and separately
 approve any namespace change and subsequent publication. Ordinary abort
 behavior is unchanged.
+This retained-published-ref variant still requires human approval in auto mode.
 
 ## Portable committed snapshots
 
@@ -305,6 +323,14 @@ that has no PR.
 The metadata branch contains reachable product code and history with the
 remote's access permissions. It is not private just because it has no PR.
 Never enable it silently or transfer snapshots to a different service.
+
+Auto mode may review and approve routine backup uploads, including embedded
+lifecycle effects, only with evidence of prior explicit user approval of that
+destination and content scope and verified unchanged access and scope.
+Reachable history and unpublished committed work must be covered; product-push
+approval or an enabled/restored manifest alone is insufficient. New or uncertain
+destination, access or content scope requires human approval. Never silently
+disable backup to avoid a prompt.
 
 Backup does not include staged, unstaged, untracked, or ignored work. Explicit
 status warnings identify unbacked-up working-tree edits. Local changes after the
@@ -318,7 +344,8 @@ concurrent manifests.
 
 1. Clone the intended repository.
 2. Plan/approve `fetch-backup` for the selected remote and graph ID. It fetches
-   only the snapshot into a private local ref.
+   only the snapshot into a private local ref. Auto mode may approve a requested
+   download after verifying and pinning that source; it does not authorize restore.
 3. Inspect the manifest and plan/approve `restore --backup-ref <downloaded-sha>`.
 4. Restore verifies repository identity and complete reconstructed content. It
    does not overwrite an existing graph or incompatible branch.

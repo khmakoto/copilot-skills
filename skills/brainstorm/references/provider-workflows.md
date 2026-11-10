@@ -86,8 +86,11 @@ lines or shell-sensitive characters. Create temporary files only in an approved
 session or temporary directory, and remove them after the provider command
 completes.
 
-Record the returned issue URL. If the provider returns an ambiguous result, verify
-the created issue before reporting success.
+Record the returned issue URL. If creation fails or returns an ambiguous result,
+inspect the confirmed repository through supported read tools before reporting
+success or offering a retry. Record verified creation without repeating it.
+Retry only when creation is confirmed not to have taken effect; if the outcome
+remains uncertain, report the limitation and pause.
 
 ## Azure DevOps
 

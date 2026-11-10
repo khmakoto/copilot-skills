@@ -30,7 +30,7 @@ explicit invocation.
 | [`pr-feedback`](docs/skills.md#pr-feedback)           | Validate PR feedback and implement each approved fix. Remote actions need separate approval.                                              |
 | [`pr-reviewer`](docs/skills.md#pr-reviewer)           | Review PRs or local branches for defects. Confirm each remote comment before posting.                                                     |
 | [`pr-walkthrough`](docs/skills.md#pr-walkthrough)     | Build a read-only, dependency-ordered route for human review.                                                                             |
-| [`pr-graph`](docs/skills.md#pr-graph)                 | Manage a PR dependency graph across Git providers, with approved follow-up allocation and portable historical evidence.                  |
+| [`pr-graph`](docs/skills.md#pr-graph)                 | Manage a PR dependency graph across Git providers, with approved follow-up allocation and portable historical evidence.                   |
 | [`session-distill`](docs/skills.md#session-distill)   | Use session evidence to propose workflow improvements without saving changes automatically.                                               |
 | [`skill-doctor`](docs/skills.md#skill-doctor)         | Audit skill definitions and apply only approved repairs.                                                                                  |
 | [`unslop`](docs/skills.md#unslop)                     | Edit writing with Cursor's upstream unslop rules. Fetch the rules on each explicit invocation.                                            |
@@ -54,8 +54,9 @@ maintenance:
   Diagrams retain already-landed PRs even after they leave the internal DAG model.
   Replace `[PR-NUMBER]` and `[updated/merged]` before using it.
 - [`check-dag-for-changes.md`](prompts/check-dag-for-changes.md) checks whether
-  session changes already exist elsewhere in the current branch's DAG and whether
-  any new changes belong in another node.
+  session changes already exist in the current branch's DAG and automatically
+  allocates unambiguous committed follow-up edits to active, unlanded nodes using
+  `pr-graph` auto mode.
 - [`commit-and-push.md`](prompts/commit-and-push.md) commits and pushes changes,
   resolves active review comments that those changes address, and replies to
   resolved threads without referencing specific commits. It then updates the DAG

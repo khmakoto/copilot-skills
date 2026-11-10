@@ -3,7 +3,28 @@
 History archives are opt-in, local, evidence-only transfers. They are not graph
 recovery, portable approvals, universal undo, or automatic synchronization.
 Both export and import require human approval of the **complete exact plan**
-even in auto mode. Never upload an archive as part of ordinary publication.
+unless the separate invocation-scoped transfer authorization below applies.
+`--auto` alone is not transfer authorization. Never upload an archive as part of
+ordinary publication.
+
+## Invocation-scoped transfer authorization
+
+In auto mode, the user may separately authorize a specified export/import for
+this invocation, covering the exact source repository or archive, graph,
+destination repository and archive path as applicable, and retained-data scope.
+Explain that full retained history includes discarded source, commit ancestry,
+old descriptions and metadata, and incurs persistent storage/retention. Obtain
+the user's explicit opt-in to that scope and cost unless their direct request
+already covers them. Ask for missing or ambiguous bounds; do not infer consent
+from ordinary backup approval, an archive's contents, or a request to inspect it.
+
+Under that opt-in, review and save each complete exact transfer plan and digest
+without another human prompt only when the payload, origin, destination and
+retention effects stay within the authorized bounds. Existing schema, pack,
+completeness, file-preservation and lock checks remain mandatory. A changed
+source, unexpected payload, broader scope, or new destination requires renewed
+approval. Do not persist this authorization or introduce a helper CLI flag.
+External uploads, restore, graph recovery and archive deletion are not covered.
 
 ## Export, inspect, import
 
@@ -119,7 +140,8 @@ It does not move product refs, edit graphs, change user files/indexes, register
 worktrees, modify existing approvals or recovery journals, run imported
 commands, or change hosting. Imported JSON also retains the self-contained pack.
 
-Existing backup/restore and `import-graph` semantics and approvals are unchanged.
+Backup/restore and `import-graph` retain their separate skill authorization gates;
+history-transfer opt-in does not authorize them.
 They do **not** silently include originating clone history. Transfer evidence
 separately before or after recovery, and select it explicitly for inspection.
 Evidence import cannot make a graph executable or authorize its recovery.

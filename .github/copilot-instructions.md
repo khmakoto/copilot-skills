@@ -88,11 +88,18 @@ Fixture coverage is not live provider certification.
   `--yes --approve <digest>`, pinned observations, and expected-old-ref checks.
   Store plans outside the managed product worktree, with a new file per revision.
 - `--auto` belongs to the skill, not the helper CLI, and is invocation-scoped.
-  It never bypasses digest checks; merging, deletion/cleanup, backup transfers,
-  restore, and new recovery decisions retain explicit approval requirements.
+  It never bypasses digest checks. Follow the skill's conditional allowances for
+  dead-owner unlock, exact-effect reconciliation, no-remote-effect local abort
+  for replanning, requested unambiguous absorb and retired metadata removal,
+  previously approved unchanged backup uploads, and requested private-ref
+  backup downloads. History transfer needs a separate invocation-scoped opt-in
+  covering exact source, destination and retained-data scope. Merging,
+  source/ref/worktree deletion/cleanup, PR closure, restore, adoption, graph
+  import, checkpoint, new conflict fixes and other recovery retain human gates.
   Ordinary auto mode may reuse an already-approved matching conflict resolution
   without a first-reuse prompt under the skill's current-input/context evidence
-  checks and a fresh exact recovery plan; other recovery approvals are unchanged.
+  checks and a fresh exact recovery plan. Unknown outcomes still pause after
+  readback; auto mode never permits blind retries or new setup/fixes.
 - Preserve stdout result shapes; send live progress to stderr. Helper `--quiet`
   suppresses progress only, not errors or final results. Progress is not proof of
   successful freshness checks, validation, or mutations; report completion only

@@ -145,7 +145,7 @@ identify scratch results, not retained versions; only history version IDs are se
 An empty interdiff or matching fingerprint is not proof of semantic equivalence,
 current validation, dependency eligibility, readiness, or merge safety.
 
-For offline inspection in another clone, use separately approved
+For offline inspection in another clone, use separately authorized
 `plan export-history|import-history --graph <id> --archive <file>` and normal
 `apply --yes --approve <digest>`. `history-archives --graph <id>` lists imported
 archives. `history` and `interdiff` accept `--archive <archive-digest>` to select
@@ -214,10 +214,17 @@ apply commands without repeated human prompts. Preflight fetches, safe
 fast-forwards, expired-grace sync/replanning and validation, and routine diagram
 updates are included. No freshness or helper safety check is bypassed.
 
-Merging, removal/deletion/cleanup, backup upload/download, restore, and recovery
-decisions still require human approval. A routine plan containing an enabled
-backup upload also requires approval. Blockers pause the workflow; after an
-approved resolution and rechecks, auto mode resumes for the original task.
+The [conditional auto approvals](../SKILL.md#conditional-auto-approvals) also
+cover verified dead-owner unlock, exact-effect reconciliation, no-remote-effect
+local abort for replanning, unambiguous requested absorb, requested retired
+metadata removal, previously approved unchanged backup uploads, and requested
+private-ref backup downloads. Verify every condition; an enabled backup flag
+alone is not user approval. History transfers need their separate
+[invocation-scoped opt-in](history-archives.md#invocation-scoped-transfer-authorization).
+Merging, source removal, branch/worktree cleanup, PR closure, restore, adoption,
+graph import, checkpoint, new conflict resolutions and setup/fixes for failed
+checks retain human approval. Unresolved uncertainty pauses the workflow; after
+approved recovery and rechecks, auto mode resumes for the original task.
 Without an explicit flag or unambiguous direct user instruction, all existing
 interactive approvals apply.
 
@@ -311,7 +318,7 @@ trailers to reconstruction commit messages, without changing PR titles or
 rereading the file. Supply the option again when planning a new operation; it
 does not alter Git configuration or persist a graph-wide commit policy.
 Supported actions are `init`, `split`, `add`, `deps`, `split-node`, `fold`,
-`remove`, `sync`, `publish`, `retarget`, and `record-landing`; other actions reject
+`remove`, `absorb`, `sync`, `publish`, `retarget`, and `record-landing`; other actions reject
 the option. Without it, reconstruction messages retain their existing behavior.
 
 ### Reusing a retained operation worktree
@@ -389,8 +396,10 @@ node "<helper>" plan split --repo "<repo>" --spec "<spec.json>" --commit-trailer
 ```
 
 The plan's `approval` field is a digest of the full payload. The agent must
-obtain human approval before using it, except for reviewed routine in-scope
-plans authorized by the skill's explicit `--auto` mode. The helper always
+obtain human approval before using it, except for reviewed in-scope plans
+authorized by explicit skill auto mode under its routine/conditional policy
+or, for history transfer, auto mode plus the separate invocation-scoped opt-in.
+The helper always
 requires `--yes --approve <digest>`. This is an integrity check and workflow
 contract, not cryptographic evidence that a human clicked Approve.
 

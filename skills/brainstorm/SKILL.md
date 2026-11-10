@@ -315,13 +315,19 @@ tags.
 On success, record the returned URL or ID and mark the suggestion created. Then
 continue to the next queued suggestion.
 
-On failure:
+On failure or an uncertain response:
 
 - report the provider error accurately;
-- do not retry with changed fields or broader permissions without approval;
-- keep the same suggestion active;
-- offer to retry unchanged, revise, retain without creating, move it to the back,
-  or stop.
+- inspect the confirmed destination through supported provider tools before
+  offering a retry;
+- if the approved item was created, verify its payload and identity, record its
+  URL or ID, mark it created, and continue without creating it again;
+- if the outcome cannot be established, keep the suggestion active, report the
+  uncertainty, and pause rather than retrying;
+- if creation is confirmed not to have taken effect, keep the suggestion active
+  and offer to retry unchanged, revise, retain without creating, move it to the
+  back, or stop;
+- do not retry with changed fields or broader permissions without approval.
 
 ## 8. Finish
 
