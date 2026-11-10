@@ -8,7 +8,8 @@ and plan/approve/apply requirements before using these commands.
 Portable node history is a separate, evidence-only transfer:
 `plan export-history|import-history --graph <id> --archive <file>`.
 Read the [archive contract](history-archives.md) and approve each exact payload
-separately. Backup/restore and `import-graph` do not silently transfer originating
+separately, or review it under the invocation's separate transfer opt-in.
+Backup/restore and `import-graph` do not silently transfer originating
 clone history, and importing an archive does not authorize or resume recovery.
 
 ### Importing a newer DAG from another local clone
@@ -47,11 +48,15 @@ never edit manifests or journals manually to resume it.
 `plan remove-retired --graph <id> --node <id> --out <plan>` removes only a
 retired node without a PR, landing, remote product branch, or dependents.
 It also removes historical `supersedes`/`replacedBy` references to that ID.
-This separately approved metadata-only operation retains the previous manifest
+This metadata-only operation retains the previous manifest
 in its journal and preserves all Git refs, commits, files, indexes, worktrees,
 PRs, and validation/readiness evidence. It does not reconstruct or publish source,
 upload a backup, or accept fetch-start observations. Apply with the exact digest;
 `continue` resumes the same journal after an interrupted metadata write.
+Human approval remains the default. In auto mode, explicitly requested removal
+of identified retired metadata may proceed under the
+[conditional policy](../SKILL.md#conditional-auto-approvals); do not prune it
+opportunistically or expand into source/ref/worktree deletion.
 
 To release an occupied graph node while retaining an exact local source
 checkpoint, prepare `plan checkpoint --graph <id> --spec <json> --out <plan>`.
@@ -125,6 +130,16 @@ Backup contains committed code and reachable history. Opt-in backup writes are
 included in lifecycle plans that perform publication, sync, readiness, merging,
 or description changes. Local graph edits can remain unbacked-up until one of
 those operations or an explicit backup.
+
+In auto mode, backup uploads require evidence of prior user approval of the
+unchanged destination, access and content scope, including unpublished committed
+history; an enabled/restored manifest alone is insufficient. Requested
+`fetch-backup` may download a verified pinned source to its private ref without
+another prompt. Neither allowance authorizes restore. Exact-effect `reconcile`,
+dead-owner `unlock`, and local `abort` for replanning with no remote effects may
+also use the [conditional policy](../SKILL.md#conditional-auto-approvals).
+Keep manual approval for `abort --retain-published-refs`, uncertain or unexpected
+effects, and all cleanup.
 
 Cleanup requires a finished or locally aborted operation and a precise spec:
 

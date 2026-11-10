@@ -151,13 +151,15 @@ automatic destination.
 
 The agent inspects each hunk's surrounding behavior, retained own patches,
 history/provenance and dependency/consumer context. Propose an owner with
-specific evidence and rationale; leave ambiguous same-file edits, cross-node
-refactors, new/shared files, binaries and conflicting ownership unassigned
-until the user makes an explicit semantic decision. A nearest-line or
-path-only match is not semantic ownership. A user can explicitly assign an
+specific evidence and rationale. Inspect cross-node refactors, new/shared files,
+binaries and landed/retired provenance explicitly; leave ambiguous same-file edits
+or conflicting ownership unassigned until the user makes a semantic decision.
+A nearest-line or path-only match is not semantic ownership. A user can explicitly assign an
 indivisible unit to an active owner, or choose separate restructuring; never
 rewrite a landed/retired node or infer an edge. Approval of an allocation
-proposal alone does not approve application.
+proposal alone does not approve application. In auto mode, an unambiguous owner
+may be selected from semantic evidence, including for a whole-file unit; do not
+turn an indivisible change or a path suggestion into an automatic assignment.
 
 Prepare a complete active-node spec containing the replacement own changes,
 validation argv/reasons, and these additional fields:
@@ -227,5 +229,9 @@ not moved, and unrelated dirty files and the index are untouched.
 Absorb is local-only: no pushes, PR/footer/draft writes, readiness, or backup
 uploads. Existing hosted content remains unchanged until separately authorized
 publication/sync. New local heads invalidate readiness/validation as normal.
-Human approval of the exact absorb plan is required even in skill auto mode;
-checkpoint, recovery, publication, readiness and merge retain their own gates.
+Human approval of the exact absorb plan is required unless the skill's
+[conditional auto-absorb policy](../SKILL.md#conditional-auto-approvals) applies:
+allocation is requested, every owner is unambiguous and evidence-backed, and
+all attribution, preservation and validation gates pass. Ambiguity still needs a
+user decision. Checkpoint, recovery, publication, readiness and merge retain
+their own gates; absorb does not broaden them.

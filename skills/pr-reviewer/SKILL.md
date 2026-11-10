@@ -460,6 +460,13 @@ approval. Record each successful comment or thread ID separately. If only some
 writes succeed, report the partial result and keep the finding active; obtain a
 decision before retrying failures, and never repost successful comments.
 
+For any failed or uncertain comment write, re-read the exact PR's threads through
+supported provider tools before offering a retry. Determine whether each approved
+text and destination already took effect, and record confirmed comment or thread
+IDs without reposting them. Retry only writes confirmed not to have taken effect,
+after the user's decision. If the outcome cannot be established, report the
+uncertainty and pause. Changed text or destinations require new exact approval.
+
 ### Skip
 
 Mark the suggestion skipped and continue immediately to the next item.
@@ -503,4 +510,6 @@ Finish with a concise summary containing:
 - any access, diff, anchor, application, validation, or posting failures.
 
 Do not repeat the full text of every finding. Do not claim a comment was posted
-without a successful provider write-tool response.
+without either a successful provider write-tool response or supported provider
+readback that verifies its approved text, destination, and comment/thread ID.
+Distinguish readback-confirmed writes from writes whose outcome remains unknown.

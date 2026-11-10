@@ -10,8 +10,9 @@ dependency graph in local Git, GitHub, GitHub Enterprise Server, or Azure DevOps
 
 All published nodes start as drafts. Blocked drafts use helper integration
 bases to show only their own changes. A node becomes eligible for review after
-every prerequisite lands. Sync, readiness, merges, and deletion require explicit
-approval.
+every prerequisite lands. Mutations require exact-plan approval. Auto mode lets
+the agent approve in-scope routine and conditionally safe plans; merging and
+source/ref/worktree deletion still require human approval.
 
 The skill can split changes within a file and reshape the graph. It supports
 merge, squash, and rebase strategies. Users can opt in to recovery of committed
@@ -34,9 +35,10 @@ or authorize changes. The helper never stages or commits dirty work. Staging
 and checkpoint preservation each require separate approval.
 
 The agent proposes an owner for each change and explains the evidence. It leaves
-ambiguous edits unassigned until the user decides. Edits to shared or new files,
-cross-node changes, binary content and edits associated with landed or retired
-nodes also need explicit decisions.
+ambiguous edits unassigned until the user decides. Shared/new files, cross-node
+changes, binaries and landed/retired provenance need explicit inspection, not
+automatic path-based assignment. In auto mode, the agent may select an active,
+unlanded owner when semantic evidence is unambiguous; otherwise it asks.
 
 `plan absorb` requires an active, unlanded owner for every change. It also needs
 a complete amended node spec and an expected source that includes the follow-up
@@ -44,7 +46,10 @@ edits. Supply validation commands or reasons for running no automated checks.
 Absorb preserves node identities and dependency edges. New nodes or dependencies
 need separate approved restructuring.
 
-The user must approve the exact plan digest, even in auto mode. The helper then
+The user must approve the exact plan digest unless auto mode covers requested,
+unambiguous allocation under the
+[conditional policy](../skills/pr-graph/SKILL.md#conditional-auto-approvals).
+The helper then
 checks each owner's changes against its assigned edits and compares the complete
 combined tree with the approved source. It rebuilds dependent nodes and reruns
 required checks. Changed inputs, occupied branches, conflicts and failed
@@ -91,7 +96,8 @@ semantic equivalence or merge safety. See the
 
 Use `plan export-history --graph <id> --archive <file>` to export historical
 snapshots and a self-contained Git pack. Use `plan import-history` with the same
-flags to import them. Each plan requires separate approval.
+flags to import them. Each plan requires exact approval, either from the user or
+from the agent under the separate transfer opt-in described below.
 
 The archive preserves version IDs, interrupted candidate versions, records of
 splits and folds, and historical publication and validation baselines. You can
@@ -116,9 +122,13 @@ approvals. The helper stores evidence and object-retention refs in separate
 archive namespaces.
 
 Transfers work offline without the skill's normal live freshness preflight.
-They require human approval even in auto mode. Backup, restore and `import-graph`
-still require separate approval and do not include the source clone's history
-automatically. There is no automatic remote transfer or archive deletion.
+`--auto` alone does not authorize them. In auto mode, a separate invocation-scoped
+user opt-in may cover the exact source, destination and retained-data scope, including
+discarded source, ancestry, metadata and retention costs. Within those bounds
+the agent may approve reviewed exact plans; new or uncertain bounds require
+renewed approval. Backup, restore and `import-graph` have their own gates and do
+not include the source clone's history automatically. There is no automatic
+remote transfer or archive deletion.
 The helper retains evidence and private refs until the user approves their
 removal. See the
 [archive format, trust and retention contract](../skills/pr-graph/references/history-archives.md).
@@ -202,8 +212,21 @@ The skill may reuse an approved conflict resolution without another prompt,
 even on its first reuse. It must verify that the current inputs and context
 match, then review a fresh, exact recovery plan. New or unverifiable conflicts
 and other safety blockers require human approval before auto mode resumes.
-Merges, removal, deletion, cleanup, backup transfers, and restore still require
-approval. Helper plan digests and safety checks remain mandatory.
+The [conditional policy](../skills/pr-graph/SKILL.md#conditional-auto-approvals)
+also permits dead same-host lock removal, reconciliation of proved originally
+approved effects, and local abort for replanning with no remote effects.
+Requested unambiguous absorb and requested retired unpublished metadata removal
+can proceed. Routine backup uploads require prior user approval of unchanged
+destination, access and content scope, including unpublished committed history;
+an enabled manifest alone is insufficient. Requested verified backup downloads
+may write only private local refs, not restore branches or execute commands.
+
+Merges, source removal, ref/worktree cleanup, PR closure, restore, adoption,
+graph import, checkpoint, retained-publication abort, new conflict fixes,
+installations and fixes for failed checks/hooks still need human approval.
+Unknown remote outcomes pause after readback, never trigger blind retries.
+History transfer requires its separate invocation opt-in. Helper plan digests,
+freshness, leases and validation remain mandatory; no helper `--auto` flag is added.
 
 An unambiguous instruction such as "Split this branch using auto mode" enables
 the same behavior for the current task, even when the agent selects `pr-graph`
@@ -314,9 +337,10 @@ historical `supersedes` and `replacedBy` references to it. It refuses nodes with
 PR, landing, remote product branch, or dependents. The previous manifest stays
 in the operation journal. The helper preserves Git refs, commits, files, indexes,
 worktrees, and existing validation and readiness evidence. It does not reconstruct
-source, publish, or upload a backup. It requires separate human approval even in
-auto mode. Use `continue` with the original digest after an interrupted metadata
-write.
+source, publish, or upload a backup. Human approval is required unless auto mode
+covers the user's explicit request to remove that identified metadata; the agent
+does not prune it opportunistically. Use `continue` with the original digest
+after an interrupted metadata write.
 
 ## PR diagrams
 

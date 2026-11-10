@@ -40,8 +40,9 @@ updating local branches and attaching rendered diagrams outside the helper.
   their exact commands, affected refs, and expected branch tips.
   Diagram uploads and description edits require approval of the rendered image,
   destination, target PR, and exact body change.
-- Merging and deletion/cleanup require their own approvals. Approval to split
-  does not authorize publication, readiness, merging, or deletion.
+- Merging and source/ref/worktree deletion or cleanup require their own
+  approvals. Approval to split does not authorize publication, readiness,
+  merging, or deletion.
 - Pass `--yes` only after human approval of the concrete effects and plan
   digest, or after reviewing that exact plan under the user's invocation-scoped
   `--auto` authorization below. Agent/tool permission settings alone are not
@@ -105,12 +106,60 @@ and its references for:
   attachment workflow with repository-appropriate access, and exact managed
   description updates preserving human content.
 
+### Conditional auto approvals
+
+The following actions may also proceed without another human prompt, but only
+when their specific conditions and the original task scope are satisfied.
+Review a fresh exact helper plan and digest for each action; none is permission
+to edit state or perform Git plumbing outside the helper.
+
+- **`unlock`:** Recheck that the exact lock belongs to a verifiably dead process
+  on the same host. A live, different-host, or unobservable owner still blocks.
+  Remove only that lock, not worktrees, refs, or journals.
+- **`reconcile`:** Read back the exact affected refs and PRs and prove that every
+  changed effect matches the originally approved operation. Do not automatically
+  adopt unexpected identities, content, human edits, or landings. An uncertain
+  response permits read-only investigation, not a retry; if readback cannot
+  establish the outcome, pause and ask.
+- **Local `abort`:** Use only when necessary to safely replan the original task,
+  with no remote effects, unchanged expected refs, and no occupied branch moves.
+  Preserve new refs, snapshots, dirty work, and retained worktrees. Do not
+  automatically abandon the task. `abort --retain-published-refs`, compensation
+  for remote effects, and cleanup still need human approval.
+- **`absorb`:** Follow-up allocation must be requested, with a pinned committed
+  delta and semantic evidence for every active, unlanded owner. Preserve
+  identities and edges, prove per-owner attribution and complete-tree equality,
+  and run required validation. A path match or helper suggestion is not enough.
+  Ask about ambiguous ownership or new semantic choices; do not stage or commit
+  dirty input, change edges, or publish as an implicit prerequisite.
+- **`remove-retired`:** The user must request removal of the identified retired
+  metadata. Verify no PR, landing, remote product branch, or dependents, and
+  retain the previous manifest and every source ref. Do not opportunistically
+  prune historical identities or treat this as source/branch/worktree cleanup.
+- **Routine backup uploads:** Require evidence of prior explicit user approval
+  of the exact destination and content scope, and verify that destination,
+  access, and scope remain unchanged. Review the complete backup effect,
+  including reachable history and unpublished committed work. A manifest's
+  `enabled` flag, restored settings, or approval of product pushes is not that
+  evidence. First enablement or any changed/uncertain scope needs approval.
+  This applies to explicit backup and backup effects embedded in routine plans.
+- **`fetch-backup`:** The download must be requested from a verified remote and
+  graph into the helper's private local ref. Pin the source snapshot; do not
+  restore branches or execute stored commands. Restore retains its manual gate.
+
+History export/import has a separate
+[invocation-scoped transfer opt-in](references/history-archives.md#invocation-scoped-transfer-authorization);
+`--auto` alone does not grant it. Prior backup or transfer approvals never enable
+auto mode for a later task. Missing evidence for any condition requires human
+approval rather than optimistic inference.
+
 Still generate, persist, and review each complete helper plan and its effects.
 Check that it stays within scope, then apply it with the unchanged
 `--yes --approve <digest>` contract. Never omit digest verification or reuse approval
 for a modified payload. Freshness changes that invalidate a plan require a new
-saved plan and digest; review it again without prompting if it remains routine
-and in scope. Preserve the helper's leases, identity checks, hooks, validation,
+saved plan and digest; review it again without prompting only if it remains
+within the routine or conditional authorization and task scope. Preserve the
+helper's leases, identity checks, hooks, validation,
 dependency rules, and provider policies. Auto mode does not override other
 skills' approvals or tool/environment permission requirements.
 
@@ -131,22 +180,24 @@ auto mode rather than repeatedly reconstructing against an expiring snapshot.
 For an interrupted operation, establish its recovery constraints first. Never
 renew an old observation or bypass the helper's execution-time freshness gate.
 
-**Always ask for concrete approval** before merging, removal/deletion/cleanup
-(including `remove`, `remove-retired`, and closing retired PRs), backup uploads,
-backup downloads, restore, `adopt`, `import-graph`, `checkpoint`, `export-history`,
-`import-history`, or `absorb`. Inspect all plan effects: a routine lifecycle
-plan that also uploads an enabled backup needs human approval too. Auto mode never silently disables
-backup to avoid that prompt. Actions not listed as routine above also require
-human approval.
+**Always ask for concrete approval** before merging, source removal (`remove`),
+branch/worktree deletion or cleanup, closing retired PRs, restore, `adopt`,
+`import-graph`, `checkpoint`, or `abort --retain-published-refs`. Ask before new
+conflict resolutions, installations, or fixes for failed checks/hooks, except
+for the verified repeat-resolution rule below. Actions outside the routine list
+and conditional allowances above also need human approval. Inspect all plan
+effects: a routine plan containing an unapproved backup upload still needs a
+prompt. Never silently disable backup to avoid that prompt.
 
 **Pause and ask on blockers:** conflicts, failed validation or hooks, missing
-tooling, unexplained divergence, unsafe worktree updates, ambiguous repository/remote/target
-choices, inaccessible or moving refs, unexpected source/helper/PR changes,
-uncertain remote effects, or unknown/pending/failed merge policies. Inspect
-read-only evidence and propose a specific resolution; do not invent new conflict
+tooling, unexplained divergence, unsafe worktree updates, ambiguous
+repository/remote/target choices, inaccessible or moving refs, unexpected
+source/helper/PR changes, remote effects still uncertain after readback, or
+unknown/pending/failed merge policies. Inspect read-only evidence and propose
+a specific resolution; do not invent new conflict
 resolutions, stash, install dependencies, bypass checks, or blindly retry writes.
-Obtain approval for a new exact fix and any `reconcile`, `abort`, or `unlock`
-recovery plan. An already-approved matching conflict resolution may be reused
+Obtain approval for a new exact fix or recovery outside the conditional
+allowances above. An already-approved matching conflict resolution may be reused
 in ordinary auto mode without another approval, including on its first reuse,
 only under the evidence checks in
 [safety and recovery](references/safety-and-recovery.md#reusing-an-approved-conflict-resolution).
@@ -155,7 +206,7 @@ reuse the old approval digest for a new payload. After resolution, recheck pinne
 and freshness, then resume auto mode for the remaining original task without
 asking the user to enable it again.
 
-Keep routine plans and digests in session artifacts for inspection, but show
+Keep auto-approved plans and digests in session artifacts for inspection, but show
 progress according to the output contract below and a final result/blocker summary.
 Informational warnings alone do not require a prompt; a warning requiring a
 decision, exceeding scope, or violating a safety constraint does.
@@ -382,8 +433,9 @@ To transfer history across clones, read
 [portable history archives](references/history-archives.md). Prepare
 `plan export-history` or `plan import-history` with an explicit external
 `--archive <file>` and require separate human approval of the complete payload
-and destination, even in auto mode. Preview discarded source, old descriptions,
-origin and completeness; warn about sensitive material and retention cost.
+and destination unless the invocation's explicit transfer opt-in covers them.
+Preview discarded source, old descriptions, origin and completeness; warn about
+sensitive material and retention cost.
 Never transfer raw executable journals or silently attach history to a push,
 backup, restore or `import-graph`. Imported evidence stays separate:
 list it with `history-archives`, select `--archive <digest>` for inspection,
@@ -591,15 +643,17 @@ Select a pinned committed delta based on the old combined tree; do not stage or
 commit dirty user input implicitly. Preservation uses separately approved
 checkpoint/staging. Inventory with `absorb --graph <id> --base <ref> --head <ref>`.
 Inspect hunks against retained own patches, provenance, dependencies and consumer
-behavior, then propose per-unit owners with evidence and rationale. Leave
-ambiguous/shared/new-file, cross-node, binary and landed/retired-associated edits
-unassigned until an explicit decision; never use nearest-line ownership or add
-edges as fact. Prepare `plan absorb` with every unit assigned, complete amended
-own changes and validations, and the expected source including the delta.
+behavior, then propose per-unit owners with evidence and rationale. Inspect
+shared/new-file, cross-node, binary and landed/retired-associated edits explicitly;
+leave ambiguous ownership unassigned until a user decision. Never use nearest-line
+ownership or add edges as fact. Prepare `plan absorb` with every unit assigned,
+complete amended own changes and validations, and the expected source including
+the delta.
 Show preserved identities, affected descendant closure, unchanged edges,
 validation and anticipated publication effects. Obtain human approval of that
-exact plan even in auto mode. Absorb verifies per-owner attribution and exact
-full-tree reconstruction; it preserves identities/edges and performs no hosted,
+exact plan unless the conditional auto-absorb requirements above are satisfied.
+Absorb verifies per-owner attribution and exact full-tree reconstruction;
+it preserves identities/edges and performs no hosted,
 readiness or backup writes. Use separate approved restructuring when new nodes
 or edges are needed. Do not repurpose split/fold to add new content or discard
 unassigned edits.
@@ -610,10 +664,11 @@ with a footer; closing PRs and deleting obsolete branches require a separate
 explicit `cleanup` plan.
 
 To remove only a retired unpublished node from graph metadata, use a separately
-approved `remove-retired --node <id>` plan. It refuses PRs, landings, published
-product branches and dependent nodes, retains the previous manifest in its
-journal, and preserves all Git refs, commits, files and worktrees. This is not
-source removal or cleanup; see [recovery commands](references/recovery-commands.md).
+approved `remove-retired --node <id>` plan; auto mode may approve it only for the
+user's requested removal of that identified metadata. It refuses PRs, landings,
+published product branches and dependent nodes, retains the previous manifest
+in its journal, and preserves all Git refs, commits, files and worktrees. This
+is not source removal or cleanup; see [recovery commands](references/recovery-commands.md).
 
 ## 6. Recovery and portability
 
@@ -652,8 +707,9 @@ installation does not establish that the original plan is still current.
   recording that existing commit. Require the clean owned worktree and exact
   parent, HEAD, tree, and full message; never accept it through `continue` alone.
 - On an ambiguous remote failure, inspect server state and approve a
-  `reconcile` plan. Never blindly retry PR creation or pretend remote effects
-  were rolled back.
+  `reconcile` plan only for understood effects. Auto mode may use the conditional
+  exact-effect allowance above; unresolved outcomes still pause. Never blindly
+  retry PR creation or pretend remote effects were rolled back.
 - When existing hosted PRs were externally reconstructed or landed, prepare a
   separate `adopt` plan from pinned live heads, own-change bases, and provider
   landing receipts. It updates only approved unoccupied local branches and
@@ -672,8 +728,10 @@ installation does not establish that the original plan is still current.
   recovery; ordinary abort never implicitly accepts changed remote refs.
 - Backup is opt-in and publishes committed source with the chosen remote's
   access permissions. It includes graph metadata and committed no-PR work.
-- Download and restore are separate approvals. Restored validation commands are
-  cleared; inspect local repository guidance and configure checks anew.
+- Download and restore are separate operations. Auto mode may approve a requested
+  `fetch-backup` under the conditions above; restore always needs human approval.
+  Restored validation commands are cleared; inspect local repository guidance
+  and configure checks anew.
 - Do not automatically delete retained worktrees or snapshot refs. Explain exact
   cleanup impact and obtain separate approval.
 
