@@ -6,11 +6,11 @@ import { createPlan, applyPlan } from "../lib/operations.mjs";
 
 export const git = (cwd, ...args) => out(cwd, args);
 
-export function fixture({ remote = false, names = ["a", "b", "c", "d", "e", "f"] } = {}) {
+export function fixture({ remote = false, names = ["a", "b", "c", "d", "e", "f"], objectFormat = "sha1" } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pr-graph-test-"));
   const root = path.join(dir, "repo");
   fs.mkdirSync(root);
-  git(root, "init", "-q", "-b", "trunk");
+  git(root, "init", "-q", "-b", "trunk", `--object-format=${objectFormat}`);
   git(root, "config", "user.name", "Graph Test");
   git(root, "config", "user.email", "graph@example.invalid");
   git(root, "config", "commit.gpgsign", "false");
@@ -38,7 +38,7 @@ export function fixture({ remote = false, names = ["a", "b", "c", "d", "e", "f"]
   if (remote) {
     bare = path.join(dir, "remote.git");
     fs.mkdirSync(bare);
-    git(bare, "init", "--bare", "-q", "-b", "trunk");
+    git(bare, "init", "--bare", "-q", "-b", "trunk", `--object-format=${objectFormat}`);
     git(root, `--git-dir=${bare}`, "config", "user.name", "Graph Test");
     git(root, `--git-dir=${bare}`, "config", "user.email", "graph@example.invalid");
     git(root, `--git-dir=${bare}`, "config", "commit.gpgsign", "false");
