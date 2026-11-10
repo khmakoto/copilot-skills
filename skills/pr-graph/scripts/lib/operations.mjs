@@ -15,8 +15,9 @@ import { createRetiredRemovalPlan, applyRetiredRemovalPlan } from "./retirement.
 import { createImportPlan, applyImportPlan } from "./import.mjs";
 import { createHistoryTransferPlan, applyHistoryTransferPlan } from "./history-archive.mjs";
 import { nodeDetails, step } from "./progress.mjs";
+import { planAbsorb, verifyAbsorb } from "./absorb.mjs";
 
-const SHAPE = new Set(["init", "split", "add", "deps", "split-node", "fold", "remove"]);
+const SHAPE = new Set(["init", "split", "add", "deps", "split-node", "fold", "remove", "absorb"]);
 const FORWARD_TARGET = new Set(["retarget", "describe"]);
 const ACTIONS = new Set([...SHAPE, "publish", "sync", "retarget", "ready", "merge", "backup",
   "fetch-backup", "restore", "resolve", "abort", "cleanup", "describe", "reconcile", "unlock",
@@ -672,6 +673,7 @@ export function createPlan(ctx, action, options = {}) {
   requireValue(action !== "split" || source, "Split needs source.base and source.head for exact reconstruction.");
   if (source) requireValue(source.base === target, "Source base must equal the pinned integration target; rebase or explicitly prepare the source first.");
   if (source) graph.source = source;
+  const absorption = action === "absorb" ? planAbsorb(ctx, previous, graph, options.spec, source) : null;
   const descriptions = action === "describe" && options.spec ? options.spec.descriptions : null;
   if (action === "describe" && options.spec) {
     requireValue(options.spec.id === graph.id && !options.node && options.body === undefined &&
@@ -719,6 +721,7 @@ export function createPlan(ctx, action, options = {}) {
     ...(options.publishNodes ? { publishNodes: [...options.publishNodes].sort() } : {}),
     ...(selection ? { selection } : {}),
     facts, target, source, node: options.node ?? null, strategy,
+    ...(absorption ? { absorption } : {}),
     ...(fetched ? { fetchObservation: fetched } : {}),
     freshness: freshnessReport(ctx, graph, facts),
     description: action === "describe" ? options.body : null,
@@ -726,6 +729,7 @@ export function createPlan(ctx, action, options = {}) {
     capabilities, allowNonAtomic: options.allowNonAtomic === true || provider.kind === "ado",
     references: Object.fromEntries([
       ...(options.spec?.source ? [options.spec.source.base, options.spec.source.head] : []),
+      ...(absorption ? [options.spec.followUp.base, options.spec.followUp.head] : []),
       ...(options.spec?.nodes ?? []).flatMap((n) => [n.change?.base, n.change?.head]),
     ].filter((r) => typeof r === "string" && !/^[a-f0-9]{40}$|^[a-f0-9]{64}$/.test(r))
       .map((r) => [r, git.commitId(ctx.root, r)])),
@@ -796,9 +800,10 @@ export function createPlan(ctx, action, options = {}) {
         .map(([node, replaceBody]) => ({ node, replaceBody })) : []),
       ...(!localOnly && graph.backup.enabled && ["publish", "sync", "retarget", "backup", "merge", "ready", "describe"].includes(action)
         ? [`Publish graph manifest and reachable committed snapshots to ${graph.backup.branch}.`] : []),
-      ...graph.nodes.filter((n) => !localOnly && !options.publishNodes && n.retired && n.pr && n.pr.state === "open")
+      ...(absorption ? [absorption] : []),
+      ...graph.nodes.filter((n) => !absorption && !localOnly && !options.publishNodes && n.retired && n.pr && n.pr.state === "open")
         .map((n) => `Mark superseded PR ${n.pr.url} as draft; retain all branches and snapshots.`),
-      ...(SHAPE.has(action) ? ["Preserve observed draft/non-draft state for eligible existing PRs; mark blocked or superseded PRs draft."] : []),
+      ...(SHAPE.has(action) && !absorption ? ["Preserve observed draft/non-draft state for eligible existing PRs; mark blocked or superseded PRs draft."] : []),
     ],
     warnings: warnings(ctx, graph, localOnly),
   };
@@ -1391,12 +1396,20 @@ export function applyPlan(ctx, plan, approval, yes) {
         `Operation has a pending change in ${journal.pendingChange?.worktree}; inspect it and approve resolve, or abort.`);
       for (const sha of [...new Set([
         ...Object.values(plan.facts.local), ...graph.nodes.flatMap((n) => [n.change.base, n.change.head]),
+        ...(plan.absorption ? [plan.absorption.followUp.base, plan.absorption.followUp.head, plan.source.head] : []),
       ].filter(Boolean))]) git.pin(ctx.root, journal.id, `original/${sha}`, sha);
       fetchRemote(ctx, graph, journal);
       verifyFacts(ctx, plan, provider, journal);
       const target = git.commitId(ctx.root, plan.target);
       const previous = state.load(ctx, graph.id, true);
       reconcile(ctx, graph, facts, target, SHAPE.has(plan.action) ? previous : null);
+      if (plan.action === "absorb") {
+        for (const node of graph.nodes.filter((n) => !n.retired && !n.landing)) {
+          for (const branch of [node.branch, helperBranch(graph, node.id)]) {
+            requireValue(!git.occupied(ctx.root, branch), `Branch is checked out in a user worktree: ${branch}`);
+          }
+        }
+      }
       const cwd = plan.action === "describe" ? null : prepareWorktree(ctx, journal, target);
       const apply = (dir, change, title) => applyOwned(ctx, journal, dir, change, title);
       if (plan.action === "record-landing") {
@@ -1414,15 +1427,22 @@ export function applyPlan(ctx, plan, approval, yes) {
         graph.combined = verifyComposition(cwd, graph, target, null, apply);
       }
       if (SHAPE.has(plan.action) || ["sync", "publish", "retarget"].includes(plan.action)) {
-        if (["deps", "split-node", "fold", "retarget"].includes(plan.action)) {
+        if (["deps", "split-node", "fold", "retarget", "absorb"].includes(plan.action)) {
           journal.beforeCombined ??= verifyComposition(cwd, previous, target, null, apply);
           saveJournal(ctx, journal);
+        }
+        if (plan.action === "absorb") {
+          requireValue(git.tree(cwd, journal.beforeCombined) === git.tree(cwd, plan.absorption.followUp.base),
+            "Follow-up base differs from the reconstructed original graph.");
+          verifyAbsorb(cwd, graph, previous, plan.absorption, apply);
         }
         realize(cwd, graph, target, previous, (node) => {
           git.pin(ctx.root, journal.id, `nodes/${node.id}`, node.head);
         }, apply);
         graph.combined = verifyComposition(cwd, graph, target,
-          plan.source?.head ?? journal.beforeCombined, apply);
+          plan.action === "absorb" ? plan.source.head : journal.beforeCombined ?? plan.source?.head, apply);
+        if (plan.source) requireValue(git.tree(cwd, graph.combined) === git.tree(cwd, plan.source.head),
+          "Graph is not lossless: reconstructed tree differs from the approved source.");
         graph.targetSha = target;
         validateNodes(ctx, graph, journal, cwd);
         if (plan.publishNodes) {
@@ -1483,7 +1503,7 @@ export function applyPlan(ctx, plan, approval, yes) {
           }, nodeDetails(graph, node));
         }
       }
-      if (SHAPE.has(plan.action)) supersede(ctx, graph, provider, journal);
+      if (SHAPE.has(plan.action) && plan.action !== "absorb") supersede(ctx, graph, provider, journal);
       if (!plan.localOnly && ["publish", "sync", "retarget", "ready", "merge"].includes(plan.action)) {
         refreshFooters(ctx, graph, provider, journal);
       }

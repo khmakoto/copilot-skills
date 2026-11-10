@@ -7,7 +7,7 @@ Use quoted paths, particularly on Windows.
 Read the relevant action reference before preparing a plan:
 
 - [Change specifications and shape commands](change-specs.md): complete graph
-  specs, splitting, adding, dependencies, folding, and removal.
+  specs, splitting, adding, dependencies, folding, removal, and follow-up allocation.
 - [Lifecycle commands](lifecycle-commands.md): publication, sync, retargeting,
   readiness, merging, descriptions, and landing receipts.
 - [Backup and recovery commands](recovery-commands.md): checkpoint, adoption, local graph import,
@@ -22,6 +22,8 @@ node "<helper>" status --repo "<repo>" --graph feature
 node "<helper>" view --repo "<repo>" --graph feature
 node "<helper>" check --repo "<repo>" --graph feature
 node "<helper>" select --repo "<repo>" --graph feature --select "dependents:model"
+node "<helper>" absorb --repo "<repo>" --graph feature --base "<old-combined>" --head "<follow-up>"
+node "<helper>" plan absorb --repo "<repo>" --graph feature --spec "<spec.json>" --out "<new-plan.json>"
 node "<helper>" plan remove-retired --repo "<repo>" --graph feature --node staging --out "<plan.json>"
 ```
 
@@ -29,6 +31,14 @@ Commands emit JSON except `help` and `view`. Failures emit a JSON error to stder
 and exit nonzero. Errors include the retained operation ID when applicable.
 `doctor` is read-only; it does not repair state implicitly.
 `history` and `interdiff` also accept `--format text`; their default is JSON.
+
+`absorb` is read-only hunk/whole-file inventory with retained own-patch and
+dependency provenance, not automatic ownership selection or staging. `plan
+absorb` requires a complete replacement spec, pinned follow-up/expected source,
+and explicit evidence-backed assignments for every unit. It preserves identities
+and edges and applies only after exact approval. Read the
+[allocation contract](change-specs.md#allocate-follow-up-edits-with-absorb)
+before preparing amendments. Publication/readiness remain separate.
 
 ### Graph-relative node selection
 

@@ -109,6 +109,14 @@ Split/fold/dependency transformations compare the old and new combined trees
 on the same target. `remove` deliberately changes the combined tree and needs
 its own approved plan.
 
+`absorb` is a distinct, exact-approved extension for follow-up content. Its
+pinned delta starts at the old combined tree and ends at the expected new full
+tree. Every hunk/indivisible unit has an explicit active owner and rationale;
+per-owner tree checks verify the replacement own change matches that allocation.
+Identities and edges stay fixed, and final composition must equal the approved
+follow-up tree. A split/fold source override cannot authorize new content.
+See [the allocation contract](change-specs.md#allocate-follow-up-edits-with-absorb).
+
 Tree equality is not proof of green builds or a complete semantic dependency
 graph. The agent selects concrete checks from actual repository guidance.
 Every node records either those commands or a specific no-check rationale.
