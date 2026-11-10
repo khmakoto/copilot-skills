@@ -2,7 +2,7 @@
 name: pr-graph
 description: Split a large Git branch into small, independently reviewable changes and manage their multi-parent dependency graph. Create clean blocked draft PRs, add or reshape nodes, sync after prerequisites land, and explicitly ready or merge eligible changes. Supports local Git, GitHub, GitHub Enterprise Server, and Azure DevOps. Use when the user invokes /pr-graph or asks to split work into dependent PRs, manage a PR tree or DAG, or land independent parts of a change.
 compatibility: Requires Node.js 22+ and Git 2.31+. Hosted workflows require authenticated gh or az. Scripts are portable across Linux, macOS, and Windows; no package installation or build step.
-argument-hint: "[--auto] [split | view | select | history | interdiff | export-history | import-history | add | sync | ready | merge | reshape | backup | restore] [repository, graph, or constraints]"
+argument-hint: "[--auto] [split | view | select | history | interdiff | export-history | import-history | add | absorb | sync | ready | merge | reshape | backup | restore] [repository, graph, or constraints]"
 ---
 
 # Pull Request Graph
@@ -134,7 +134,7 @@ renew an old observation or bypass the helper's execution-time freshness gate.
 **Always ask for concrete approval** before merging, removal/deletion/cleanup
 (including `remove`, `remove-retired`, and closing retired PRs), backup uploads,
 backup downloads, restore, `adopt`, `import-graph`, `checkpoint`, `export-history`,
-or `import-history`. Inspect all plan effects: a routine lifecycle
+`import-history`, or `absorb`. Inspect all plan effects: a routine lifecycle
 plan that also uploads an enabled backup needs human approval too. Auto mode never silently disables
 backup to avoid that prompt. Actions not listed as routine above also require
 human approval.
@@ -584,6 +584,25 @@ Use `supersedes` to map replacement nodes to original node IDs.
 Explain retained/new PR identities, superseded drafts, change ownership,
 dependent rewiring, and readiness invalidation. Splitting/folding must preserve
 the combined tree. Removal intentionally changes it and needs its own approval.
+
+For follow-up edits spanning existing owners, use the
+[absorb allocation workflow](references/change-specs.md#allocate-follow-up-edits-with-absorb).
+Select a pinned committed delta based on the old combined tree; do not stage or
+commit dirty user input implicitly. Preservation uses separately approved
+checkpoint/staging. Inventory with `absorb --graph <id> --base <ref> --head <ref>`.
+Inspect hunks against retained own patches, provenance, dependencies and consumer
+behavior, then propose per-unit owners with evidence and rationale. Leave
+ambiguous/shared/new-file, cross-node, binary and landed/retired-associated edits
+unassigned until an explicit decision; never use nearest-line ownership or add
+edges as fact. Prepare `plan absorb` with every unit assigned, complete amended
+own changes and validations, and the expected source including the delta.
+Show preserved identities, affected descendant closure, unchanged edges,
+validation and anticipated publication effects. Obtain human approval of that
+exact plan even in auto mode. Absorb verifies per-owner attribution and exact
+full-tree reconstruction; it preserves identities/edges and performs no hosted,
+readiness or backup writes. Use separate approved restructuring when new nodes
+or edges are needed. Do not repurpose split/fold to add new content or discard
+unassigned edits.
 
 Shape operations update local branches; use a separate approved `publish` or
 `sync` to publish the new realization. Superseded hosted nodes are marked draft

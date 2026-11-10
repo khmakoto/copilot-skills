@@ -51,6 +51,19 @@ Each plan includes a digest, exact changes/commands, local/remote observations,
 and provider payload inputs. The helper verifies approval and freshness.
 Tool permissions and a generic `--yes` are not approval of a changed plan.
 
+Absorb inventories only explicitly selected committed follow-up input; it never
+stages or commits dirty user work. Checkpoint preservation needs its own exact
+approval. The absorb plan pins the delta, every hunk/whole-file assignment,
+ownership evidence, replacement own changes, descendant closure, validations
+and expected full source tree. Ambiguity stays unassigned and blocks application.
+Mutable source references and graph/ref observations are rechecked; altered
+payloads need a new digest. Occupied graph branches are rejected before
+reconstruction and checked again at writes. Attribution conflicts and failed
+validation use the same retained-worktree recovery gates, not silent retries.
+Absorb performs no hosting or backup writes and never authorizes readiness.
+It requires human approval even in auto mode; see
+[the absorb contract](change-specs.md#allocate-follow-up-edits-with-absorb).
+
 The skill's explicit, invocation-scoped
 [`--auto` mode](../SKILL.md#invocation-scoped-auto-mode) authorizes the agent to
 review and approve exact routine in-scope plans and preflight commands without

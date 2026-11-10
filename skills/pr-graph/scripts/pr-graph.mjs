@@ -10,11 +10,13 @@ import { createPlan, applyPlan, inspect, previewSelection } from "./lib/operatio
 import { ProgressReporter, setProgressSink, step } from "./lib/progress.mjs";
 import { history, interdiff, renderHistory, renderInterdiff } from "./lib/history.mjs";
 import { historyArchives } from "./lib/history-archive.mjs";
+import { inspectAbsorb } from "./lib/absorb.mjs";
 
 const HELP = `pr-graph (Node.js 22+, Git 2.31+)
 
 Read-only:
   analyze --base <ref> --head <ref>
+  absorb --graph <id> --base <ref> --head <ref>  Inventory pinned follow-up hunks; no mutations
   status|view|check|doctor --graph <id>
   select --graph <id> --select <selector>
   history --graph <id> --node <id> [--format json|text]
@@ -25,7 +27,7 @@ Read-only:
 
 Prepare a concrete mutation plan:
   plan <action> --graph <id> [--spec <json>] --out <file>
-  Actions: init, split, add, deps, split-node, fold, remove,
+  Actions: init, split, add, deps, split-node, fold, remove, absorb,
            publish, sync, retarget, ready, merge, describe, backup,
            fetch-backup, restore, resolve, reconcile, abort, cleanup, unlock,
            record-landing, adopt, checkpoint, remove-retired, import-graph,
@@ -33,6 +35,7 @@ Prepare a concrete mutation plan:
   export-history|import-history --archive <file>  Separately approved evidence-only local transfer
   import-graph --source-repo <path>  Recover changed DAG shape from another verified local clone
   adopt --spec <json>         Local-only adoption of verified external PR rewrites
+  absorb --spec <json>        Local-only exact allocation of pinned follow-up edits; preserves identities/edges
   checkpoint --spec <json>    Preserve staged source on a new local branch and release its occupied graph branch
   remove-retired --node <id>  Remove retired unpublished node metadata, preserving all Git refs and files
   --node <id>                 Select ready/merge/describe node
@@ -119,6 +122,9 @@ function execute(flags, command, action) {
   if (command === "history-archives") {
     requireValue(flags.graph, "Select --graph explicitly.");
     result = historyArchives(ctx, flags.graph);
+  } else if (command === "absorb") {
+    requireValue(flags.graph && flags.base && flags.head, "Absorb requires --graph, --base and --head.");
+    result = inspectAbsorb(ctx, flags.graph, flags.base, flags.head);
   } else if (command === "select") {
     requireValue(flags.graph && flags.select, "Select requires --graph and --select.");
     result = previewSelection(ctx, flags.graph, flags.select);
