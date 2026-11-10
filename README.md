@@ -36,7 +36,8 @@ explicit invocation.
 | [`unslop`](docs/skills.md#unslop)                     | Edit writing with Cursor's upstream unslop rules. Fetch the rules on each explicit invocation.                                            |
 
 See the [skill guide](docs/skills.md) for invocation examples, detailed behavior,
-requirements, and safety boundaries.
+requirements, and safety boundaries, with extended coverage in the
+[`pr-graph` guide](docs/pr-graph.md).
 
 ## Prompts
 
