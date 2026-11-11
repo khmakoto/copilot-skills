@@ -16,12 +16,17 @@ import { createImportPlan, applyImportPlan } from "./import.mjs";
 import { createHistoryTransferPlan, applyHistoryTransferPlan } from "./history-archive.mjs";
 import { nodeDetails, step } from "./progress.mjs";
 import { planAbsorb, verifyAbsorb } from "./absorb.mjs";
+import {
+  loadPolicy, effectivePolicy, createPolicyPlan, applyPolicyPlan, outboundScope,
+  assertOutbound, checkOutbound, mergePolicies,
+} from "./publication.mjs";
 
 const SHAPE = new Set(["init", "split", "add", "deps", "split-node", "fold", "remove", "absorb"]);
 const FORWARD_TARGET = new Set(["retarget", "describe"]);
 const ACTIONS = new Set([...SHAPE, "publish", "sync", "retarget", "ready", "merge", "backup",
   "fetch-backup", "restore", "resolve", "abort", "cleanup", "describe", "reconcile", "unlock",
-  "record-landing", "adopt", "checkpoint", "remove-retired", "import-graph", "export-history", "import-history"]);
+  "record-landing", "adopt", "checkpoint", "remove-retired", "import-graph", "export-history", "import-history",
+  "publication-policy"]);
 
 const now = (ctx) => ctx.now?.() ?? Date.now();
 
@@ -143,6 +148,7 @@ function normalizeSpec(ctx, spec, previous) {
   const graph = {
     version: VERSION, id: spec.id, title: spec.title ?? previous?.title ?? spec.id,
     revision: previous?.revision ?? 0, ...(previous?.source ? { source: previous.source } : {}),
+    ...(previous?.publicationPolicy ? { publicationPolicy: structuredClone(previous.publicationPolicy) } : {}),
     repository: { identity: identity(remote.url, config, ctx.root), remote: remote.name, url: remote.url, provider: config },
     target, nodes: [], ...(previous?.integration ? { integration: previous.integration } : {}),
     helperBranchPrefix: spec.helperBranchPrefix ?? previous?.helperBranchPrefix ?? `pr-graph/${spec.id}/bases`,
@@ -452,6 +458,23 @@ function validatePublicationNodes(graph, nodes, facts, target) {
 }
 
 export function createPlan(ctx, action, options = {}) {
+  const { approval, ...plan } = preparePlan(ctx, action, options);
+  const id = plan.graph?.id ?? plan.graphId;
+  if (id) {
+    plan.publicationPolicy = loadPolicy(ctx, id);
+    plan.publicationPolicyDigest = digest(plan.publicationPolicy);
+    plan.outboundScope = action === "export-history" ? [{
+      route: "history-export", roots: plan.archive.roots, nodes: plan.archive.timelines.map((t) => t.node),
+      metadata: [plan.archive.timelines], policyEvidence: true,
+    }] : outboundScope(plan);
+    if (plan.outboundScope.length) {
+      assertOutbound(ctx, effectivePolicy(ctx, id, plan.graph), plan.outboundScope);
+    }
+  }
+  return seal(plan);
+}
+
+function preparePlan(ctx, action, options = {}) {
   requireValue(ACTIONS.has(action), `Unknown action: ${action}`);
   requireValue(options.selector === undefined || (action === "publish" &&
     options.publishNodes === undefined && options.node === undefined && options.spec === undefined),
@@ -468,6 +491,7 @@ export function createPlan(ctx, action, options = {}) {
     (action === "adopt" && typeof options.landingsOnly === "boolean"),
   "Landing-only mode is supported only for adopt and must be boolean.");
   const localOnly = options.localOnly === true;
+  if (action === "publication-policy") return createPolicyPlan(ctx, options);
   requireValue(options.reuseWorktree === undefined || ["add", "fold", "sync", "publish", "retarget"].includes(action),
     "Worktree reuse is supported only for add, fold, sync, publish, and retarget.");
   if (options.commitTrailers !== undefined) {
@@ -1022,6 +1046,10 @@ function push(ctx, graph, entries, plan, journal) {
   requireValue(graph.repository.remote, "Publishing requires a remote.");
   const pending = entries.filter(([branch, sha]) => (journal.remote[branch] ?? plan.facts.remote[branch] ?? null) !== sha);
   if (!pending.length) return;
+  checkOutbound(ctx, plan, graph);
+  assertOutbound(ctx, effectivePolicy(ctx, graph.id, graph), pending.map(([branch, sha]) => ({
+    route: `ref:${branch}`, roots: [sha], nodes: [], metadata: [branch],
+  })));
   const nodes = graph.nodes.filter((n) => pending.some(([b]) => b === n.branch || b === n.baseBranch));
   return step(`Pushing ${pending.length} branch ref(s) and verifying remote readback`, () => {
     const leases = pending.map(([b]) => `--force-with-lease=refs/heads/${b}:${journal.remote[b] ?? plan.facts.remote[b] ?? ""}`);
@@ -1033,6 +1061,7 @@ function push(ctx, graph, entries, plan, journal) {
       requireValue(/does not support.*atomic|does not support --atomic/i.test(result.stderr) && plan.allowNonAtomic,
         `Push failed; no success is assumed: ${result.stderr}`);
       for (let i = 0; i < pending.length; i++) {
+        checkOutbound(ctx, plan, graph);
         git.out(ctx.root, ["push", leases[i], "--", graph.repository.remote, refs[i]]);
         journal.remote[pending[i][0]] = pending[i][1];
         saveJournal(ctx, journal);
@@ -1083,6 +1112,7 @@ function verifyPr(ctx, graph, node, provider) {
 }
 
 function publish(ctx, graph, provider, plan, journal) {
+  checkOutbound(ctx, plan, graph);
   const active = topological(graph).filter((n) => !n.landing && !n.retired &&
     (plan.action === "publish" || n.pr) && (!plan.publishNodes || plan.publishNodes.includes(n.id)));
   for (const node of active) {
@@ -1092,6 +1122,7 @@ function publish(ctx, graph, provider, plan, journal) {
         journal.providerStarted = true;
         journal.remoteStarted = true;
         saveJournal(ctx, journal);
+        checkOutbound(ctx, plan, graph);
         node.pr = provider.update(node.pr.id, { draft: true });
         requireValue(node.pr.draft, "Cannot publish blocked content until the PR is draft.");
         journal.prs[node.id] = node.pr;
@@ -1118,6 +1149,9 @@ function publish(ctx, graph, provider, plan, journal) {
       verifyIntegration(ctx, plan, journal,
         git.remoteRefs(ctx.root, graph.repository.remote)[`refs/heads/${graph.target}`]);
       const body = updateFooter(node.pr?.body ?? node.description, footer(graph, node));
+      assertOutbound(ctx, effectivePolicy(ctx, graph.id, graph), [{
+        route: `pr:${node.id}`, roots: [], nodes: [node.id], metadata: [node.title, body],
+      }]);
       const found = node.pr ?? provider.find(node.branch);
       if (found && !node.pr) {
         requireValue(found.body.includes(`Graph: \`${graph.id}\` / node: \`${node.id}\``),
@@ -1126,6 +1160,7 @@ function publish(ctx, graph, provider, plan, journal) {
       journal.remoteStarted = true;
       journal.providerStarted = true;
       saveJournal(ctx, journal);
+      checkOutbound(ctx, plan, graph);
       node.pr = found
         ? provider.update(found.id, { baseBranch: node.baseBranch, body, ...(node.requiresDraft ? { draft: true } : {}) })
         : provider.create(node, body);
@@ -1245,6 +1280,7 @@ function mergeNode(ctx, graph, node, provider, plan, journal, cwd) {
     requireValue(remote[`refs/heads/${graph.target}`] === plan.target, "Integration target changed before merge; replan.");
     journal.providerStarted = true;
     saveJournal(ctx, journal);
+    checkOutbound(ctx, plan, graph);
     const merged = provider.merge(node.pr.id, node.head, plan.strategy);
     requireValue(merged.state === "merged" && merged.baseBranch === graph.target, "Provider has not completed the intended merge.");
     node.pr = merged;
@@ -1273,8 +1309,13 @@ function supersede(ctx, graph, provider, journal) {
       journal.providerStarted = true;
       saveJournal(ctx, journal);
       const current = provider.get(node.pr.id);
+      const body = updateFooter(current.body, footer(graph, { ...node, baseBranch: current.baseBranch }));
+      checkOutbound(ctx, journal.plan, graph);
+      assertOutbound(ctx, effectivePolicy(ctx, graph.id, graph), [{
+        route: `supersede:${node.id}`, roots: [], nodes: [node.id, ...(node.replacedBy ?? [])], metadata: [body],
+      }]);
       node.pr = provider.update(node.pr.id, {
-        draft: true, body: updateFooter(current.body, footer(graph, { ...node, baseBranch: current.baseBranch })),
+        draft: true, body,
       });
       journal.prs[node.id] = node.pr;
       saveJournal(ctx, journal);
@@ -1300,6 +1341,10 @@ function refreshFooters(ctx, graph, provider, journal) {
       }
       const body = updateFooter(current.body, footer(graph, { ...node, baseBranch: current.baseBranch }));
       if (body !== current.body) {
+        checkOutbound(ctx, journal.plan, graph);
+        assertOutbound(ctx, effectivePolicy(ctx, graph.id, graph), [{
+          route: `footer:${node.id}`, roots: [], nodes: [node.id, ...node.dependencies], metadata: [body],
+        }]);
         journal.remoteStarted = true;
         journal.providerStarted = true;
         saveJournal(ctx, journal);
@@ -1350,6 +1395,29 @@ export function applyPlan(ctx, plan, approval, yes) {
     return { unlocked: owner };
   }
   return state.lock(ctx, () => {
+    const policyGraph = plan.graph?.id ?? plan.graphId;
+    if (policyGraph) {
+      const currentPolicy = digest(loadPolicy(ctx, policyGraph));
+      const importedPolicy = plan.action === "import-history" &&
+        digest(mergePolicies(plan.publicationPolicy, plan.archive.publicationPolicy)) === currentPolicy;
+      const importedJournal = plan.action === "import-graph"
+        ? state.readJson(state.journalFile(ctx, plan.approval), true) : null;
+      const importedGraph = importedJournal?.candidate;
+      const completedImport = importedGraph?.publicationPolicy && digest(importedGraph.publicationPolicy) === currentPolicy &&
+        digest(state.load(ctx, policyGraph)) === digest(importedGraph);
+      requireValue(plan.publicationPolicyDigest === digest(plan.publicationPolicy) &&
+        (plan.publicationPolicyDigest === currentPolicy || importedPolicy || completedImport),
+        "Publication policy changed; create a fresh plan. Prior outbound effects, if any, are not assumed absent.");
+      const expectedScope = plan.action === "export-history" ? [{
+        route: "history-export", roots: plan.archive.roots, nodes: plan.archive.timelines.map((t) => t.node),
+        metadata: [plan.archive.timelines], policyEvidence: true,
+      }] : outboundScope(plan);
+      requireValue(digest(plan.outboundScope) === digest(expectedScope), "Outbound payload scope changed; replan.");
+      if (expectedScope.length) {
+        assertOutbound(ctx, effectivePolicy(ctx, policyGraph, plan.graph), expectedScope);
+      }
+    }
+    if (plan.action === "publication-policy") return applyPolicyPlan(ctx, plan);
     if (["export-history", "import-history"].includes(plan.action)) return applyHistoryTransferPlan(ctx, plan);
     if (plan.action === "import-graph") return step("Importing approved local DAG snapshot", () => applyImportPlan(ctx, plan));
     if (plan.action === "adopt") return step("Recovering approved external graph identities", () => applyAdoptionPlan(ctx, plan));
@@ -1461,9 +1529,18 @@ export function applyPlan(ctx, plan, approval, yes) {
         }
         journal.candidate = graph;
         saveJournal(ctx, journal);
+        checkOutbound(ctx, plan, graph);
+        const realizedScope = outboundScope(plan, graph);
+        const publicationScope = (scope) => scope.filter((s) => /^(?:product|helper):/.test(s.route));
+        requireValue(!journal.outboundScope ||
+          digest(publicationScope(journal.outboundScope)) === digest(publicationScope(realizedScope)),
+        "Realized outbound payload changed during continuation; stop and reconcile before replanning.");
+        journal.outboundScope = realizedScope;
+        saveJournal(ctx, journal);
         verifyFacts(ctx, plan, provider, journal);
         writeLocal(ctx, graph, plan, journal);
       }
+      checkOutbound(ctx, plan, graph);
       if (!plan.localOnly && ["sync", "publish", "retarget"].includes(plan.action)) publish(ctx, graph, provider, plan, journal);
       if (plan.action === "ready") {
         const node = nodeById(graph, plan.node);
@@ -1476,6 +1553,7 @@ export function applyPlan(ctx, plan, approval, yes) {
             journal.remoteStarted = true;
             journal.providerStarted = true;
             saveJournal(ctx, journal);
+            checkOutbound(ctx, plan, graph);
             node.pr = provider.update(node.pr.id, { draft: false });
             requireValue(!node.pr.draft, "Provider did not promote the draft.");
             journal.prs[node.id] = node.pr;
@@ -1501,6 +1579,10 @@ export function applyPlan(ctx, plan, approval, yes) {
             journal.providerStarted = true;
             saveJournal(ctx, journal);
             const body = updateFooter(description, footer(graph, node));
+            checkOutbound(ctx, plan, graph);
+            assertOutbound(ctx, effectivePolicy(ctx, graph.id, graph), [{
+              route: `describe:${id}`, roots: [], nodes: [id], metadata: [body],
+            }]);
             node.pr = provider.update(node.pr.id, { body });
             requireValue(node.pr.body === body, "Description update mismatch.");
             node.description = description;

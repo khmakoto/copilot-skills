@@ -5,6 +5,7 @@ import { digest, requireValue } from "./graph.mjs";
 import * as git from "./git.mjs";
 import * as state from "./state.mjs";
 import { history } from "./history.mjs";
+import { loadPolicy, validatePolicy, importPolicy, effectivePolicy, assertOutbound } from "./publication.mjs";
 
 const HEX = /^[0-9a-f]{64}$/;
 const ID = /^[a-z0-9][a-z0-9-]*$/;
@@ -176,6 +177,8 @@ export function createHistoryTransferPlan(ctx, action, options) {
     createdAt: ctx.now?.() ?? Date.now(), objectFormat: format,
     graphs: [...new Set(graphs.map((g) => digest(g)))].sort(),
     roots, objects: payload.objects, pack: payload.pack, timelines,
+    ...(loadPolicy(ctx, options.graph).exclusions.length
+      ? { publicationPolicy: loadPolicy(ctx, options.graph) } : {}),
     completeness: { objects: !payload.missing.length, evidence: !gaps.length,
       missingObjects: payload.missing, gaps },
   };
@@ -234,7 +237,9 @@ function validateSnapshot(value, sha) {
 
 function validateMetadata(archive, graph) {
   exact(archive, ["format", "version", "graph", "identity", "origin", "createdAt", "objectFormat",
-    "graphs", "roots", "objects", "pack", "timelines", "completeness", "id"], "Unsupported archive schema.");
+    "graphs", "roots", "objects", "pack", "timelines", "completeness", "id",
+    ...(archive.publicationPolicy === undefined ? [] : ["publicationPolicy"])], "Unsupported archive schema.");
+  if (archive.publicationPolicy !== undefined) validatePolicy(archive.publicationPolicy);
   const { id, ...payload } = archive;
   requireValue(archive.format === "pr-graph-history" && archive.version === 1,
     "Unsupported history archive format/version.");
@@ -425,6 +430,9 @@ export function applyHistoryTransferPlan(ctx, plan) {
       "History origin changed; replan export.");
     validateArchive(ctx, archive, plan.graphId);
     requireValue(!fs.existsSync(plan.archivePath), "Archive output appeared; do not overwrite it.");
+    requireValue(digest(loadPolicy(ctx, plan.graphId)) === plan.publicationPolicyDigest,
+      "Publication policy changed; replan history export.");
+    assertOutbound(ctx, effectivePolicy(ctx, plan.graphId), plan.outboundScope);
     // Exclusive creation avoids replacing an existing archive even after approval.
     const fd = fs.openSync(plan.archivePath, "wx", 0o600);
     try {
@@ -442,6 +450,7 @@ export function applyHistoryTransferPlan(ctx, plan) {
     digest(state.readJson(plan.archivePath)) === digest(archive), "History archive changed; replan import.");
   validateArchive(ctx, archive, plan.graphId);
   checkConflicts(ctx, archive);
+  importPolicy(ctx, plan.graphId, archive.publicationPolicy);
   const file = archiveFile(ctx, archive.graph, archive.id);
   const existing = state.readJson(file, true);
   requireValue(!existing || digest(existing) === digest(archive), "Conflicting existing archive.");

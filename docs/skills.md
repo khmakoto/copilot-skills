@@ -140,19 +140,31 @@ dependency graph in local Git, GitHub, GitHub Enterprise Server, or Azure DevOps
 
 All published nodes start as drafts. Blocked drafts use helper integration
 bases to show only their own changes. A node becomes eligible for review after
-every prerequisite lands. Mutations require exact-plan approval; `--auto` lets
-the agent approve in-scope routine plans and narrowly conditioned recovery,
-follow-up allocation, retired metadata removal and previously authorized backup
-effects. Narrow allowances also cover verified retained-ref publication aborts,
-requested landing-only adoption without source rewrites, and receipt-backed
-replay of unchanged setup explicitly approved in the same task and invocation.
-History transfers need a separate invocation-scoped opt-in. Merging,
-source/ref/worktree deletion, restore, general adoption, graph import, checkpoint,
-new setup and new conflict fixes still need human approval. Uncertainty pauses
-the workflow; digests and safety checks are never bypassed.
+every prerequisite lands. Mutations require approval of the exact plan.
+`--auto` lets the agent approve routine plans within the task. Conditional
+allowances cover recovery, requested follow-up allocation, requested retired
+metadata removal, and backup effects the user previously authorized.
+
+The agent may also abort verified publication attempts while retaining refs,
+or adopt requested landings without source rewrites. It may repeat unchanged
+setup only when receipts prove successful execution and explicit approval in
+the same task and invocation.
+
+History transfers require separate permission for the current invocation.
+The user must still approve merges and deletion of source, refs, or worktrees.
+Restore, general adoption, graph import, checkpoint, new setup, and new conflict
+fixes also require human approval.
+The agent pauses when outcomes are uncertain. It never bypasses digests or safety
+checks.
+
+Explicit graph-scoped publication exclusions protect local-only node lineage,
+retained versions, and metadata in product refs, helper refs, backups, and history
+exports. The user must separately approve the release of an exclusion, even in
+auto mode. These exclusions do not detect secrets or protect against external
+tools. See the [policy contract](../skills/pr-graph/references/publication-exclusions.md).
 
 ```text
-/pr-graph [--auto] [split | view | select | history | interdiff | export-history | import-history | add | absorb | sync | retarget | ready | merge | describe | reshape | adopt | import-graph | checkpoint | remove-retired | backup | restore]
+/pr-graph [--auto] [split | view | select | history | interdiff | export-history | import-history | publication-policy | add | absorb | sync | retarget | ready | merge | describe | reshape | adopt | import-graph | checkpoint | remove-retired | backup | restore]
 ```
 
 The helper requires Node.js 22+ and Git 2.31+. Hosted operations also require

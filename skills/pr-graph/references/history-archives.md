@@ -7,6 +7,14 @@ unless the separate invocation-scoped transfer authorization below applies.
 `--auto` alone is not transfer authorization. Never upload an archive as part of
 ordinary publication.
 
+[Publication exclusions](publication-exclusions.md) apply to the complete export,
+including obsolete/retired content and metadata, not merely current nodes.
+An active exclusion blocks an export containing its evidence before an archive
+is written. Neither transfer opt-in nor prior exposure releases it. Plans and
+apply pin/recheck policy and archive scope. Archives may carry a policy ledger;
+import unions active restrictions without importing authority to release any
+destination exclusion.
+
 ## Invocation-scoped transfer authorization
 
 In auto mode, the user may separately authorize a specified export/import for
@@ -77,6 +85,7 @@ Version 1 is a single JSON object with `format: "pr-graph-history"`:
 | `graphs`, `timelines`       | Original graph-snapshot digests and evidence-only node/graph projections, before/after version references, explicit split/fold lineage, candidate/persisted distinctions, operation statuses, and historical publication/validation receipts. |
 | `roots`, `objects`, `pack`  | Sorted full object IDs and a base64, self-contained, non-thin Git pack. Retains commit ancestry, trees and blobs, including obsolete versions unreachable from product refs.                                                                  |
 | `completeness`              | Separate object/evidence completeness, missing-object IDs, and explicit evidence gaps.                                                                                                                                                        |
+| `publicationPolicy`         | Optional versioned exclusion ledger and retained release evidence. Active restrictions are imported; release receipts do not authorize destination relaxation.                                                                                |
 
 Version IDs retain their exact originating graph-digest/node identities.
 Graph projections contain target, integration and prerequisite snapshots;
@@ -136,6 +145,8 @@ renew current checks, readiness, integration freshness or merge safety.
 Import writes only the validated Git pack, retention refs under
 `refs/pr-graph/archives/<graph>/<archive-digest>/<root>`, and an immutable evidence
 JSON file under `<git-common-dir>/pr-graph/history-archives/<graph>/`.
+When present, policy data also merges into the clone-local publication-policy
+ledger. It does not import permission to disclose.
 It does not move product refs, edit graphs, change user files/indexes, register
 worktrees, modify existing approvals or recovery journals, run imported
 commands, or change hosting. Imported JSON also retains the self-contained pack.

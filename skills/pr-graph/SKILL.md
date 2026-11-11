@@ -2,7 +2,7 @@
 name: pr-graph
 description: Split a large Git branch into small, independently reviewable changes and manage their multi-parent dependency graph. Create clean blocked draft PRs, add or reshape nodes, sync after prerequisites land, and explicitly ready or merge eligible changes. Supports local Git, GitHub, GitHub Enterprise Server, and Azure DevOps. Use when the user invokes /pr-graph or asks to split work into dependent PRs, manage a PR tree or DAG, or land independent parts of a change.
 compatibility: Requires Node.js 22+ and Git 2.31+. Hosted workflows require authenticated gh or az. Scripts are portable across Linux, macOS, and Windows; no package installation or build step.
-argument-hint: "[--auto] [split | view | select | history | interdiff | export-history | import-history | add | absorb | sync | ready | merge | reshape | backup | restore] [repository, graph, or constraints]"
+argument-hint: "[--auto] [split | view | select | history | interdiff | export-history | import-history | publication-policy | add | absorb | sync | ready | merge | reshape | backup | restore] [repository, graph, or constraints]"
 ---
 
 # Pull Request Graph
@@ -69,6 +69,19 @@ Review the resolved IDs, prerequisite/helper-base requirements, validation and
 backup effects in the exact plan. Apply/continue retain its pinned IDs and
 observations; drift requires a new plan. Dependency eligibility is not
 validation, readiness, or provider-policy success, and selection is not authorization.
+
+For intentionally local-only content, read and use the
+[publication exclusion contract](references/publication-exclusions.md).
+Selection alone is not protection: excluded node lineage and retained historical
+content can reach product/helper refs, hosted metadata, enabled backups or history
+exports. Use separately approved `publication-policy` plans; review the pinned
+policy and complete outbound scope. Never evade a block by omitting prerequisites,
+rewriting approved trees/history, disabling backup or weakening reconstruction.
+Local inspection/reconstruction is distinct from outbound transfer. Blocks name
+the exclusion and route without source text; uncertain prior effects still need
+readback. Incoming restrictions persist through supported transfers, not incoming
+release authority. Do not promise secret detection, retroactive retraction or
+protection against external tools.
 
 The helper is not a server-side dependency policy. It refuses unsafe readiness
 and merges, and detects observable external bypasses; it cannot prevent all
@@ -205,7 +218,8 @@ For an interrupted operation, establish its recovery constraints first. Never
 renew an old observation or bypass the helper's execution-time freshness gate.
 
 **Always ask for concrete approval** before merging, source removal (`remove`),
-branch/worktree deletion or cleanup, closing retired PRs, restore, `adopt`,
+branch/worktree deletion or cleanup, closing retired PRs, publication-policy
+changes (especially exclusion release/relaxation), restore, `adopt`,
 `import-graph`, or `checkpoint`, except for the narrow landing-only adoption
 allowance above. Ask before new conflict resolutions, installations, or fixes
 for failed checks/hooks, except for verified setup replay above and the

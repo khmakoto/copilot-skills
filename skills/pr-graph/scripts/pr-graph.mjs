@@ -31,7 +31,8 @@ Prepare a concrete mutation plan:
            publish, sync, retarget, ready, merge, describe, backup,
            fetch-backup, restore, resolve, reconcile, abort, cleanup, unlock,
            record-landing, adopt, checkpoint, remove-retired, import-graph,
-           export-history, import-history
+           export-history, import-history, publication-policy
+  publication-policy --spec <json>  Approved local exclude/release lists and reason; preserves lineage evidence
   export-history|import-history --archive <file>  Separately approved evidence-only local transfer
   import-graph --source-repo <path>  Recover changed DAG shape from another verified local clone
   adopt --spec <json>         Local-only adoption of verified external PR rewrites

@@ -10,3 +10,6 @@ conditions are met. Review and save exact plans and apply them with
 `--yes --approve <digest>` without asking again for authorized effects.
 Preserve the skill's task-scope limits, prerequisite evidence, separate-request
 and history-transfer opt-in requirements, and remaining human-approval gates.
+Preserve publication exclusions across lineage and retained history. A blocked
+outbound scope is not permission to release an exclusion, disable backup, or
+rewrite approved content; policy relaxation still requires human approval.

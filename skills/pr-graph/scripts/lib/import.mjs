@@ -5,6 +5,7 @@ import { digest, requireValue, eligible, helperBranch } from "./graph.mjs";
 import { identity, resolveProvider, providerFor } from "./providers/index.mjs";
 import { normalizeChange } from "./changes.mjs";
 import { step, nodeDetails } from "./progress.mjs";
+import { effectivePolicy, loadPolicy } from "./publication.mjs";
 
 const shaPattern = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
 
@@ -89,6 +90,8 @@ export function createImportPlan(ctx, options) {
   requireValue(git.ancestor(source.root, previous.targetSha, incoming.targetSha),
     "Imported integration snapshot does not descend from the previous snapshot.");
   const graph = structuredClone(incoming);
+  const incomingPolicy = effectivePolicy(source, incoming.id, incoming);
+  if (incomingPolicy.exclusions.length) graph.publicationPolicy = incomingPolicy;
   graph.repository = structuredClone(previous.repository);
   graph.backup = structuredClone(previous.backup);
   requireValue(previous.nodes.filter((n) => !graph.nodes.some((other) => other.id === n.id))
@@ -165,6 +168,7 @@ export function createImportPlan(ctx, options) {
     action: "import-graph", repository: ctx.root, common: ctx.common,
     previous, previousDigest: digest(previous), graph, source,
     sourceDigest: digest(incoming), pins, facts, updates: changes,
+    sourcePolicyDigest: digest(loadPolicy(source, incoming.id)),
     omittedNodes: previous.nodes.filter((n) => !graph.nodes.some((other) => other.id === n.id)).map((n) => n.id),
     effects: [
       `Import the exact graph manifest from ${source.root}; replace DAG shape without reconstructing source.`,
@@ -199,6 +203,8 @@ export function applyImportPlan(ctx, plan) {
   requireValue(!fs.existsSync(`${source.dir}/mutation.lock`), "Source graph is locked.");
   requireValue(digest(state.load(source, plan.graph.id)) === plan.sourceDigest,
     "Source graph changed; replan import.");
+  requireValue(digest(loadPolicy(source, plan.graph.id)) === plan.sourcePolicyDigest,
+    "Source publication policy changed; replan import.");
   for (const node of plan.graph.nodes) {
     requireValue(git.refId(source.root, `refs/heads/${node.branch}`) === node.head,
       `Source node branch changed: ${node.id}`);
