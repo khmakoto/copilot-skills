@@ -464,6 +464,9 @@ export function createPlan(ctx, action, options = {}) {
   requireValue(options.localOnly === undefined ||
     (action === "sync" && typeof options.localOnly === "boolean"),
   "Local-only mode is supported only for sync and must be boolean.");
+  requireValue(options.landingsOnly === undefined ||
+    (action === "adopt" && typeof options.landingsOnly === "boolean"),
+  "Landing-only mode is supported only for adopt and must be boolean.");
   const localOnly = options.localOnly === true;
   requireValue(options.reuseWorktree === undefined || ["add", "fold", "sync", "publish", "retarget"].includes(action),
     "Worktree reuse is supported only for add, fold, sync, publish, and retarget.");
@@ -1334,6 +1337,9 @@ export function applyPlan(ctx, plan, approval, yes) {
   requireValue(plan.localOnly === undefined ||
     (plan.action === "sync" && plan.localOnly === true),
   "Local-only mode is supported only for sync.");
+  requireValue(plan.landingsOnly === undefined ||
+    (plan.action === "adopt" && plan.landingsOnly === true),
+  "Landing-only mode is supported only for adopt.");
   requireValue(plan.repository === ctx.root && plan.common === ctx.common, "Plan belongs to another checkout.");
   if (plan.action === "unlock") {
     const file = path.join(ctx.dir, "mutation.lock");

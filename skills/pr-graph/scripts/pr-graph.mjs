@@ -35,6 +35,7 @@ Prepare a concrete mutation plan:
   export-history|import-history --archive <file>  Separately approved evidence-only local transfer
   import-graph --source-repo <path>  Recover changed DAG shape from another verified local clone
   adopt --spec <json>         Local-only adoption of verified external PR rewrites
+  --landings-only             Adopt only new provider-confirmed landings; preserve source identities and refs
   absorb --spec <json>        Local-only exact allocation of pinned follow-up edits; preserves identities/edges
   checkpoint --spec <json>    Preserve staged source on a new local branch and release its occupied graph branch
   remove-retired --node <id>  Remove retired unpublished node metadata, preserving all Git refs and files
@@ -70,7 +71,7 @@ Plans contain code/payloads; keep them outside the product working tree.
 function args(argv) {
   const flags = {};
   const positional = [];
-  const boolean = new Set(["yes", "allow-non-atomic", "retain-published-refs", "quiet", "local-only"]);
+  const boolean = new Set(["yes", "allow-non-atomic", "retain-published-refs", "quiet", "local-only", "landings-only"]);
   const known = new Set(["repo", "graph", "spec", "out", "node", "strategy", "remote",
     "backup-ref", "backup-branch", "operation", "body-file", "plan", "approve", "base", "head", "landing",
     "fetch-observation", "commit-trailers-file", "reuse-worktree", "nodes", "source-repo",
@@ -117,6 +118,8 @@ function execute(flags, command, action) {
   "Use --select only with select or plan publish; do not combine with --nodes, --node, or --spec.");
   requireValue(flags["local-only"] === undefined || (command === "plan" && action === "sync"),
     "Use --local-only only when planning sync; apply and continue use the approved plan's mode.");
+  requireValue(flags["landings-only"] === undefined || (command === "plan" && action === "adopt"),
+    "Use --landings-only only when planning adopt; apply and continue use the approved plan's mode.");
   const ctx = step("Locating repository", () => git.context(flags.repo ?? process.cwd()));
   let result;
   if (command === "history-archives") {
@@ -178,6 +181,7 @@ function execute(flags, command, action) {
       retainPublishedRefs: flags["retain-published-refs"],
       reuseWorktree: flags["reuse-worktree"],
       localOnly: flags["local-only"],
+      landingsOnly: flags["landings-only"],
       fetchObservation: flags["fetch-observation"] ? state.readJson(path.resolve(flags["fetch-observation"])) : undefined,
       commitTrailers: flags["commit-trailers-file"] ? state.readJson(path.resolve(flags["commit-trailers-file"])) : undefined,
       body: flags["body-file"] ? fs.readFileSync(path.resolve(flags["body-file"]), "utf8") : undefined,

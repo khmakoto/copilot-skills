@@ -87,9 +87,10 @@ claiming source freshness or lossless prerequisite composition. See
 [external graph recovery](safety-and-recovery.md#adopting-external-graph-recovery)
 for the limited read-only comparison exception and interrupted-apply handling.
 
-Both `adopt` and `checkpoint` require human approval even in auto mode and reject
-`--fetch-observation`; neither extends or bypasses freshness for normal graph
-operations. Apply the saved plan with the normal `--yes --approve <digest>`
+General `adopt` and `checkpoint` require human approval even in auto mode.
+Requested landing-only adoption may use the conditional policy below. All three
+reject `--fetch-observation`; none extends or bypasses freshness for normal
+graph operations. Apply the saved plan with the normal `--yes --approve <digest>`
 contract. Retry an interrupted preservation/recovery only after inspecting its
 journal, using `continue` with the original operation and approval digest.
 
@@ -105,6 +106,47 @@ and their active descendants, and combined/source caches are cleared. This
 does not reconstruct or publish descendants or claim current integration
 freshness. Retired nodes without a PR may be retained in complete adoption;
 their snapshots remain immutable.
+
+### Landing-only adoption
+
+```text
+node "<helper>" plan adopt --landings-only --repo "<repo>" --graph feature --spec "<landings.json>" --out "<plan.json>"
+```
+
+The spec contains `id`, a full fetched `targetSnapshot`, and a nonempty `nodes`
+subset of newly merged nodes. Each entry supplies the unchanged recorded `head`,
+`base`, `baseBranch`, and the provider-confirmed `landing` commit. Do not combine
+this mode with `"selective": false` or a `helperBranchPrefix`. For example:
+
+```json
+{
+  "id": "feature",
+  "targetSnapshot": "<full integration snapshot SHA>",
+  "nodes": [
+    { "id": "model", "head": "<unchanged head SHA>", "base": "<unchanged base SHA>",
+      "baseBranch": "main", "landing": "<provider landing SHA>" }
+  ]
+}
+```
+
+Unlike general or selective adoption, the helper preserves every owned delta
+and refuses source identity changes or local branch repair. Selected PRs must
+be newly merged into the graph's intended target in prerequisite order.
+Unselected hosted identities must remain consistent; all active local source
+and prerequisite refs must match their recorded snapshots. Merged remote source
+refs may be deleted or retain the unchanged head. The pinned target must contain
+the landings and remain on the live target's forward history, rechecked on apply.
+No existing branch refs move; history pins and the previous manifest are retained.
+Validation/readiness is cleared for selected nodes and active descendants, and
+combined/source caches are cleared. This does not establish integration
+freshness, composition, validation or publication.
+
+Auto mode may approve the exact plan only when the user requested recording
+these identified landings. Any rewritten submission, unrelated identity change,
+or failure of this mode's checks needs human-approved recovery; do not silently
+fall back to general adoption.
+
+### Backup and interrupted-operation commands
 
 See [safety and recovery](safety-and-recovery.md) for complete instructions.
 
@@ -138,8 +180,14 @@ history; an enabled/restored manifest alone is insufficient. Requested
 another prompt. Neither allowance authorizes restore. Exact-effect `reconcile`,
 dead-owner `unlock`, and local `abort` for replanning with no remote effects may
 also use the [conditional policy](../SKILL.md#conditional-auto-approvals).
-Keep manual approval for `abort --retain-published-refs`, uncertain or unexpected
-effects, and all cleanup.
+Verified `abort --retain-published-refs` may also use that policy only for
+replanning the original interrupted first publication, with no PR/provider
+effects or pending patch and unchanged graph/local refs. Every remote ref must
+match its original or exact approved candidate; apply rechecks the readback.
+It preserves all refs and resources and does not authorize a new namespace,
+publication payload or cleanup. Keep manual approval for uncertain or unexpected
+effects and all cleanup. Approved setup replay is an agent-side
+[receipt workflow](setup-replay.md), not a helper installation command.
 
 Cleanup requires a finished or locally aborted operation and a precise spec:
 
