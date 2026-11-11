@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { validatePolicy } from "./publication.mjs";
 
 /**
  * @typedef {{base: string, head: string|null, patch: string, fingerprint: string}} OwnChange
@@ -53,6 +54,7 @@ export function digest(value) {
 }
 
 export function validateGraph(graph) {
+  if (graph?.publicationPolicy !== undefined) validatePolicy(graph.publicationPolicy);
   requireValue(graph?.version === VERSION, "Unsupported graph version.");
   requireValue(typeof graph.id === "string" && /^[a-z0-9][a-z0-9-]*$/.test(graph.id), "Invalid graph ID.");
   requireValue(Array.isArray(graph.nodes) && graph.nodes.length > 0, "Graph needs nodes.");

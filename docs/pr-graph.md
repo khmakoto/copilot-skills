@@ -10,9 +10,10 @@ dependency graph in local Git, GitHub, GitHub Enterprise Server, or Azure DevOps
 
 All published nodes start as drafts. Blocked drafts use helper integration
 bases to show only their own changes. A node becomes eligible for review after
-every prerequisite lands. Mutations require exact-plan approval. Auto mode lets
-the agent approve in-scope routine and conditionally safe plans; merging and
-source/ref/worktree deletion still require human approval.
+every prerequisite lands. Mutations require approval of the exact plan. Auto
+mode lets the agent approve routine plans within the task and plans that meet
+specific safety conditions. Merging and deleting source, refs, or worktrees
+still require human approval.
 
 The skill can split changes within a file and reshape the graph. It supports
 merge, squash, and rebase strategies. Users can opt in to recovery of committed
@@ -20,7 +21,7 @@ snapshots across machines. Footer refreshes leave completed Azure DevOps PR
 descriptions unchanged. The skill labels their diagrams as historical snapshots.
 
 ```text
-/pr-graph [--auto] [split | view | select | history | interdiff | export-history | import-history | add | absorb | sync | retarget | ready | merge | describe | reshape | adopt | import-graph | checkpoint | remove-retired | backup | restore]
+/pr-graph [--auto] [split | view | select | history | interdiff | export-history | import-history | publication-policy | add | absorb | sync | retarget | ready | merge | describe | reshape | adopt | import-graph | checkpoint | remove-retired | backup | restore]
 ```
 
 ## Allocate follow-up edits
@@ -35,10 +36,11 @@ or authorize changes. The helper never stages or commits dirty work. Staging
 and checkpoint preservation each require separate approval.
 
 The agent proposes an owner for each change and explains the evidence. It leaves
-ambiguous edits unassigned until the user decides. Shared/new files, cross-node
-changes, binaries and landed/retired provenance need explicit inspection, not
-automatic path-based assignment. In auto mode, the agent may select an active,
-unlanded owner when semantic evidence is unambiguous; otherwise it asks.
+ambiguous edits unassigned until the user decides. Inspect shared or new files,
+changes that span nodes, binary files, and the origins of landed or retired work
+before assigning an owner. Do not assign by path alone. In auto mode, the agent
+may select an active, unlanded owner when the evidence clearly identifies which
+node owns the behavior. Otherwise, it asks.
 
 `plan absorb` requires an active, unlanded owner for every change. It also needs
 a complete amended node spec and an expected source that includes the follow-up
@@ -49,9 +51,8 @@ need separate approved restructuring.
 The user must approve the exact plan digest unless auto mode covers requested,
 unambiguous allocation under the
 [conditional policy](../skills/pr-graph/SKILL.md#conditional-auto-approvals).
-The helper then
-checks each owner's changes against its assigned edits and compares the complete
-combined tree with the approved source. It rebuilds dependent nodes and reruns
+The helper checks each owner's changes against its assigned edits. It compares
+the complete combined tree with the approved source, rebuilds dependent nodes, and reruns
 required checks. Changed inputs, occupied branches, conflicts and failed
 validation stop the operation under the existing recovery rules. The helper
 does not discard user work.
@@ -122,15 +123,15 @@ approvals. The helper stores evidence and object-retention refs in separate
 archive namespaces.
 
 Transfers work offline without the skill's normal live freshness preflight.
-`--auto` alone does not authorize them. In auto mode, a separate invocation-scoped
-user opt-in may cover the exact source, destination and retained-data scope, including
-discarded source, ancestry, metadata and retention costs. The agent may approve
-reviewed plans only within those bounds. Changed or uncertain bounds require
-renewed approval. Backup, restore and `import-graph` have their own gates and do
-not include the source clone's history automatically. The helper does not transfer
-archives remotely or delete them automatically.
-The helper retains evidence and private refs until the user approves their
-removal. See the
+`--auto` alone does not authorize them. The user may separately authorize
+transfers for the current invocation. That permission must cover the exact
+source, destination, and retained data, including discarded source, ancestry,
+metadata, and retention costs. The agent may approve reviewed plans only within
+those limits. If the limits change or are unclear, it must ask again.
+Backup, restore, and `import-graph` require their own approval and do not
+automatically include the source clone's history. The helper does not transfer
+archives remotely or delete them automatically. It retains evidence and private
+refs until the user approves their removal. See the
 [archive format, trust and retention contract](../skills/pr-graph/references/history-archives.md).
 
 ## Publication and local sync
@@ -169,6 +170,38 @@ or expanding it. External changes to the graph, refs, or PRs require a new plan.
 The helper never silently publishes prerequisites. Selection does not authorize
 readiness, merging, or recovery. See the
 [selection contract](../skills/pr-graph/references/commands.md#graph-relative-node-selection).
+
+### Local-only publication exclusions
+
+Selection is not a persistent "do not upload" policy. Use the helper's
+`plan publication-policy --graph <id> --spec <json> --out <new-plan.json>`,
+then approve and apply its exact digest. For example:
+
+```json
+{ "exclude": ["private-node"], "release": [], "reason": "Keep this work local." }
+```
+
+Exclusions follow stable node IDs through absorb, split, and fold. They retain
+old objects and metadata after retirement. Before publication, the helper checks
+all objects reachable from product and helper refs, along with hosted metadata.
+This includes ancestors whose content no longer appears in the tip tree.
+The helper also blocks enabled whole-graph backups and history exports that
+contain excluded evidence. It never silently disables them.
+It allows unrelated publication only after every outgoing ref and metadata
+payload passes these checks. Plans record the exact policy and outgoing payload.
+The helper rechecks both when applying or continuing an operation. If either
+changes, replan.
+
+To permit disclosure, prepare a separate policy plan with `exclude: []`,
+`release: ["private-node"]` and an explicit reason. The user must approve it,
+even in auto mode. Importing release receipts does not authorize a release.
+Restore and import combine incoming active restrictions with the destination's
+restrictions. The exclusions apply only within the graph and check exact objects
+and text. They do not detect secrets, retract published content, or guarantee
+protection against external tools or transformed copies. Read the
+[complete contract](../skills/pr-graph/references/publication-exclusions.md).
+
+### Local-only sync
 
 The helper command `plan sync --local-only` rebuilds and validates local branches.
 It does not push, update PRs, change drafts, refresh hosted footers, or upload
@@ -213,37 +246,43 @@ even on its first reuse. It must verify that the current inputs and context
 match, then review a fresh, exact recovery plan. New or unverifiable conflicts
 and other safety blockers require human approval before auto mode resumes.
 The [conditional policy](../skills/pr-graph/SKILL.md#conditional-auto-approvals)
-also permits dead same-host lock removal, reconciliation of proved originally
-approved effects, and local abort for replanning with no remote effects.
-Requested unambiguous absorb and requested retired unpublished metadata removal
-can proceed. Routine backup uploads require prior user approval of unchanged
-destination, access and content scope, including unpublished committed history;
-an enabled manifest alone is insufficient. Requested verified backup downloads
-may write only private local refs, not restore branches or execute commands.
+also permits removing a lock whose owner is dead on the same host, reconciling
+verified effects that the user originally approved, and aborting locally for
+replanning when there are no remote effects.
+The agent may carry out requested absorb operations when ownership is
+unambiguous. It may also remove requested metadata for retired, unpublished nodes.
+Routine backup uploads require prior user approval. The destination, access, and
+content scope must remain unchanged, including unpublished committed history.
+An enabled backup in the manifest is not enough. Requested, verified backup
+downloads may write only private local refs. They must not restore branches or
+execute commands.
 
 Verified `abort --retain-published-refs` may stop interrupted first publication
-for replanning while preserving all refs and resources. The helper requires
-unchanged graph/local refs, no PRs/provider writes or pending patch, and remote
-refs matching only original or exactly approved candidate values. Readback is
-rechecked on apply; new namespaces and publication payloads retain their normal
-authorization.
+for replanning while preserving all refs and resources. The graph and local refs
+must remain unchanged. There must be no PRs, provider writes, or pending patch.
+Remote refs must match their original or exactly approved candidate values.
+The helper rechecks readback on apply. New namespaces and publication payloads
+require their normal authorization.
 
 Requested landing-only adoption may use `plan adopt --landings-only` when the
 helper proves unchanged source identities and provider-confirmed landings on the
 intended target. It never rewrites existing branch refs or owned changes.
-Previously approved setup may be replayed only with a
-[receipt](../skills/pr-graph/references/setup-replay.md) proving successful prior
-execution and explicit approval in the same task and invocation, with unchanged
-commands, scopes, complete relevant executable/input identities, environment and
-destination. A matching command or lockfile alone is insufficient. New or failed
-setup, changed inputs and unverifiable evidence still require approval.
+The agent may repeat previously approved setup only with a
+[receipt](../skills/pr-graph/references/setup-replay.md) that proves successful
+execution and explicit approval in the same task and invocation. The commands,
+scopes, environment, and destination must remain unchanged. The complete
+identities of the relevant executables and inputs must also match. A matching
+command or lockfile alone is not enough. New or failed setup, changed inputs,
+and unverifiable evidence still require approval.
 
-Merges, source removal, ref/worktree cleanup, PR closure, restore, general adoption,
-graph import, checkpoint, new conflict fixes, new installations and fixes for
-failed checks/hooks still need human approval outside the documented exceptions.
-Unknown remote outcomes pause after readback, never trigger blind retries.
-History transfer requires its separate invocation opt-in. Helper plan digests,
-freshness, leases and validation remain mandatory; no helper `--auto` flag is added.
+Outside the documented exceptions, the user must approve merges, source removal,
+ref or worktree cleanup, and PR closure. Restore, general adoption, graph import,
+checkpoint, new conflict fixes, new installations, and fixes for failed checks
+or hooks also require human approval.
+If readback leaves a remote outcome unknown, the agent pauses rather than
+retrying blindly. History transfer requires separate permission for the current
+invocation. The helper still requires plan digests, freshness checks, leases,
+and validation. It has no `--auto` flag.
 
 An unambiguous instruction such as "Split this branch using auto mode" enables
 the same behavior for the current task, even when the agent selects `pr-graph`
@@ -262,7 +301,8 @@ not errors or results.
 
 Per-node reports separate integration freshness, branch identity, and
 validation status. Integration branches named `main` or `master` allow a
-90-minute freshness grace for verified forward movement. Merging is excluded.
+90-minute freshness grace for verified forward movement. This grace period does
+not apply to merging.
 This avoids repeated source rewrites during review. The clock uses the recorded
 start time of the latest successful fetch of the current tip. It does not start
 at fetch completion or plan application. Merge always requires the current
@@ -363,9 +403,9 @@ historical `supersedes` and `replacedBy` references to it. It refuses nodes with
 PR, landing, remote product branch, or dependents. The previous manifest stays
 in the operation journal. The helper preserves Git refs, commits, files, indexes,
 worktrees, and existing validation and readiness evidence. It does not reconstruct
-source, publish, or upload a backup. Human approval is required unless auto mode
-covers the user's explicit request to remove that identified metadata; the agent
-does not prune it opportunistically. Use `continue` with the original digest
+source, publish, or upload a backup. The user must approve removal unless auto
+mode covers their explicit request to remove that specific metadata. The agent
+does not remove metadata on its own. Use `continue` with the original digest
 after an interrupted metadata write.
 
 ## PR diagrams

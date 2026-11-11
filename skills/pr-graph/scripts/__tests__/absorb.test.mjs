@@ -117,10 +117,17 @@ test("shared-file hunks remain unassigned until explicit allocation and reconstr
   const f = fixture({ names: ["a", "b", "c"] });
   t.after(() => f.dispose());
   const { graph, inventory, spec, head } = followUp(f);
+  f.apply("publication-policy", { graph: graph.id,
+    spec: { exclude: ["a"], release: [], reason: "Keep follow-up local." } });
   assert.equal(inventory.units.length, 2);
   assert.ok(inventory.units.every((unit) => unit.suggestedOwner === null &&
     unit.candidates.length === 3));
   const result = f.apply("absorb", { graph: graph.id, spec });
+  const exclusion = result.graph.publicationPolicy.exclusions[0];
+  assert.equal(exclusion.active, true);
+  assert.ok(exclusion.objects.includes(graph.nodes[0].head));
+  assert.ok(exclusion.objects.includes(result.graph.nodes[0].head));
+  assert.ok(exclusion.markers.includes(digest("a=2")));
   assert.equal(tree(f.root, result.graph.combined), tree(f.root, head));
   assert.equal(git(f.root, "show", `${result.graph.nodes[0].head}:shared.txt`),
     f.text(["a"]).replace("a=1", "a=2").trim());

@@ -8,9 +8,19 @@ Local state lives in `<git-common-dir>/pr-graph/`, shared by linked worktrees:
 graphs/<graph-id>.json
 operations/<approval-digest>.json
 history/<graph-id>/<receipt-digest>.json
+publication-policies/<graph-id>.json
 mutation.lock
 trees/<operation-id>/
 ```
+
+The publication-policy ledger retains exclusions and release receipts separately
+from removable node metadata; graph snapshots also carry it for recovery.
+Every outbound operation pins policy and complete payload scope and rechecks
+before writes, including enabled backup and retained-history export. Local
+reconstruction remains available without publishing. See
+[publication exclusions](publication-exclusions.md) for lineage, transfer,
+approval and explicit confidentiality limitations. Imported release evidence
+never relaxes destination restrictions.
 
 An approved `add`, `fold`, `sync`, `publish`, or `retarget` plan may explicitly
 reuse a stopped operation's clean detached worktree with `--reuse-worktree`. Its path stays

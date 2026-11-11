@@ -16,6 +16,8 @@ Read the relevant action reference before preparing a plan:
   unchanged-input checks; no helper installer or new setup authorization.
 - [Portable history archives](history-archives.md): separately approved offline
   evidence export/import, provenance, completeness and retention.
+- [Publication exclusions](publication-exclusions.md): persistent local-only
+  node/lineage restrictions, exact outbound scope, release approval and limits.
 
 ```text
 node "<helper>" help
@@ -28,6 +30,7 @@ node "<helper>" absorb --repo "<repo>" --graph feature --base "<old-combined>" -
 node "<helper>" plan absorb --repo "<repo>" --graph feature --spec "<spec.json>" --out "<new-plan.json>"
 node "<helper>" plan remove-retired --repo "<repo>" --graph feature --node staging --out "<plan.json>"
 node "<helper>" plan adopt --repo "<repo>" --graph feature --landings-only --spec "<landings.json>" --out "<plan.json>"
+node "<helper>" plan publication-policy --repo "<repo>" --graph feature --spec "<policy.json>" --out "<new-plan.json>"
 ```
 
 Commands emit JSON except `help` and `view`. Failures emit a JSON error to stderr
@@ -42,6 +45,13 @@ and explicit evidence-backed assignments for every unit. It preserves identities
 and edges and applies only after exact approval. Read the
 [allocation contract](change-specs.md#allocate-follow-up-edits-with-absorb)
 before preparing amendments. Publication/readiness remain separate.
+
+`publication-policy` requires an existing graph and a spec containing `exclude`
+and `release` arrays of stable exclusion IDs plus a nonempty `reason`. Review
+and apply the exact digest normally. This local operation retains evidence and
+approval receipts, never uploads or reconstructs source, and cannot be silently
+substituted by shape specs. Policy and outbound payload scope are part of plans;
+apply/continue reject drift. Exclusion release always requires human approval.
 
 ### Graph-relative node selection
 

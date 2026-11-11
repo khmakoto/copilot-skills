@@ -3,6 +3,7 @@ import path from "node:path";
 import os from "node:os";
 import { digest, requireValue, validateGraph } from "./graph.mjs";
 import * as git from "./git.mjs";
+import { retainPolicy } from "./publication.mjs";
 
 export function readJson(file, optional = false) {
   if (optional && !fs.existsSync(file)) return null;
@@ -38,6 +39,8 @@ export function load(ctx, id, optional = false) {
 }
 
 export function save(ctx, graph, plan) {
+  validateGraph(graph);
+  retainPolicy(ctx, graph, load(ctx, graph.id, true));
   validateGraph(graph);
   if (plan) {
     const before = load(ctx, graph.id, true);

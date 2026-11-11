@@ -6,6 +6,7 @@ import { fixture, git, cli } from "./fixtures.mjs";
 import { createPlan, applyPlan } from "../lib/operations.mjs";
 import * as state from "../lib/state.mjs";
 import { context, refId } from "../lib/git.mjs";
+import { loadPolicy } from "../lib/publication.mjs";
 
 function setup(t) {
   const f = fixture({ remote: true, names: ["a", "b"] });
@@ -18,6 +19,7 @@ function setup(t) {
     prs[node.pr.id] = structuredClone(node.pr);
     git(f.root, "push", "-q", "upstream", node.branch);
   }
+
   state.save(f.ctx, graph);
   const sourceRoot = path.join(f.dir, "newer-clone");
   git(f.dir, "clone", "-q", "--origin", "upstream", f.bare, sourceRoot);
@@ -45,6 +47,32 @@ function setup(t) {
   const plan = () => createPlan(f.ctx, "import-graph", { graph: graph.id, sourceRepo: sourceRoot });
   return { ...f, graph, source, incoming, prs, b, plan };
 }
+
+test("graph import unions source and destination exclusions without importing release authorization", (t) => {
+  const f = setup(t);
+  f.apply("publication-policy", { graph: "example",
+    spec: { exclude: ["a"], release: [], reason: "Destination restriction." } });
+  const privateNode = { ...structuredClone(f.incoming.nodes[0]), id: "private",
+    branch: "pr-graph/example/nodes/private", retired: true, title: "Source-only historical work" };
+  delete privateNode.pr;
+  privateNode.head = git(f.source.root, "-c", "user.name=Import Test",
+    "-c", "user.email=import@example.invalid", "commit-tree", `${privateNode.head}^{tree}`,
+    "-p", privateNode.base, "-m", "Source-only retained version");
+  privateNode.change.head = privateNode.head;
+  git(f.source.root, "branch", privateNode.branch, privateNode.head);
+  f.incoming.nodes.push(privateNode);
+  state.save(f.source, f.incoming);
+  const sourceSpec = { exclude: ["b", "private"], release: [], reason: "Source restriction." };
+  const sourcePlan = createPlan(f.source, "publication-policy", { graph: "example", spec: sourceSpec });
+  applyPlan(f.source, sourcePlan, sourcePlan.approval, true);
+  const plan = f.plan();
+  const result = applyPlan(f.ctx, plan, plan.approval, true);
+  assert.deepEqual(result.graph.publicationPolicy.exclusions.map((e) => [e.id, e.active]),
+    [["a", true], ["b", true], ["private", true]]);
+  assert.equal(loadPolicy(f.ctx, "example").exclusions.length, 3);
+  assert.equal(refId(f.root, `refs/heads/${privateNode.branch}`), privateNode.head);
+  assert.equal(applyPlan(f.ctx, plan, plan.approval, true).alreadyDone, true);
+});
 
 test("local import recovers changed DAG shape, preserves dirty checkout and clears executable metadata", (t) => {
   const f = setup(t);
