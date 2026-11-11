@@ -1532,10 +1532,24 @@ export function applyPlan(ctx, plan, approval, yes) {
         checkOutbound(ctx, plan, graph);
         const realizedScope = outboundScope(plan, graph);
         const publicationScope = (scope) => scope.filter((s) => /^(?:product|helper):/.test(s.route));
-        requireValue(!journal.outboundScope ||
-          digest(publicationScope(journal.outboundScope)) === digest(publicationScope(realizedScope)),
-        "Realized outbound payload changed during continuation; stop and reconcile before replanning.");
+        if (journal.outboundScope) {
+          const pinnedGraph = structuredClone(graph);
+          const pinnedPrs = journal.outboundPrs ??
+            Object.fromEntries(plan.graph.nodes.map((n) => [n.id, n.pr ?? null]));
+          for (const node of pinnedGraph.nodes) node.pr = pinnedPrs[node.id] ?? null;
+          const pinnedScope = outboundScope(plan, pinnedGraph);
+          for (const node of pinnedGraph.nodes) {
+            const receipt = journal.prs[node.id];
+            // Verified creation can add dependency links, but cannot change human text.
+            if (!node.pr && receipt) node.pr = { url: receipt.url, body: node.description };
+          }
+          requireValue(digest(publicationScope(journal.outboundScope)) === digest(publicationScope(pinnedScope)) &&
+            digest(publicationScope(realizedScope)) === digest(publicationScope(outboundScope(plan, pinnedGraph))),
+          "Realized outbound payload changed during continuation; stop and reconcile before replanning.");
+        }
         journal.outboundScope = realizedScope;
+        journal.outboundPrs = Object.fromEntries(graph.nodes.map((n) =>
+          [n.id, n.pr ? { url: n.pr.url, body: n.pr.body } : null]));
         saveJournal(ctx, journal);
         verifyFacts(ctx, plan, provider, journal);
         writeLocal(ctx, graph, plan, journal);

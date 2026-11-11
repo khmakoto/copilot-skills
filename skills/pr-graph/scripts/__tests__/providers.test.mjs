@@ -507,6 +507,34 @@ test("CLI pins selective publication and rejects unsupported selections", (t) =>
   assert.notEqual(cli(f.root, "plan", "publish", "--graph", "example", "--nodes", "a,").status, 0);
 });
 
+test("reconciled publication rejects metadata drift beyond verified dependency links", (t) => {
+  for (const drift of ["title", "description", "receipt-body"]) {
+    const f = fixture({ remote: true, names: ["a", "b", "c"] });
+    t.after(() => f.dispose());
+    const host = hostedFixture(f);
+    f.apply("split", { spec: f.spec });
+    const plan = createPlan(f.ctx, "publish", { graph: "example", publishNodes: ["a", "b", "c"] });
+    host.loseResponse();
+    assert.throws(() => applyPlan(f.ctx, plan, plan.approval, true), /response was lost/);
+    if (drift === "receipt-body") host.records.get(1).body += "\nUnapproved human text";
+    const recovery = createPlan(f.ctx, "reconcile", { operation: plan.approval });
+    applyPlan(f.ctx, recovery, recovery.approval, true);
+    const file = state.journalFile(f.ctx, plan.approval);
+    if (drift !== "receipt-body") {
+      const journal = state.readJson(file);
+      journal.candidate.nodes.find((n) => n.id === "c")[drift] += "\nUnapproved human text";
+      state.atomicJson(file, journal);
+    }
+    const refs = git(f.root, "ls-remote", "--refs", "upstream");
+    const records = structuredClone([...host.records]);
+    assert.throws(() => applyPlan(f.ctx, plan, plan.approval, true),
+      /Realized outbound payload changed during continuation/);
+    assert.equal(git(f.root, "ls-remote", "--refs", "upstream"), refs);
+    assert.deepEqual([...host.records], records);
+    assert.equal(state.readJson(file).status, "running");
+  }
+});
+
 test("selector preview and publication pin exact IDs, evidence, and prerequisite effects", (t) => {
   const f = fixture({ remote: true, names: ["a", "b", "c", "d"] });
   t.after(() => f.dispose());
