@@ -64,9 +64,9 @@ authorization. See the
 ## Node history and interdiff
 
 The read-only helper command `history --graph <id> --node <id>` shows retained
-versions, operation status, recovery receipts, and what changed. It also shows
-how earlier operations split or folded nodes. Node identity stays the same when
-Git commit IDs change.
+versions, operation status, recovery receipts, and what changed. It lists earlier
+operations that split or folded nodes. Node identity stays the same when Git
+commit IDs change.
 
 Receipts record the before and after snapshots. The local clone retains these
 receipts and pins available commits. The command reports missing evidence,
@@ -102,7 +102,7 @@ from the agent under the separate transfer opt-in described below.
 The archive preserves version IDs, interrupted candidate versions, records of
 splits and folds, and historical publication and validation baselines. You can
 inspect them offline without the source checkout. Missing objects block export.
-The archive reports gaps in incomplete legacy evidence.
+The archive reports gaps in legacy records when evidence is incomplete.
 
 Review the full export contents before approval. Discarded code, commit ancestry
 and old descriptions can contain sensitive material. Keeping full history
@@ -124,11 +124,11 @@ archive namespaces.
 Transfers work offline without the skill's normal live freshness preflight.
 `--auto` alone does not authorize them. In auto mode, a separate invocation-scoped
 user opt-in may cover the exact source, destination and retained-data scope, including
-discarded source, ancestry, metadata and retention costs. Within those bounds
-the agent may approve reviewed exact plans; new or uncertain bounds require
+discarded source, ancestry, metadata and retention costs. The agent may approve
+reviewed plans only within those bounds. Changed or uncertain bounds require
 renewed approval. Backup, restore and `import-graph` have their own gates and do
-not include the source clone's history automatically. There is no automatic
-remote transfer or archive deletion.
+not include the source clone's history automatically. The helper does not transfer
+archives remotely or delete them automatically.
 The helper retains evidence and private refs until the user approves their
 removal. See the
 [archive format, trust and retention contract](../skills/pr-graph/references/history-archives.md).
@@ -143,7 +143,7 @@ reconstruct branches if that would change unselected nodes. Sync separately when
 needed.
 
 The read-only command `select --graph <id> --select <selector>` previews exact
-node IDs in stable dependency order. It gives a reason for each excluded node.
+node IDs in stable dependency order. It reports why it excluded each node.
 
 | Selector          | What it selects                                                               |
 | ----------------- | ----------------------------------------------------------------------------- |
@@ -159,9 +159,9 @@ validation or provider policies passed, or whether the node is ready.
 
 Only `plan publish --select` accepts selectors for mutations. The helper rejects
 them for other actions and rejects combinations with `--nodes`, `--node`, or
-`--spec`. Plans list the requested IDs separately from required prerequisites
-and helper bases. They list all effects, including whole-graph validation
-and enabled backups.
+`--spec`. Plans separate requested IDs from required prerequisites and helper
+bases. They list all effects, including whole-graph validation and enabled
+backups.
 
 The approval digest covers the selector, resolved IDs, graph state, and provider
 observations. Apply and continue use that exact selection without reevaluating
@@ -192,10 +192,10 @@ local reconstruction from unexplained divergence. It never pushes or repairs
 branches to resolve that difference. Both cases still require helper planning
 and authorization.
 
-Diagram updates follow the same limits. Local-only sync performs no image
+The same limits apply to diagram updates. Local-only sync performs no image
 uploads or description edits, and selective publication refreshes only selected
-PRs. Refreshes outside that scope wait for separate approval and do not block
-completion of local-only sync.
+PRs. Refreshes outside that scope need separate approval. They do not block
+local-only sync.
 
 Eligible existing PRs retain their live draft or non-draft state through sync,
 retargeting, and graph reshaping, including manual status changes. Blocked or
@@ -221,9 +221,26 @@ destination, access and content scope, including unpublished committed history;
 an enabled manifest alone is insufficient. Requested verified backup downloads
 may write only private local refs, not restore branches or execute commands.
 
-Merges, source removal, ref/worktree cleanup, PR closure, restore, adoption,
-graph import, checkpoint, retained-publication abort, new conflict fixes,
-installations and fixes for failed checks/hooks still need human approval.
+Verified `abort --retain-published-refs` may stop interrupted first publication
+for replanning while preserving all refs and resources. The helper requires
+unchanged graph/local refs, no PRs/provider writes or pending patch, and remote
+refs matching only original or exactly approved candidate values. Readback is
+rechecked on apply; new namespaces and publication payloads retain their normal
+authorization.
+
+Requested landing-only adoption may use `plan adopt --landings-only` when the
+helper proves unchanged source identities and provider-confirmed landings on the
+intended target. It never rewrites existing branch refs or owned changes.
+Previously approved setup may be replayed only with a
+[receipt](../skills/pr-graph/references/setup-replay.md) proving successful prior
+execution and explicit approval in the same task and invocation, with unchanged
+commands, scopes, complete relevant executable/input identities, environment and
+destination. A matching command or lockfile alone is insufficient. New or failed
+setup, changed inputs and unverifiable evidence still require approval.
+
+Merges, source removal, ref/worktree cleanup, PR closure, restore, general adoption,
+graph import, checkpoint, new conflict fixes, new installations and fixes for
+failed checks/hooks still need human approval outside the documented exceptions.
 Unknown remote outcomes pause after readback, never trigger blind retries.
 History transfer requires its separate invocation opt-in. Helper plan digests,
 freshness, leases and validation remain mandatory; no helper `--auto` flag is added.
@@ -259,7 +276,7 @@ supports legacy `visualstudio.com/DefaultCollection` repository URLs.
 
 Before a long reconstruction or continuation, compare the remaining grace with
 measured durations of similar operations. Allow extra time for hooks and
-validation. If the remaining grace is too short, refresh and replan safely.
+validation. If the grace period may expire, refresh and replan.
 Do not extend the validity of old evidence. Establish recovery constraints for
 pending operations before moving refs.
 
@@ -289,8 +306,8 @@ before applying the plan. It records the ownership transfer in both journals.
 It preserves the worktree's path and installed tools that Git ignores. Earlier
 owners cannot recover or clean the transferred worktree.
 
-The helper can also transfer verified reconstruction receipts pinned in
-compatible journals. It reuses committed results only when the parent, patch,
+The helper can also transfer verified reconstruction receipts from compatible
+journals. It reuses committed results only when the parent, patch,
 full message, and execution fingerprint match exactly. Reuse avoids repeated
 patch applications and commit hooks. Changed or unknown inputs require
 reconstruction. The helper still checks validation, full-tree composition, and
@@ -299,15 +316,15 @@ how many patches the helper applied and how many cached results it reused from
 another journal. Reuse does not renew the fetch clock.
 
 Whole-graph retargeting rebuilds unlanded work on another integration branch.
-It preserves change ownership and existing PR identities.
-Batch description updates leave source branches and draft states unchanged.
-Custom helper-branch prefixes support namespace restrictions. If the first
-publication fails after some pushes succeed, an approved recovery can retain
-the verified pushes.
+It preserves change ownership and existing PR identities. Batch description
+updates leave source branches and draft states unchanged. Custom helper-branch
+prefixes support namespace restrictions. If some pushes succeed before
+publication fails, the user can approve recovery that keeps those verified
+pushes.
 Description-only actions do not create or claim a worktree. They leave partial
 checkouts from interrupted older operations untouched.
 
-The `adopt` recovery requires separate approval. It imports verified PR rewrites
+General `adopt` recovery requires separate approval. It imports verified PR rewrites
 and landings made outside the helper into local graph state. It does not publish
 or claim validation. An adoption spec with `"selective": true` can name only the
 externally updated nodes. It retains the integration snapshot, helper namespace,
@@ -316,8 +333,17 @@ match recorded identities. The helper clears validation and readiness for select
 nodes and active descendants. Adoption does not reconstruct or publish them.
 
 `checkpoint` preserves already-staged work on a new local branch to release an
-occupied graph node. It uses normal hooks and signing. Both `adopt` and
+occupied graph node. It uses normal hooks and signing. General `adopt` and
 `checkpoint` require human approval even in auto mode.
+
+For explicitly requested landings when PR content has not been rewritten, use
+`plan adopt --landings-only --spec <json>`. Include the graph ID and pinned
+`targetSnapshot`. For each newly merged node, include its unchanged head, base, base branch, and
+provider landing SHA. The helper rejects namespace changes, attempts to repair
+source refs, unrelated PR identity changes, and target rewinds. It retains
+owned changes and historical nodes. It clears validation and readiness for
+selected nodes and descendants. It does not claim freshness or publish anything.
+Do not silently fall back to general adoption when these checks fail.
 
 The `import-graph --source-repo <path>` recovery requires separate human approval,
 even in auto mode. It imports changed node ownership or dependencies from another
@@ -344,15 +370,15 @@ after an interrupted metadata write.
 
 ## PR diagrams
 
-Each PR description ends with a rendered Mermaid DAG image that highlights that
-PR's node. Diagrams use compact node cards, a small visual key, and a short
-snapshot summary. Put freshness information in the summary, not in node cards or
-their styling.
+The skill adds a rendered Mermaid DAG image to the end of each PR description
+and highlights that PR's node. Diagrams use compact node cards, a small visual
+key, and a short snapshot summary. Put freshness information in the summary,
+not in node cards or their styling.
 
 Every arrow must stay clear of unrelated nodes and labels. The agent inspects
 each edge in each highlighted image before upload. Rerouting and extra spacing
 take priority over compactness. Obscured or ambiguous edges block upload or image
-reuse. The workflow refreshes diagrams as graph state changes. It requires an
+reuse. The workflow refreshes diagrams when graph state changes. It requires an
 approved local renderer and a supported provider attachment mechanism.
 
 ## Requirements and validation

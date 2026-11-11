@@ -92,9 +92,12 @@ Fixture coverage is not live provider certification.
   dead-owner unlock, exact-effect reconciliation, no-remote-effect local abort
   for replanning, requested unambiguous absorb and retired metadata removal,
   previously approved unchanged backup uploads, and requested private-ref
-  backup downloads. History transfer needs a separate invocation-scoped opt-in
+  backup downloads, verified retained-ref publication aborts, requested
+  helper-enforced landing-only adoption, and receipt-backed replay of unchanged
+  setup explicitly approved in the same task and invocation. History transfer
+  needs a separate invocation-scoped opt-in
   covering exact source, destination and retained-data scope. Merging,
-  source/ref/worktree deletion/cleanup, PR closure, restore, adoption, graph
+  source/ref/worktree deletion/cleanup, PR closure, restore, general adoption, graph
   import, checkpoint, new conflict fixes and other recovery retain human gates.
   Ordinary auto mode may reuse an already-approved matching conflict resolution
   without a first-reuse prompt under the skill's current-input/context evidence

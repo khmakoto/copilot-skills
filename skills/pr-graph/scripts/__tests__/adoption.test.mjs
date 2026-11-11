@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { fixture, git } from "./fixtures.mjs";
+import { fixture, git, cli } from "./fixtures.mjs";
 import { createPlan, applyPlan } from "../lib/operations.mjs";
 import * as state from "../lib/state.mjs";
 import { refId } from "../lib/git.mjs";
@@ -249,4 +249,140 @@ test("complete adoption retains retired nodes without requiring a PR", (t) => {
   assert.deepEqual(plan.graph.nodes[3], f.d);
   f.spec.nodes[3].head = f.base;
   assert.throws(f.plan, /Retired snapshot is immutable/);
+});
+
+function landingFixture(t) {
+  const f = fixture({ remote: true, names: ["a", "b", "c"] });
+  t.after(() => f.dispose());
+  const graph = f.apply("split", { spec: f.spec }).graph;
+  const prs = {};
+  for (const [index, node] of graph.nodes.entries()) {
+    node.pr = { id: index + 1, branch: node.branch, head: node.head, base: node.base,
+      baseBranch: node.baseBranch, state: "open", draft: true, body: "Human description" };
+    prs[node.pr.id] = structuredClone(node.pr);
+    node.ready = true;
+    node.signature = `validation-${node.id}`;
+    git(f.root, "push", "-q", "upstream", node.branch);
+    if (node.baseBranch !== graph.target) {
+      git(f.root, "push", "-q", "upstream", `${node.base}:refs/heads/${node.baseBranch}`);
+    }
+  }
+  state.save(f.ctx, graph);
+  const [a, b, c] = graph.nodes;
+  const landing = git(f.root, "commit-tree", `${a.head}^{tree}`, "-p", f.base, "-m", "Squashed a");
+  git(f.root, "push", "-q", "upstream", `${landing}:trunk`);
+  git(f.root, "push", "-q", "upstream", "--delete", a.branch);
+  prs[a.pr.id] = { ...prs[a.pr.id], state: "merged", landing };
+  f.ctx.providerFactory = () => ({ kind: "ado", get(id) {
+    return structuredClone(prs[id]);
+  } });
+  const spec = { id: graph.id, targetSnapshot: landing, nodes: [
+    { id: a.id, head: a.head, base: a.base, baseBranch: a.baseBranch, landing },
+  ] };
+  return { ...f, graph, prs, spec, a, b, c, landing,
+    plan: () => createPlan(f.ctx, "adopt", { graph: graph.id, spec, landingsOnly: true }) };
+}
+
+test("landing-only adoption records a squash landing without changing owned deltas, refs or dirty work", (t) => {
+  const f = landingFixture(t);
+  git(f.root, "checkout", f.a.branch);
+  fs.appendFileSync(path.join(f.root, "shared.txt"), "staged\n");
+  git(f.root, "add", "shared.txt");
+  fs.appendFileSync(path.join(f.root, "shared.txt"), "unstaged\n");
+  const index = git(f.root, "diff", "--cached", "--binary");
+  const work = git(f.root, "diff", "--binary");
+  const refs = git(f.root, "for-each-ref", "--format=%(refname) %(objectname)", "refs/heads/");
+  const remote = git(f.root, "ls-remote", "--heads", "upstream");
+  const plan = f.plan();
+  assert.equal(plan.landingsOnly, true);
+  assert.deepEqual(plan.updates, []);
+  const result = applyPlan(f.ctx, plan, plan.approval, true);
+  const [a, b, c] = result.graph.nodes;
+  assert.equal(a.landing.commit, f.landing);
+  assert.equal(a.landing.source, f.a.head);
+  for (const node of result.graph.nodes) {
+    const old = f.graph.nodes.find((n) => n.id === node.id);
+    assert.deepEqual(node.change, old.change);
+    assert.equal(node.head, old.head);
+    assert.equal(node.base, old.base);
+    assert.equal(node.baseBranch, old.baseBranch);
+  }
+  assert.deepEqual(b, f.b);
+  assert.equal(a.ready, false);
+  assert.equal(c.ready, false);
+  assert.equal(c.signature, undefined);
+  assert.equal(result.graph.targetSha, f.landing);
+  assert.equal(result.graph.integration.verifiedAt, undefined);
+  assert.equal(result.graph.combined, undefined);
+  assert.equal(result.graph.source, undefined);
+  assert.equal(git(f.root, "for-each-ref", "--format=%(refname) %(objectname)", "refs/heads/"), refs);
+  assert.equal(git(f.root, "ls-remote", "--heads", "upstream"), remote);
+  assert.equal(git(f.root, "branch", "--show-current"), f.a.branch);
+  assert.equal(git(f.root, "diff", "--cached", "--binary"), index);
+  assert.equal(git(f.root, "diff", "--binary"), work);
+});
+
+test("landing-only adoption refuses rewritten sources, other PR changes and missing prerequisite refs", (t) => {
+  const f = landingFixture(t);
+  f.spec.nodes[0].head = f.changes.a.head;
+  assert.throws(f.plan, /unchanged source identity/);
+  f.spec.nodes[0].head = f.a.head;
+  const b = f.prs[f.b.pr.id];
+  b.state = "merged";
+  b.landing = f.landing;
+  assert.throws(f.plan, /Unselected PR identity changed/);
+  b.state = "open";
+  delete b.landing;
+  f.spec.nodes = [{ id: f.b.id, head: f.b.head, base: f.b.base, baseBranch: f.b.baseBranch }];
+  assert.throws(f.plan, /Unselected PR identity changed|new landing/);
+  f.spec.nodes = [{ id: f.a.id, head: f.a.head, base: f.a.base,
+    baseBranch: f.a.baseBranch, landing: f.landing }];
+  f.spec.helperBranchPrefix = f.graph.helperBranchPrefix;
+  assert.throws(f.plan, /cannot replace the graph or change the helper namespace/);
+  delete f.spec.helperBranchPrefix;
+  git(f.root, "update-ref", `refs/heads/${f.c.baseBranch}`, f.base, f.c.base);
+  assert.throws(f.plan, /cannot repair prerequisite refs/);
+  assert.deepEqual(state.load(f.ctx, f.graph.id), f.graph);
+});
+
+test("landing-only adoption rechecks target ancestry, PR readback and pinned mode before writes", (t) => {
+  const f = landingFixture(t);
+  assert.throws(() => createPlan(f.ctx, "sync", { graph: f.graph.id, landingsOnly: true }),
+    /only for adopt/);
+  assert.equal(cli(f.root, "plan", "sync", "--graph", f.graph.id, "--landings-only").status, 1);
+  assert.match(cli(f.root, "plan", "adopt", "--graph", f.graph.id, "--landings-only").stderr,
+    /Adoption requires this graph/);
+  const plan = f.plan();
+  f.prs[f.a.pr.id].body = "Human edit";
+  assert.throws(() => applyPlan(f.ctx, plan, plan.approval, true), /PR changed/);
+  f.prs[f.a.pr.id].body = "Human description";
+  git(f.root, "push", "-q", "--force-with-lease", "upstream", `${f.base}:trunk`);
+  assert.throws(f.plan, /left the pinned history/);
+  assert.throws(() => applyPlan(f.ctx, plan, plan.approval, true), /left the pinned history/);
+  assert.deepEqual(state.load(f.ctx, f.graph.id), f.graph);
+});
+
+test("landing-only adoption allows proved remote-only fast-forwards but refuses a rewind above its snapshot", (t) => {
+  const f = landingFixture(t);
+  const observed = git(f.root, "commit-tree", `${f.landing}^{tree}`, "-p", f.landing, "-m", "Observed target");
+  git(f.root, "push", "-q", "upstream", `${observed}:trunk`);
+  const plan = f.plan();
+  git(f.root, "push", "-q", "--force-with-lease", "upstream", `${f.landing}:trunk`);
+  assert.throws(() => applyPlan(f.ctx, plan, plan.approval, true), /left the pinned history/);
+  const forward = git(f.root, `--git-dir=${f.bare}`, "commit-tree",
+    `${f.landing}^{tree}`, "-p", observed, "-m", "Remote-only target");
+  git(f.root, `--git-dir=${f.bare}`, "update-ref", "refs/heads/trunk", forward, f.landing);
+  let ancestryChecks = 0;
+  f.ctx.providerFactory = () => ({ kind: "github",
+    get: (id) => structuredClone(f.prs[id]),
+    mergeBase(before, after) {
+      ancestryChecks++;
+      return git(f.root, `--git-dir=${f.bare}`, "merge-base", before, after);
+    },
+  });
+  const result = applyPlan(f.ctx, plan, plan.approval, true);
+  assert.ok(ancestryChecks > 0);
+  assert.equal(result.graph.targetSha, f.landing);
+  assert.equal(result.graph.nodes[0].landing.commit, f.landing);
+  assert.equal(refId(f.root, "refs/heads/trunk"), f.base);
 });

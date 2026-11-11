@@ -43,15 +43,32 @@ function stablePr(pr, target) {
   return stable;
 }
 
+function landingTarget(ctx, graph, snapshot, observed, previous = snapshot) {
+  const ancestor = (before, after) => {
+    requireValue(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(after ?? ""),
+      "Landing-only adoption requires a live integration commit.");
+    if (before === after) return true;
+    if (git.git(ctx.root, ["cat-file", "-e", `${after}^{commit}`], undefined, true).status === 0) {
+      return git.ancestor(ctx.root, before, after);
+    }
+    return provider(ctx, graph).mergeBase?.(before, after) === before;
+  };
+  requireValue(ancestor(snapshot, observed) && ancestor(previous, observed),
+    "Landing-only integration target left the pinned history; fetch and replan.");
+}
+
 export function createAdoptionPlan(ctx, options) {
   noPending(ctx);
   const previous = state.load(ctx, options.graph);
   const spec = options.spec;
-  const selective = spec?.selective === true;
+  const landingsOnly = options.landingsOnly === true;
+  const selective = spec?.selective === true || landingsOnly;
   requireValue(spec?.id === previous.id && Array.isArray(spec.nodes),
     "Adoption requires this graph's ID and a node list.");
   requireValue(spec.selective === undefined || typeof spec.selective === "boolean",
     "Selective adoption must be explicitly true or false.");
+  requireValue(!landingsOnly || (spec.selective !== false && spec.helperBranchPrefix === undefined),
+    "Landing-only adoption cannot replace the graph or change the helper namespace.");
   requireValue((selective ? spec.nodes.length > 0 : spec.nodes.length === previous.nodes.length) &&
     new Set(spec.nodes.map((n) => n.id)).size === spec.nodes.length &&
     spec.nodes.every((n) => previous.nodes.some((old) => old.id === n.id)),
@@ -64,12 +81,24 @@ export function createAdoptionPlan(ctx, options) {
     graph.helperBranchPrefix = spec.helperBranchPrefix;
   }
   const target = commit(ctx, spec.targetSnapshot);
-  requireValue(!selective || target === previous.targetSha,
+  requireValue(!selective || landingsOnly || target === previous.targetSha,
     "Selective adoption must preserve the graph's integration snapshot.");
   requireValue(git.ancestor(ctx.root, previous.targetSha, target),
     "Adoption target snapshot must descend from the previous snapshot.");
   const facts = observations(ctx, graph, previous);
   requireValue(facts.remote[graph.target], "Integration branch is missing.");
+  if (landingsOnly) {
+    landingTarget(ctx, graph, target, facts.remote[graph.target]);
+    for (const node of graph.nodes.filter((n) => !n.retired && !n.landing)) {
+      requireValue(facts.local[node.branch] === node.head,
+        `Landing-only adoption cannot repair local source refs: ${node.id}`);
+      if (node.baseBranch !== graph.target) {
+        requireValue(facts.local[node.baseBranch] === node.base &&
+          facts.remote[node.baseBranch] === node.base,
+        `Landing-only adoption cannot repair prerequisite refs: ${node.id}`);
+      }
+    }
+  }
   const updates = [];
   for (const node of topological(graph)) {
     const input = spec.nodes.find((n) => n.id === node.id);
@@ -79,10 +108,22 @@ export function createAdoptionPlan(ctx, options) {
       if (node.pr && !node.retired) {
         requireValue(pr && pr.id === node.pr.id && pr.branch === node.branch &&
           pr.head === node.pr.head && pr.baseBranch === node.pr.baseBranch &&
+          (!landingsOnly || (pr.head === node.head && pr.baseBranch === node.baseBranch &&
+            pr.state === node.pr.state && (pr.landing ?? null) === (node.landing?.commit ?? null) &&
+            (node.landing || facts.remote[node.branch] === node.head))) &&
           (!node.landing || pr.landing === node.landing.commit),
         `Unselected PR identity changed: ${node.id}; include it in recovery explicitly.`);
       }
       continue;
+    }
+    if (landingsOnly) {
+      requireValue(!node.retired && !node.landing && node.pr &&
+        input.head === node.head && input.base === node.base &&
+        input.baseBranch === node.baseBranch && node.baseBranch === graph.target &&
+        node.pr.head === node.head && node.pr.baseBranch === node.baseBranch &&
+        pr?.state === "merged" && pr.landing === input.landing &&
+        (facts.remote[node.branch] === null || facts.remote[node.branch] === node.head),
+      `Landing-only adoption requires a new landing with unchanged source identity: ${node.id}`);
     }
     if (node.retired) {
       requireValue(input.head === node.head && input.base === node.base &&
@@ -108,7 +149,7 @@ export function createAdoptionPlan(ctx, options) {
         node.baseBranch = input.baseBranch;
         requireValue(git.out(ctx.root, ["merge-base", node.head, `${pr.landing}^1`]) === node.base,
           `Merged own-change base differs from the landing's target parent: ${node.id}`);
-        node.change = normalizeChange(ctx.root, { base: node.base, head: node.head });
+        if (!landingsOnly) node.change = normalizeChange(ctx.root, { base: node.base, head: node.head });
         node.landing = { commit: pr.landing, source: pr.head, target: graph.target, strategy: "provider" };
       }
     } else {
@@ -161,8 +202,11 @@ export function createAdoptionPlan(ctx, options) {
   const plan = {
     action: "adopt", repository: ctx.root, common: ctx.common, previous,
     previousDigest: digest(previous), graph, facts, updates,
+    ...(landingsOnly ? { landingsOnly: true } : {}),
     effects: [
-      selective
+      landingsOnly
+        ? `Record only new provider-confirmed landings: ${spec.nodes.map((n) => n.id).join(", ")}. Preserve all source identities, owned changes, dependencies, namespaces and existing branch refs.`
+        : selective
         ? `Adopt only selected nodes: ${spec.nodes.map((n) => n.id).join(", ")}. Preserve all unselected source snapshots, branches, dependencies and landing receipts.`
         : "Adopt only the pinned live PR heads, own-change bases, helper namespace and provider landing receipts.",
       "Preserve the full previous manifest in the operation journal and pin previous snapshots before any branch moves.",
@@ -175,6 +219,7 @@ export function createAdoptionPlan(ctx, options) {
       "Target preview-base fast-forwards may be observed without adopting them; any product/helper/PR content change invalidates the plan.",
     ],
   };
+  requireValue(!landingsOnly || updates.length === 0, "Landing-only adoption cannot move source refs.");
   requireValue(digest(state.load(ctx, previous.id)) === digest(previous),
     "Graph changed during planning.");
   return { ...plan, approval: digest(plan) };
@@ -198,6 +243,11 @@ export function applyAdoptionPlan(ctx, plan) {
   }
   requireValue(digest(current) === plan.previousDigest, "Graph changed; prepare a new adoption plan.");
   const facts = observations(ctx, plan.graph, plan.previous);
+  if (plan.landingsOnly) {
+    requireValue(plan.updates.length === 0, "Landing-only adoption cannot move source refs.");
+    landingTarget(ctx, plan.graph, plan.graph.targetSha, facts.remote[plan.graph.target],
+      plan.facts.remote[plan.graph.target]);
+  }
   for (const [branch, expected] of Object.entries(plan.facts.remote)) {
     if (branch !== plan.graph.target) {
       requireValue(facts.remote[branch] === expected, `Remote ref changed: ${branch}`);

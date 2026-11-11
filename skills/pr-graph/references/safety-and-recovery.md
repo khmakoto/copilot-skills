@@ -73,11 +73,15 @@ mandatory. The [conditional allowances](../SKILL.md#conditional-auto-approvals)
 cover only verified dead-owner unlock, exact-effect reconciliation, local abort
 for replanning with no remote effects, requested unambiguous absorb and retired
 metadata removal, previously approved unchanged backup uploads, and requested
-private-ref backup downloads. History transfer needs its separate invocation
-opt-in. Merging, source/ref/worktree deletion and cleanup, PR closure, restore,
-adoption, local graph import and checkpoint preservation still need human
-approval. New or unverifiable conflicts, fixes for failed checks/hooks, setup,
-unexpected changes, and remote effects still uncertain after readback require
+private-ref backup downloads. It also covers verified retained-ref aborts of
+interrupted first publication, requested helper-enforced landing-only adoption,
+and exact approved setup replay under the
+[setup receipt contract](setup-replay.md). History transfer needs its separate
+invocation opt-in. Merging, source/ref/worktree deletion and cleanup, PR closure, restore,
+general adoption, local graph import and checkpoint preservation still need human
+approval. New or unverifiable conflicts, fixes for failed checks/hooks, new or
+changed setup, failed setup replay, unexpected changes, and remote effects still
+uncertain after readback require
 a pause and human-approved resolution/recovery. After
 that resolution, recheck inputs and resume auto mode only for the original task.
 The bounded repeat-resolution exception below uses prior explicit approval,
@@ -108,7 +112,9 @@ and approve its exact digest under auto mode. The old resolution is evidence,
 not approval of a different recovery payload. Run normal hooks, freshness,
 full-tree preservation and required validation checks. Failed checks or
 unexpected effects still pause. `reconcile`, local `abort`, and `unlock` may
-use only their conditional auto allowances; other recovery requires human approval.
+use only their conditional auto allowances; setup replay and landing-only
+adoption retain their separate evidence contracts. Other recovery requires
+human approval.
 
 Local `import-graph` recovery also requires exact human approval, even in auto
 mode. It can recover a changed DAG shape from another verified local clone
@@ -217,6 +223,17 @@ optional `helperBranchPrefix`, and every node's `id`, `head`, `base`,
 `baseBranch`, plus `landing` for merged nodes. Node IDs, branches and dependency
 edges are retained.
 
+For explicitly requested landings with no source identity changes, use
+`plan adopt --landings-only` with only the identified newly merged nodes.
+This helper-enforced subset mode may be auto-approved under the skill's
+conditional policy. It forbids source/base/owned-delta changes, namespace
+changes, branch repair and unrelated live PR identity changes. All selected
+landings must be provider-confirmed, eligible in dependency order and reachable
+from the pinned integration snapshot, which must remain on the live target's
+forward history. Deleted merged source refs may remain absent; no existing
+branch refs move. Selected nodes and active descendants lose validation and
+readiness. General adoption remains human-gated.
+
 Establish live source/helper refs and provider receipts before planning.
 Explicitly investigate divergent or deleted branches; approval of adoption
 must cover their exact old/new identities. The plan verifies each authored
@@ -311,7 +328,10 @@ the full readback, which is rechecked on apply. All refs, snapshots and the
 worktree remain; only the operation is marked aborted. Replan and separately
 approve any namespace change and subsequent publication. Ordinary abort
 behavior is unchanged.
-This retained-published-ref variant still requires human approval in auto mode.
+Auto mode may approve this exact retained-ref abort only to replan the original
+task under the conditional policy. It does not roll back remote effects or
+authorize a namespace change, new publication payload or cleanup. Unknown
+readback, PR/provider effects or changed graph/local refs still require a pause.
 
 ## Portable committed snapshots
 

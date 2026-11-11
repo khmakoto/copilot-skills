@@ -143,10 +143,13 @@ bases to show only their own changes. A node becomes eligible for review after
 every prerequisite lands. Mutations require exact-plan approval; `--auto` lets
 the agent approve in-scope routine plans and narrowly conditioned recovery,
 follow-up allocation, retired metadata removal and previously authorized backup
-effects. History transfers need a separate invocation-scoped opt-in. Merging,
-source/ref/worktree deletion, restore, adoption, graph import, checkpoint and
-new conflict fixes still need human approval. Uncertainty pauses the workflow;
-digests and safety checks are never bypassed.
+effects. Narrow allowances also cover verified retained-ref publication aborts,
+requested landing-only adoption without source rewrites, and receipt-backed
+replay of unchanged setup explicitly approved in the same task and invocation.
+History transfers need a separate invocation-scoped opt-in. Merging,
+source/ref/worktree deletion, restore, general adoption, graph import, checkpoint,
+new setup and new conflict fixes still need human approval. Uncertainty pauses
+the workflow; digests and safety checks are never bypassed.
 
 ```text
 /pr-graph [--auto] [split | view | select | history | interdiff | export-history | import-history | add | absorb | sync | retarget | ready | merge | describe | reshape | adopt | import-graph | checkpoint | remove-retired | backup | restore]

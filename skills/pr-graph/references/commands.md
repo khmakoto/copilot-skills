@@ -12,6 +12,8 @@ Read the relevant action reference before preparing a plan:
   readiness, merging, descriptions, and landing receipts.
 - [Backup and recovery commands](recovery-commands.md): checkpoint, adoption, local graph import,
   backup/restore, interrupted operations, and cleanup.
+- [Approved setup replay](setup-replay.md): agent-side approval receipts and
+  unchanged-input checks; no helper installer or new setup authorization.
 - [Portable history archives](history-archives.md): separately approved offline
   evidence export/import, provenance, completeness and retention.
 
@@ -25,6 +27,7 @@ node "<helper>" select --repo "<repo>" --graph feature --select "dependents:mode
 node "<helper>" absorb --repo "<repo>" --graph feature --base "<old-combined>" --head "<follow-up>"
 node "<helper>" plan absorb --repo "<repo>" --graph feature --spec "<spec.json>" --out "<new-plan.json>"
 node "<helper>" plan remove-retired --repo "<repo>" --graph feature --node staging --out "<plan.json>"
+node "<helper>" plan adopt --repo "<repo>" --graph feature --landings-only --spec "<landings.json>" --out "<plan.json>"
 ```
 
 Commands emit JSON except `help` and `view`. Failures emit a JSON error to stderr
