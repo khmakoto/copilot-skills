@@ -12,6 +12,7 @@ import { setProgressSink } from "../lib/progress.mjs";
 import { digest } from "../lib/graph.mjs";
 import { history, interdiff } from "../lib/history.mjs";
 import * as state from "../lib/state.mjs";
+import { generatedCase, random, seeds } from "./generated.mjs";
 
 test("provider detection handles GitHub, GHES, ADO SSH/HTTPS and local Git", () => {
   assert.equal(resolveProvider("git@github.com:me/repo.git").kind, "github");
@@ -1489,6 +1490,57 @@ test("ambiguous PR creation resumes through an approved reconciliation without d
   assert.ok(result.graph.nodes[0].pr);
   assert.equal(inspect(f.ctx, "example").operations.find((j) => j.id === plan.approval).status, "done");
   assert.ok(progress.some((event) => event.type === "done" && event.label === "Recovering operation: reconcile"));
+});
+
+test("seeded interrupted publication sequences retain ambiguity while readback is unavailable", (t) => {
+  for (const seed of seeds(3)) {
+    const pick = random(seed);
+    const failAt = 1 + seed % 3;
+    const retries = 1 + pick(2);
+    generatedCase(seed, { failAt, retries, steps: ["split", "publish", "retry", "reconcile", "resume"] }, () => {
+      const f = fixture({ remote: true, names: ["a", "b", "c"] });
+      t.after(() => f.dispose());
+      const host = hostedFixture(f);
+      const initial = f.apply("split", { spec: f.spec });
+      const create = host.p.create;
+      let attempts = 0;
+      host.p.create = (node, body) => {
+        if (++attempts === failAt) host.loseResponse();
+        return create(node, body);
+      };
+      const plan = createPlan(f.ctx, "publish", { graph: "example" });
+      assert.throws(() => applyPlan(f.ctx, plan, plan.approval, true), /response was lost/);
+      assert.equal(host.records.size, failAt);
+      const interrupted = state.readJson(state.journalFile(f.ctx, plan.approval));
+      assert.equal(interrupted.status, "running");
+      assert.equal(Object.keys(interrupted.prs).length, failAt - 1);
+      assert.deepEqual(state.load(f.ctx, "example"), initial.graph);
+      const find = host.p.find;
+      host.p.find = () => { throw new Error("Readback unavailable; reconcile when hosting recovers"); };
+      for (let i = 0; i < retries; i++) {
+        assert.throws(() => applyPlan(f.ctx, plan, plan.approval, true), /reconcile/);
+        assert.equal(attempts, failAt);
+        assert.equal(host.records.size, failAt);
+      }
+      host.p.find = find;
+      const recovery = createPlan(f.ctx, "reconcile", { operation: plan.approval });
+      assert.throws(() => applyPlan(f.ctx, recovery, "unapproved", true), /approval/i);
+      assert.equal(state.readJson(state.journalFile(f.ctx, plan.approval)).status, "running");
+      applyPlan(f.ctx, recovery, recovery.approval, true);
+      const done = applyPlan(f.ctx, plan, plan.approval, true);
+      assert.equal(attempts, 3);
+      assert.equal(host.records.size, 3);
+      assert.equal(new Set([...host.records.values()].map((pr) => pr.branch)).size, 3);
+      assert.equal(tree(f.root, done.graph.combined), tree(f.root, f.head));
+      assert.ok(done.graph.nodes.every((n) => n.pr?.draft));
+      assert.equal(state.readJson(state.journalFile(f.ctx, plan.approval)).status, "done");
+      assert.deepEqual(history(f.ctx, "example", "a").events
+        .find((event) => event.operation === plan.approval).recoveries.map((receipt) => receipt.action),
+        ["reconcile"]);
+      assert.equal(git(f.root, "branch", "--show-current"), "source");
+      assert.equal(git(f.root, "status", "--porcelain"), "");
+    });
+  }
 });
 
 test("published folds preserve old PRs as superseded drafts until separately approved cleanup", (t) => {
