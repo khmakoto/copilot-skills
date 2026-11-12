@@ -273,14 +273,14 @@ dependency eligibility and draft/readiness state. Use `status`, `view`, and
 the freshness reports in plans and operation results; show interrupted
 candidate freshness separately from persisted graph state.
 
-Only an integration branch named exactly `main` or `master` gets a 90-minute
+Only an integration branch named exactly `main` or `master` gets a 3-hour
 grace period outside merging. The clock starts immediately before the last
 successful fetch for the latest tip started, using the recorded live target SHA
 and fetch-start time supplied through `--fetch-observation`. It never starts at
 fetch completion, planning, application, or a commit timestamp. Direct helper
 callers without fetch evidence retain the last recorded exact-target
 observation as a compatibility fallback, not a remotely verified fetch time.
-The age must be **less than 90 minutes** and
+The age must be **less than 3 hours** and
 the observed target must be a verified descendant. During grace, report that
 the node is behind but within grace; do not repeatedly fast-forward the local
 integration branch or sync/rewrite nodes just because the target advanced.

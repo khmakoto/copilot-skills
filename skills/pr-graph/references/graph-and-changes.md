@@ -27,7 +27,7 @@ the apparent freshness of a later graph revision. Restoring clears verification
 times, just as it clears validation evidence.
 
 Reports distinguish exact-current integration snapshots, a strictly
-less-than-90-minute `main`/`master` fast-forward grace, stale snapshots, and
+less-than-3-hour `main`/`master` fast-forward grace, stale snapshots, and
 unknown evidence. Source branch identity and validation are reported
 independently. Legacy nodes can be exact-current but cannot claim grace without
 recorded evidence. Ready may use grace; merge never does. A new observation of

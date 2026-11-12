@@ -226,7 +226,7 @@ for (const target of ["main", "master"]) {
     const result = applyPlan(f.ctx, split, split.approval, true);
     assert.equal(result.graph.nodes[0].integration.verifiedAt, startedAt);
     assert.equal(result.freshness.a.integration.ageMs, 2400000);
-    assert.equal(result.freshness.a.integration.expiresAt, startedAt + 5400000);
+    assert.equal(result.freshness.a.integration.expiresAt, startedAt + 10800000);
     assert.equal(result.freshness.a.integration.status, "grace");
     const repeated = createPlan(f.ctx, "publish", { graph: f.spec.id,
       fetchObservation: { ...fetchObservation, startedAt: clock } });
@@ -235,7 +235,7 @@ for (const target of ["main", "master"]) {
       fetchObservation: { target, sha: advanced, startedAt: clock } });
     assert.equal(latest.target, f.base);
     assert.equal(latest.graph.integration.verifiedAt, startedAt);
-    clock = startedAt + 5399999;
+    clock = startedAt + 10799999;
     f.apply("ready", { graph: f.spec.id, node: "a" });
     const ready = createPlan(f.ctx, "ready", { graph: f.spec.id, node: "a" });
     clock++;
@@ -247,14 +247,14 @@ test("fetch observations reject invalid evidence, expired moving snapshots, and 
   const f = fixture({ remote: true, names: ["a"] });
   t.after(() => f.dispose());
   const startedAt = Date.UTC(2026, 9, 21);
-  f.ctx.now = () => startedAt + 5400000;
+  f.ctx.now = () => startedAt + 10800000;
   git(f.root, "branch", "main", f.base);
   git(f.root, "push", "-q", "upstream", "main");
   f.spec.target = "main";
   const fetchObservation = { target: "main", sha: f.base, startedAt };
   for (const invalid of [null, {}, { ...fetchObservation, target: "master" },
     { ...fetchObservation, sha: "main" }, { ...fetchObservation, startedAt: -1 },
-    { ...fetchObservation, startedAt: startedAt + 5400001 }]) {
+    { ...fetchObservation, startedAt: startedAt + 10800001 }]) {
     assert.throws(() => createPlan(f.ctx, "split", { spec: f.spec, fetchObservation: invalid }),
       /Fetch observation requires/);
   }
@@ -262,8 +262,8 @@ test("fetch observations reject invalid evidence, expired moving snapshots, and 
   const later = createPlan(f.ctx, "publish", { graph: graph.id });
   assert.equal(later.graph.integration.verifiedAt, startedAt);
   const refreshed = createPlan(f.ctx, "publish", { graph: graph.id,
-    fetchObservation: { ...fetchObservation, startedAt: startedAt + 5400000 } });
-  assert.equal(refreshed.graph.integration.verifiedAt, startedAt + 5400000);
+    fetchObservation: { ...fetchObservation, startedAt: startedAt + 10800000 } });
+  assert.equal(refreshed.graph.integration.verifiedAt, startedAt + 10800000);
   const advanced = git(f.root, "commit-tree", `${f.base}^{tree}`, "-p", f.base, "-m", "Main advanced");
   git(f.root, "push", "-q", "upstream", `${advanced}:refs/heads/main`);
   assert.throws(() => createPlan(f.ctx, "split", { spec: { ...f.spec, id: "expired" }, fetchObservation }),

@@ -153,7 +153,7 @@ Fixture coverage is not live provider certification.
   intended target before review eligibility. Eligibility, readiness, validation,
   branch identity, and integration freshness are separate facts.
 - Only integration branches named exactly `main` or `master` have a strictly
-  less-than-90-minute verified-forward freshness grace outside merging. Read-only
+  less-than-3-hour verified-forward freshness grace outside merging. Read-only
   observations do not renew it; record the latest-tip fetch start with
   `--fetch-observation`, not fetch completion. Merge always requires the current target.
   Freshness fetches/fast-forwards are a skill preflight, not automatic CLI behavior.

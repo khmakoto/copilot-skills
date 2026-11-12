@@ -206,7 +206,7 @@ skill's [branch freshness preflight](../SKILL.md#0-mandatory-branch-freshness-pr
 Check local DAG branches, the actual target, and existing `main`/`master`
 branches against freshly fetched tips, and obtain approval for required
 fast-forwards. An integration target named exactly `main` or `master` may
-remain behind during the documented 90-minute grace outside merging; do not
+remain behind during the documented 3-hour grace outside merging; do not
 advance it repeatedly during that window. Block on unexplained divergence or
 unsafe worktree updates. Recognize journal-verified pending publication only
 under the skill's narrow preflight exception; do not repair or push it here. This prerequisite
@@ -285,13 +285,13 @@ Branch reports compare recorded/local/remote heads and distinguish unpublished
 and local-only scope. Validation is independently `current`, `stale`, or
 `missing`; none of these imply dependency eligibility or provider-policy success.
 
-Only `main`/`master` integration snapshots have a 90-minute grace, measured from
+Only `main`/`master` integration snapshots have a 3-hour grace, measured from
 the start of the last successful fetch for the latest tip, supplied through
 `--fetch-observation`. Fetch completion, planning, and applying do not restart it.
 Without this input, direct helper callers retain the last recorded exact-target
 observation as a compatibility fallback; that is not remote fetch evidence.
 Later target observations must be verified fast-forwards; they never extend
-the clock while the authored snapshot is behind. At exactly 90 minutes grace
+the clock while the authored snapshot is behind. At exactly 3 hours grace
 expires. Legacy/restored snapshots without verification evidence get no grace,
 and neither do rewinds, future-dated evidence, or other target branch names.
 Unchanged exact-current snapshots remain current regardless of age.
@@ -338,7 +338,7 @@ and that the fetch succeeded; the helper cannot prove a historical fetch from a
 timestamp alone. Do not supply failed-fetch evidence or cached tracking tips.
 
 If the target advances during a slow fetch or before the first plan, the fetched
-snapshot may still be used for less than 90 minutes from `startedAt`. The time
+snapshot may still be used for less than 3 hours from `startedAt`. The time
 spent fetching, planning, waiting for approval, and applying all counts.
 Exactly-current snapshots remain current regardless of age; otherwise expired
 observations, rewinds, divergence, and future timestamps cannot grant grace.

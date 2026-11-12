@@ -65,7 +65,7 @@ Live progress goes to stderr by default; --quiet suppresses progress, not errors
 Interactive terminals use colors/spinners; redirected output uses plain lines.
 Quiet steps report a heartbeat every 2 minutes. Stdout results are unchanged.
 Node freshness is reported separately from branch identity and validation.
-Only main/master snapshots have a 90-minute grace from the recorded fetch start; merge is strict.
+Only main/master snapshots have a 3-hour grace from the recorded fetch start; merge is strict.
 Plans contain code/payloads; keep them outside the product working tree.
 `;
 
