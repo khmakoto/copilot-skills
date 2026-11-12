@@ -24,6 +24,31 @@ node skills/pr-graph/scripts/pr-graph.mjs help
 it does not forward command-line filters. CI runs the suite on Linux, macOS,
 and Windows with Node.js 22 and 24.
 
+### Seeded differential tests
+
+The full CI command includes built-ins-only generated tests. To replay a failure:
+
+```sh
+PR_GRAPH_TEST_SEED=7 node --test skills/pr-graph/scripts/__tests__/graph-properties.test.mjs
+node --test --test-name-pattern='seeded interrupted publication' skills/pr-graph/scripts/__tests__/providers.test.mjs
+```
+
+In PowerShell, set `$env:PR_GRAPH_TEST_SEED = '7'` before the Node command.
+The uint32 override replaces each generated seed list with one seed; clear it
+for full default coverage. The reconstruction matrix still runs every evidence
+scenario. Preserve the reported seed and JSON reproducer when reporting failures;
+reduce graph cases by removing nodes and their incoming references.
+
+`graph-properties.test.mjs` compares bounded DAG queries against independent
+reachability/ordering models and checks that a shallow-closure mutant is caught.
+`reconstruction-differential.test.mjs` compares retained-cache reuse with uncached
+patch replay in a separate fixture, using fixed commit dates, exact trees and
+ordered messages. `git-differential.test.mjs` covers missing evidence, observation
+drift and object-view isolation. Generated publication sequences in
+`providers.test.mjs` exercise lost responses, unavailable readback and approved
+reconciliation. Extend these alongside optimizations; matching trees alone do
+not prove current validation, authorization, provenance or safe recovery.
+
 ## Architecture
 
 This is a collection of portable agent workflows, not an application. Each
