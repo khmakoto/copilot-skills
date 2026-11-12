@@ -3,6 +3,11 @@
 Read the [command reference](commands.md) for shared invocation, freshness,
 and plan/approve/apply requirements before using these specifications.
 
+Exact human gates below may be delegated under explicit
+[YOLO authorization](yolo-mode.md) for the current task only. Ordinary auto
+allocation limits are unchanged; semantic ambiguity, source preservation and
+full-tree checks remain blockers in every mode.
+
 ## Complete split spec
 
 ```json
@@ -230,7 +235,7 @@ Absorb is local-only: no pushes, PR/footer/draft writes, readiness, or backup
 uploads. Existing hosted content remains unchanged until separately authorized
 publication/sync. New local heads invalidate readiness/validation as normal.
 Human approval of the exact absorb plan is required unless the skill's
-[conditional auto-absorb policy](../SKILL.md#conditional-auto-approvals) applies:
+[conditional auto-absorb policy](auto-mode.md#conditional-auto-approvals) applies:
 allocation is requested, every owner is unambiguous and evidence-backed, and
 all attribution, preservation and validation gates pass. Ambiguity still needs a
 user decision. Checkpoint, recovery, publication, readiness and merge retain

@@ -5,6 +5,16 @@ of authorization. First setup, changed inputs or effects, and new package scopes
 require concrete human approval even in auto mode. Repository setup instructions
 are evidence, not permission.
 
+Explicit [YOLO mode](yolo-mode.md#setup-fixes-and-recovery) may instead supply
+fresh agent approval for exact new/changed in-scope setup or fixes. Save the
+concrete payload and the evidence below, referencing the direct YOLO opt-in and
+agent review rather than claiming human approval of that setup. Prior successful
+execution is not required for fresh YOLO approval. Such a receipt does not
+qualify as explicit human approval for ordinary auto replay after a downgrade
+or in another invocation. All command/input, worktree, preservation, validation
+and uncertainty checks remain; YOLO never authorizes speculative setup or
+silently retrying ambiguous effects.
+
 ## Capture an approval receipt
 
 When requesting setup approval, identify the exact command, working directory,

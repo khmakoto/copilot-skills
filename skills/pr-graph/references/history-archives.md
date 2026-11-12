@@ -3,7 +3,8 @@
 History archives are opt-in, local, evidence-only transfers. They are not graph
 recovery, portable approvals, universal undo, or automatic synchronization.
 Both export and import require human approval of the **complete exact plan**
-unless the separate invocation-scoped transfer authorization below applies.
+unless the separate invocation-scoped transfer authorization below or explicit
+[YOLO authorization](yolo-mode.md#disclosure-bounds-without-repeated-prompts) applies.
 `--auto` alone is not transfer authorization. Never upload an archive as part of
 ordinary publication.
 
@@ -33,6 +34,22 @@ completeness, file-preservation and lock checks remain mandatory. A changed
 source, unexpected payload, broader scope, or new destination requires renewed
 approval. Do not persist this authorization or introduce a helper CLI flag.
 External uploads, restore, graph recovery and archive deletion are not covered.
+
+### YOLO transfer approval
+
+Explicit YOLO mode supplies the transfer opt-in for a requested in-scope
+export/import without another approval prompt. Before approving a saved exact
+plan, establish and record the precise source repository/archive and graph,
+destination clone/path, complete retained-data scope and retention cost under
+the [disclosure contract](yolo-mode.md#disclosure-bounds-without-repeated-prompts).
+Derive these bounds only from the direct task and verified context; ask about
+missing or ambiguous recipients or broader disclosure. A changed payload needs
+fresh review and a new digest, not a bypass of pack/completeness checks.
+YOLO never silently releases an exclusion: approve/apply a separate explicit
+policy plan if task scope permits release, then replan the export. User
+constraints to keep content local still block it. Archive upload, recovery and
+deletion remain distinct actions and are not implied by a transfer request.
+No transfer carries YOLO permission into the recipient or a later invocation.
 
 ## Export, inspect, import
 

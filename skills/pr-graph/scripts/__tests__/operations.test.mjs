@@ -9,6 +9,36 @@ import { load, lock, save } from "../lib/state.mjs";
 import { createPlan, applyPlan } from "../lib/operations.mjs";
 import { history, interdiff } from "../lib/history.mjs";
 
+test("skill approval modes never become helper flags or bypass exact approval", (t) => {
+  const f = fixture({ names: ["a"] });
+  t.after(() => f.dispose());
+  const plan = createPlan(f.ctx, "split", { spec: f.spec });
+  const file = path.join(f.dir, "split.json");
+  fs.writeFileSync(file, JSON.stringify(plan));
+  for (const mode of ["--auto", "--yolo"]) {
+    for (const args of [
+      ["plan", "split", "--spec", file],
+      ["apply", "--plan", file, "--yes", "--approve", plan.approval],
+      ["continue", "--operation", plan.approval, "--yes", "--approve", plan.approval],
+    ]) {
+      const result = cli(f.root, ...args, mode);
+      assert.equal(result.status, 1, result.stdout);
+      assert.match(result.stderr, new RegExp(`Unknown or missing flag: ${mode}`));
+    }
+  }
+  for (const flags of [[], ["--yes"], ["--approve", plan.approval],
+    ["--yes", "--approve", "wrong-digest"]]) {
+    const result = cli(f.root, "apply", "--plan", file, ...flags);
+    assert.equal(result.status, 1, result.stdout);
+    assert.match(result.stderr, /approval|--yes|--approve/i);
+  }
+  assert.equal(git(f.root, "rev-parse", "HEAD"), f.head);
+  assert.equal(git(f.root, "status", "--porcelain"), "");
+  const applied = cli(f.root, "apply", "--plan", file, "--yes", "--approve", plan.approval);
+  assert.equal(applied.status, 0, applied.stderr);
+  assert.equal(JSON.parse(applied.stdout).graph.id, plan.graph.id);
+});
+
 test("local-only sync mode is pinned, CLI-supported, and rejected for other actions", (t) => {
   const f = fixture({ names: ["a"] });
   t.after(() => f.dispose());

@@ -135,11 +135,15 @@ descriptions.
    an undisclosed upload or body replacement. Use the target provider's verified
    native attachment workflow and configured authentication; never extract tokens.
    Verify attachment access is appropriate for the repository.
-   In the skill's explicit [auto mode](../SKILL.md#invocation-scoped-auto-mode),
+   In the skill's explicit [auto mode](auto-mode.md),
    inspect and approve these exact routine in-scope effects without a human
    prompt. Renderer setup, unsupported upload/access mechanisms, and unexpected
    concurrent body changes remain blockers; auto mode does not authorize setup
    or overriding another skill's approval requirements.
+   Explicit [YOLO mode](yolo-mode.md) may approve necessary local renderer setup
+   and these exact in-scope uploads/body edits under its setup and disclosure
+   contracts. Unsupported mechanisms, inappropriate access, unresolved concurrent
+   changes and other skills' independent approval gates remain blockers.
 5. Upload and embed the image, preserving the current PR description. A
    filesystem path, base64 payload, expiring preview URL, or unauthenticated
    external rendering URL is not an acceptable attachment. If the host cannot

@@ -30,7 +30,7 @@ explicit invocation.
 | [`pr-feedback`](docs/skills.md#pr-feedback)           | Validate PR feedback and implement each approved fix. Remote actions need separate approval.                                                   |
 | [`pr-reviewer`](docs/skills.md#pr-reviewer)           | Review PRs or local branches for defects. Confirm each remote comment before posting.                                                          |
 | [`pr-walkthrough`](docs/skills.md#pr-walkthrough)     | Build a read-only, dependency-ordered route for human review.                                                                                  |
-| [`pr-graph`](docs/skills.md#pr-graph)                 | Manage a PR dependency graph across Git providers, with bounded auto recovery, approved follow-up allocation and portable historical evidence. |
+| [`pr-graph`](docs/skills.md#pr-graph)                 | Manage a PR dependency graph across Git providers, with bounded auto mode or explicit task-scoped YOLO delegation of all approval gates.       |
 | [`session-distill`](docs/skills.md#session-distill)   | Use session evidence to propose workflow improvements without saving changes automatically.                                                    |
 | [`skill-doctor`](docs/skills.md#skill-doctor)         | Audit skill definitions and apply only approved repairs.                                                                                       |
 | [`unslop`](docs/skills.md#unslop)                     | Edit writing with Cursor's upstream unslop rules. Fetch the rules on each explicit invocation.                                                 |
@@ -49,19 +49,24 @@ maintenance:
   after one pull request changes. Replace `[PR-NUMBER]`, `[updated/merged]`, and
   `[PR-STACK]` before using it.
 - [`update-pr-graph.md`](prompts/update-pr-graph.md) updates a PR DAG after a pull
-  request changes or merges. It uses `pr-graph` auto mode and recovers DAG context
+  request changes or merges. It uses `pr-graph` YOLO mode and recovers DAG context
   from the PR when needed.
   Diagrams retain already-landed PRs even after they leave the internal DAG model.
   Replace `[PR-NUMBER]` and `[updated/merged]` before using it.
 - [`check-dag-for-changes.md`](prompts/check-dag-for-changes.md) checks whether
   session changes already exist in the current branch's DAG and automatically
   allocates unambiguous committed follow-up edits to active, unlanded nodes using
-  `pr-graph` auto mode.
+  `pr-graph` YOLO mode.
 - [`commit-and-push.md`](prompts/commit-and-push.md) commits and pushes changes,
   resolves active review comments that those changes address, and replies to
   resolved threads without referencing specific commits. It then updates the DAG
-  for the changed branch or PR using `pr-graph` auto mode. Diagrams retain landed
+  for the changed branch or PR using `pr-graph` YOLO mode. Diagrams retain landed
   PRs even after they leave the internal DAG model.
+
+These DAG templates explicitly select `pr-graph` YOLO for the current task and
+invocation, delegating in-scope approvals while preserving safety checks and
+disclosure limits. This does not approve comment replies/resolution or any other
+skill's actions.
 
 ## Installation
 
