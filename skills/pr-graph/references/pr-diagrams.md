@@ -69,7 +69,7 @@ Keep it independent of eligibility and readiness. Include the snapshot's
 verification time (the recorded fetch start when supplied) and any grace expiry
 in that summary, with an explicit observation time. A grace label
 is not a merge-ready claim; main/master
-grace lasts less than 90 minutes and never applies to merging. Refresh a depicted
+grace lasts less than 3 hours and never applies to merging. Refresh a depicted
 freshness transition rather than reusing an image that still claims grace after
 expiry. Retain landed/superseded nodes' own snapshot evidence.
 

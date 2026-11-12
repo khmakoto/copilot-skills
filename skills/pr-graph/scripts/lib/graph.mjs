@@ -12,7 +12,7 @@ import { validatePolicy } from "./publication.mjs";
  */
 
 export const VERSION = 1;
-export const MAIN_FRESHNESS_MS = 90 * 60 * 1000;
+export const MAIN_FRESHNESS_MS = 3 * 60 * 60 * 1000;
 
 export function integrationFreshness(graph, node, target, now = Date.now(), forward = false) {
   const snapshot = node

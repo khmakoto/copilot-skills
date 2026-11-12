@@ -739,7 +739,7 @@ test("server ancestry preserves fetch-start grace without fetching remote-only m
   assert.equal(result.graph.nodes[0].pr.base, latest);
   assert.equal(result.freshness.a.integration.status, "grace");
   assert.equal(result.freshness.a.integration.verifiedAt, startedAt);
-  assert.equal(result.freshness.a.integration.expiresAt, startedAt + 5400000);
+  assert.equal(result.freshness.a.integration.expiresAt, startedAt + 10800000);
   assert.equal(present(remoteOnly), false);
   assert.equal(present(latest), false);
   assert.equal(git(f.root, "rev-parse", "main"), f.base);
@@ -749,7 +749,7 @@ test("server ancestry preserves fetch-start grace without fetching remote-only m
   assert.throws(() => applyPlan(f.ctx, ready, ready.approval, true), /changed; reconcile and replan/);
   host.records.get(source.pr.id).body = source.pr.body;
   f.apply("abort", { operation: ready.approval });
-  clock = startedAt + 5400000;
+  clock = startedAt + 10800000;
   assert.equal(inspect(f.ctx, "example").freshness.a.integration.status, "stale");
 });
 
@@ -786,7 +786,7 @@ for (const hostname of ["github.com", "enterprise.example"]) {
     assert.equal(published.graph.nodes[0].pr.base, target);
     assert.equal(ready.graph.nodes[0].pr.draft, false);
     assert.equal(ready.freshness.a.integration.status, "grace");
-    assert.equal(ready.freshness.a.integration.expiresAt, startedAt + 5400000);
+    assert.equal(ready.freshness.a.integration.expiresAt, startedAt + 10800000);
     assert.equal(git(f.root, "rev-parse", "main"), f.base);
     assert.notEqual(gitResult(f.root, ["cat-file", "-e", target], undefined, true).status, 0);
   });
@@ -827,7 +827,7 @@ for (const target of ["main", "master"]) {
     const before = f.apply("publish", { graph: "example" }).graph;
     const advanced = git(f.root, "commit-tree", `${f.base}^{tree}`, "-p", f.base, "-m", "Main advanced");
     git(f.root, "push", "-q", "upstream", `${advanced}:refs/heads/${target}`);
-    clock += 1800000;
+    clock += 7200000;
     const description = createPlan(f.ctx, "describe", { graph: "example", node: "a",
       body: "Approved description", fetchObservation: { target, sha: advanced, startedAt: clock } });
     assert.deepEqual(description.graph.integration, before.integration);
@@ -853,7 +853,7 @@ for (const target of ["main", "master"]) {
     assert.throws(() => applyPlan(f.ctx, merge, merge.approval, true), /Sync onto the current/);
     f.apply("abort", { operation: merge.approval });
     const ready = createPlan(f.ctx, "ready", { graph: "example", node: "b" });
-    clock = before.integration.verifiedAt + 5400000;
+    clock = before.integration.verifiedAt + 10800000;
     assert.equal(inspect(f.ctx, "example").freshness.b.integration.status, "stale");
     assert.throws(() => createPlan(f.ctx, "deps", { graph: "example",
       spec: { id: f.spec.id, nodes: f.spec.nodes } }), /Integration target moved/);

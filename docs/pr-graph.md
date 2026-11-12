@@ -371,7 +371,7 @@ for expected mode isolation and blocker behavior.
 
 Per-node reports separate integration freshness, branch identity, and
 validation status. Integration branches named `main` or `master` allow a
-90-minute freshness grace for verified forward movement. This grace period does
+3-hour freshness grace for verified forward movement. This grace period does
 not apply to merging.
 This avoids repeated source rewrites during review. The clock uses the recorded
 start time of the latest successful fetch of the current tip. It does not start

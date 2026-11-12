@@ -148,7 +148,7 @@ The skill's mandatory preflight checks all local DAG node branches, the actual
 integration branch, and existing local `main`/`master` branches against freshly
 fetched remote tips before any graph/change inspection or mutation. Before graph
 creation, check the source and intended integration branches instead.
-The integration branch alone may remain behind within the documented 90-minute
+The integration branch alone may remain behind within the documented 3-hour
 main/master grace outside merging. Report that status explicitly, keep
 checking live history, and do not repeatedly fast-forward it during grace.
 Record the live target SHA and the start time of the successful fetch for the
@@ -431,7 +431,7 @@ reconstruction snapshot stays fixed. Other changed local refs are not implicitly
 adopted.
 
 Non-merge source operations and readiness may also tolerate remote main/master
-fast-forwards during their recorded 90-minute freshness grace. Reconciliation
+fast-forwards during their recorded 3-hour freshness grace. Reconciliation
 does not renew that clock or change the authored snapshot; apply/continue
 recheck expiry. Source/helper refs, PR content, and validation identities remain
 guarded. A stale readiness/source plan must be aborted or otherwise safely
