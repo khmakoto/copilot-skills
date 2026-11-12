@@ -150,21 +150,39 @@ or adopt requested landings without source rewrites. It may repeat unchanged
 setup only when receipts prove successful execution and explicit approval in
 the same task and invocation.
 
-History transfers require separate permission for the current invocation.
+In ordinary auto mode, history transfers require separate permission for the
+current invocation.
 The user must still approve merges and deletion of source, refs, or worktrees.
 Restore, general adoption, graph import, checkpoint, new setup, and new conflict
 fixes also require human approval.
 The agent pauses when outcomes are uncertain. It never bypasses digests or safety
 checks.
 
-Explicit graph-scoped publication exclusions protect local-only node lineage,
+Explicit publication exclusions within a graph protect local-only node lineage,
 retained versions, and metadata in product refs, helper refs, backups, and history
 exports. The user must separately approve the release of an exclusion, even in
-auto mode. These exclusions do not detect secrets or protect against external
-tools. See the [policy contract](../skills/pr-graph/references/publication-exclusions.md).
+ordinary auto mode. Explicit YOLO may delegate that separate release approval
+only within established disclosure limits. These exclusions do not detect secrets
+or protect against external tools. See the
+[policy contract](../skills/pr-graph/references/publication-exclusions.md).
+
+Explicit `--yolo` delegates all pr-graph human approvals needed for this task
+and invocation. This includes merging, deletion, PR closure, recovery, new setup
+and fixes, restore, graph import, checkpoint, exclusion release and history
+transfer. It can irreversibly delete resources, execute setup scripts or disclose
+unpublished or discarded source and metadata.
+
+The agent first establishes the exact source, destination, access permissions
+and limits on retained data from the task and verified context. Missing or
+ambiguous intent or destinations and unresolved remote effects still block
+the operation. Plans, digests, freshness, validation, hooks and provider policies
+remain mandatory. `--yolo` is not a helper flag. Its permission does not persist
+or apply to other skills. Ordinary `--auto` remains unchanged. See the
+[complete matrix](../skills/pr-graph/references/yolo-mode.md) and
+[examples](pr-graph.md#yolo-mode).
 
 ```text
-/pr-graph [--auto] [split | view | select | history | interdiff | export-history | import-history | publication-policy | add | absorb | sync | retarget | ready | merge | describe | reshape | adopt | import-graph | checkpoint | remove-retired | backup | restore]
+/pr-graph [--auto | --yolo] [split | view | select | history | interdiff | export-history | import-history | publication-policy | add | absorb | sync | retarget | ready | merge | describe | reshape | adopt | import-graph | checkpoint | remove-retired | backup | restore]
 ```
 
 The helper requires Node.js 22+ and Git 2.31+. Hosted operations also require

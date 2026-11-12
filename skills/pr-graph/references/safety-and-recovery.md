@@ -61,6 +61,14 @@ Each plan includes a digest, exact changes/commands, local/remote observations,
 and provider payload inputs. The helper verifies approval and freshness.
 Tool permissions and a generic `--yes` are not approval of a changed plan.
 
+**Authorization modes:** Human-approval requirements and conditional auto limits
+in this reference describe interactive and ordinary `--auto` use. Explicit
+[YOLO mode](yolo-mode.md) delegates all in-scope approval gates, including new
+fixes, setup, adoption, graph import, checkpoint, restore and cleanup, to agent
+review. It does not relax any evidence, helper refusal, user-work preservation,
+freshness, validation or remote-uncertainty blocker below. New effects require
+fresh exact approval; unknown outcomes never permit blind retries.
+
 Absorb inventories only explicitly selected committed follow-up input; it never
 stages or commits dirty user work. Checkpoint preservation needs its own exact
 approval. The absorb plan pins the delta, every hunk/whole-file assignment,
@@ -72,14 +80,14 @@ reconstruction and checked again at writes. Attribution conflicts and failed
 validation use the same retained-worktree recovery gates, not silent retries.
 Absorb performs no hosting or backup writes and never authorizes readiness.
 It requires human approval unless requested allocation satisfies the skill's
-[conditional auto policy](../SKILL.md#conditional-auto-approvals); see
+[conditional auto policy](auto-mode.md#conditional-auto-approvals); see
 [the absorb contract](change-specs.md#allocate-follow-up-edits-with-absorb).
 
 The skill's explicit, invocation-scoped
-[`--auto` mode](../SKILL.md#invocation-scoped-auto-mode) authorizes the agent to
+[`--auto` mode](auto-mode.md) authorizes the agent to
 review and approve exact routine in-scope plans and preflight commands without
 repeated human prompts. The helper's digest and all safety checks remain
-mandatory. The [conditional allowances](../SKILL.md#conditional-auto-approvals)
+mandatory. The [conditional allowances](auto-mode.md#conditional-auto-approvals)
 cover only verified dead-owner unlock, exact-effect reconciliation, local abort
 for replanning with no remote effects, requested unambiguous absorb and retired
 metadata removal, previously approved unchanged backup uploads, and requested

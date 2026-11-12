@@ -3,12 +3,19 @@
 Read the [command reference](commands.md) for shared invocation, freshness,
 and plan/approve/apply requirements before using these commands.
 
+Human gates below remain in ordinary `--auto` mode. Explicit
+[YOLO mode](yolo-mode.md) lets the agent approve every necessary in-scope
+recovery, restore, cleanup and transfer separately, after reviewing exact
+effects and disclosure bounds. It never removes the command's checks or permits
+uncertain retries, dirty-worktree deletion or unsupported compensation.
+
 ## Backup and recovery actions
 
 Portable node history is a separate, evidence-only transfer:
 `plan export-history|import-history --graph <id> --archive <file>`.
 Read the [archive contract](history-archives.md) and approve each exact payload
-separately, or review it under the invocation's separate transfer opt-in.
+separately, or review it under the invocation's separate transfer opt-in or
+explicit YOLO disclosure authorization.
 Backup/restore and `import-graph` do not silently transfer originating
 clone history, and importing an archive does not authorize or resume recovery.
 
@@ -55,7 +62,7 @@ upload a backup, or accept fetch-start observations. Apply with the exact digest
 `continue` resumes the same journal after an interrupted metadata write.
 Human approval remains the default. In auto mode, explicitly requested removal
 of identified retired metadata may proceed under the
-[conditional policy](../SKILL.md#conditional-auto-approvals); do not prune it
+[conditional policy](auto-mode.md#conditional-auto-approvals); do not prune it
 opportunistically or expand into source/ref/worktree deletion.
 
 To release an occupied graph node while retaining an exact local source
@@ -179,7 +186,7 @@ history; an enabled/restored manifest alone is insufficient. Requested
 `fetch-backup` may download a verified pinned source to its private ref without
 another prompt. Neither allowance authorizes restore. Exact-effect `reconcile`,
 dead-owner `unlock`, and local `abort` for replanning with no remote effects may
-also use the [conditional policy](../SKILL.md#conditional-auto-approvals).
+also use the [conditional policy](auto-mode.md#conditional-auto-approvals).
 Verified `abort --retain-published-refs` may also use that policy only for
 replanning the original interrupted first publication, with no PR/provider
 effects or pending patch and unchanged graph/local refs. Every remote ref must

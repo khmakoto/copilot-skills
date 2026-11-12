@@ -6,6 +6,10 @@ Use quoted paths, particularly on Windows.
 
 Read the relevant action reference before preparing a plan:
 
+- [Auto authorization](auto-mode.md): invocation-only routine and conditional
+  approvals, retained human gates, freshness and recovery.
+- [YOLO authorization](yolo-mode.md): explicit invocation-only delegation of all
+  in-scope human gates, including disclosure bounds; no helper flag or check bypass.
 - [Change specifications and shape commands](change-specs.md): complete graph
   specs, splitting, adding, dependencies, folding, removal, and follow-up allocation.
 - [Lifecycle commands](lifecycle-commands.md): publication, sync, retargeting,
@@ -51,7 +55,8 @@ and `release` arrays of stable exclusion IDs plus a nonempty `reason`. Review
 and apply the exact digest normally. This local operation retains evidence and
 approval receipts, never uploads or reconstructs source, and cannot be silently
 substituted by shape specs. Policy and outbound payload scope are part of plans;
-apply/continue reject drift. Exclusion release always requires human approval.
+apply/continue reject drift. Exclusion release requires human approval unless
+the skill's explicit YOLO authorization covers the reviewed release and disclosure.
 
 ### Graph-relative node selection
 
@@ -221,13 +226,13 @@ also enables the same task-scoped behavior when the agent selects pr-graph
 automatically. A mention, quotation, or question about auto mode does not.
 The agent consumes this authorization for the current invocation/task only;
 the helper does not accept `--auto`.
-Follow the [auto-mode policy](../SKILL.md#invocation-scoped-auto-mode):
+Follow the [auto-mode policy](auto-mode.md):
 review and save exact routine in-scope plans, then use the normal digest-based
 apply commands without repeated human prompts. Preflight fetches, safe
 fast-forwards, expired-grace sync/replanning and validation, and routine diagram
 updates are included. No freshness or helper safety check is bypassed.
 
-The [conditional auto approvals](../SKILL.md#conditional-auto-approvals) also
+The [conditional auto approvals](auto-mode.md#conditional-auto-approvals) also
 cover verified dead-owner unlock, exact-effect reconciliation, no-remote-effect
 local abort for replanning, unambiguous requested absorb, requested retired
 metadata removal, previously approved unchanged backup uploads, and requested
@@ -245,6 +250,25 @@ interactive approvals apply.
 changed DAG shape in another clone. See [recovery commands](recovery-commands.md).
 It never uploads or executes imported validation commands and is not included
 in auto-mode routine authorization.
+
+### Skill YOLO mode (not a helper flag)
+
+```text
+/pr-graph --yolo merge [repository, graph, node, target and strategy]
+/pr-graph --yolo export-history [repository, graph and exact archive path]
+```
+
+Only explicit direct user opt-in enables the
+[YOLO policy](../SKILL.md#invocation-scoped-yolo-mode). The agent consumes
+`--yolo`; never forward it to the helper or persist it in state. It delegates
+all pr-graph human gates necessary for this task/invocation, including merge,
+deletion/closure, recovery, new setup/fixes, policy release and history transfer.
+Establish exact task/disclosure bounds under the
+[authorization matrix](yolo-mode.md) before approving effects. Missing intent
+or destinations, unresolved remote outcomes and correctness failures still
+block. Save and review each complete plan and use the unchanged digest contract;
+YOLO does not override leases, freshness, validation, hooks, provider policies,
+other skills or environment permissions. Ordinary auto behavior above is unchanged.
 
 ### Freshness reports
 
@@ -411,7 +435,8 @@ node "<helper>" plan split --repo "<repo>" --spec "<spec.json>" --commit-trailer
 The plan's `approval` field is a digest of the full payload. The agent must
 obtain human approval before using it, except for reviewed in-scope plans
 authorized by explicit skill auto mode under its routine/conditional policy
-or, for history transfer, auto mode plus the separate invocation-scoped opt-in.
+or, for history transfer, auto mode plus the separate invocation-scoped opt-in,
+or by explicit skill YOLO mode under its task and disclosure bounds.
 The helper always
 requires `--yes --approve <digest>`. This is an integrity check and workflow
 contract, not cryptographic evidence that a human clicked Approve.

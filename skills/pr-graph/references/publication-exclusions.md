@@ -17,6 +17,17 @@ exclusion IDs, not individual replacement nodes. Apply requires the normal
 evidence, reason and operation receipt. Neither shape specs nor imported state
 can authorize relaxation. Ordinary skill auto mode must ask before releasing.
 
+Explicit [YOLO mode](yolo-mode.md#disclosure-bounds-without-repeated-prompts)
+delegates approval of necessary in-scope exclusion releases, not bypass of
+exclusions. First identify the exact stable exclusions, protected lineage and
+retained history, reason, recipient/access and all affected outbound routes.
+If the direct task and verified context establish the disclosure bounds and
+no user constraint requires continued exclusion, save, review and approve the
+separate exact release plan without another human prompt. Apply it, then create
+a new outbound plan pinned to the updated policy. Missing/ambiguous bounds or
+an explicit "keep local" constraint block release. Importing release receipts
+never supplies authorization in any mode.
+
 The authoritative ledger is clone-local under the Git common directory.
 Graph snapshots carry a copy for backup/restore and graph import. Incoming
 active restrictions are unioned with destination restrictions; incoming release

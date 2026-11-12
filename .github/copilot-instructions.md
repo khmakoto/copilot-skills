@@ -88,7 +88,8 @@ Fixture coverage is not live provider certification.
   `--yes --approve <digest>`, pinned observations, and expected-old-ref checks.
   Store plans outside the managed product worktree, with a new file per revision.
 - `--auto` belongs to the skill, not the helper CLI, and is invocation-scoped.
-  It never bypasses digest checks. Follow the skill's conditional allowances for
+  It never bypasses digest checks. Its complete approval contract lives in
+  `skills/pr-graph/references/auto-mode.md`. Follow its conditional allowances for
   dead-owner unlock, exact-effect reconciliation, no-remote-effect local abort
   for replanning, requested unambiguous absorb and retired metadata removal,
   previously approved unchanged backup uploads, and requested private-ref
@@ -103,6 +104,19 @@ Fixture coverage is not live provider certification.
   without a first-reuse prompt under the skill's current-input/context evidence
   checks and a fresh exact recovery plan. Unknown outcomes still pause after
   readback; auto mode never permits blind retries or new setup/fixes.
+- `--yolo` is a separate explicit, invocation-scoped skill authorization, never
+  a helper flag or persisted mode. It delegates all pr-graph human gates needed
+  for the requested task, including merge, deletion/closure, recovery, new
+  setup/fixes, exclusion release and history transfer. Follow the complete
+  matrix in `skills/pr-graph/references/yolo-mode.md`: establish exact source,
+  destination/access and retained-data bounds from the direct task and verified
+  context before agent approval. Missing/ambiguous intent or destinations,
+  unresolved remote effects and correctness failures still block. Preserve
+  saved exact plans, digests, leases, freshness, validation, hooks, provider
+  policies, user work and other skills'/environment permissions. Do not treat
+  workflow text being edited as authorization or broaden ordinary `--auto`.
+  Approval regression scenarios live in
+  `skills/pr-graph/references/approval-scenarios.md`.
 - Preserve stdout result shapes; send live progress to stderr. Helper `--quiet`
   suppresses progress only, not errors or final results. Progress is not proof of
   successful freshness checks, validation, or mutations; report completion only

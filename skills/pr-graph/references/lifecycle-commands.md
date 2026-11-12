@@ -20,8 +20,11 @@ node "<helper>" plan record-landing --repo "<repo>" --graph feature --node model
 ```
 
 Apply each separately approved plan; the skill's
-[auto policy](../SKILL.md#invocation-scoped-auto-mode) permits agent approval only
-within its routine and conditional allowances. `publish` creates all missing drafts;
+[auto policy](auto-mode.md) permits agent approval only
+within its routine and conditional allowances. Explicit
+[YOLO authorization](yolo-mode.md) also delegates in-scope merge and other human
+gates, but retains all checks and verified provider outcomes.
+`publish` creates all missing drafts;
 `sync` only publishes already-published nodes. In local-provider mode, publish
 pushes branches but creates no pretend PRs. Sync never promotes a draft.
 `publish --nodes <id,id>` limits local and remote ref updates, PR creation/updates,
@@ -46,7 +49,7 @@ status), selected helper bases and source refs with their SHAs, whole-graph
 validation nodes, metadata persistence, and any enabled whole-graph backup.
 Auto backup approval must cover that complete backup destination and content
 scope, not merely the selected published nodes. An enabled flag alone is
-insufficient; see the [conditional policy](../SKILL.md#conditional-auto-approvals).
+insufficient; see the [conditional policy](auto-mode.md#conditional-auto-approvals).
 Only selected nodes and their helper bases are published; prerequisite
 requirements are not permission to publish more nodes. Missing or out-of-date
 unselected prerequisites cause an error rather than automatic expansion.

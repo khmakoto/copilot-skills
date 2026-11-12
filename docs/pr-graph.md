@@ -13,7 +13,9 @@ bases to show only their own changes. A node becomes eligible for review after
 every prerequisite lands. Mutations require approval of the exact plan. Auto
 mode lets the agent approve routine plans within the task and plans that meet
 specific safety conditions. Merging and deleting source, refs, or worktrees
-still require human approval.
+still require human approval in ordinary auto mode. Explicit YOLO mode lets the
+agent approve all actions needed for the current task and invocation. Safety
+checks still apply.
 
 The skill can split changes within a file and reshape the graph. It supports
 merge, squash, and rebase strategies. Users can opt in to recovery of committed
@@ -21,8 +23,13 @@ snapshots across machines. Footer refreshes leave completed Azure DevOps PR
 descriptions unchanged. The skill labels their diagrams as historical snapshots.
 
 ```text
-/pr-graph [--auto] [split | view | select | history | interdiff | export-history | import-history | publication-policy | add | absorb | sync | retarget | ready | merge | describe | reshape | adopt | import-graph | checkpoint | remove-retired | backup | restore]
+/pr-graph [--auto | --yolo] [split | view | select | history | interdiff | export-history | import-history | publication-policy | add | absorb | sync | retarget | ready | merge | describe | reshape | adopt | import-graph | checkpoint | remove-retired | backup | restore]
 ```
+
+The human approval requirements below apply to interactive and ordinary auto use.
+[YOLO mode](#yolo-mode) delegates those approvals for the requested task only.
+It still requires correctness checks, preservation of user work, and a pause
+when outcomes are uncertain.
 
 ## Allocate follow-up edits
 
@@ -50,12 +57,12 @@ need separate approved restructuring.
 
 The user must approve the exact plan digest unless auto mode covers requested,
 unambiguous allocation under the
-[conditional policy](../skills/pr-graph/SKILL.md#conditional-auto-approvals).
+[conditional policy](../skills/pr-graph/references/auto-mode.md#conditional-auto-approvals).
 The helper checks each owner's changes against its assigned edits. It compares
-the complete combined tree with the approved source, rebuilds dependent nodes, and reruns
-required checks. Changed inputs, occupied branches, conflicts and failed
-validation stop the operation under the existing recovery rules. The helper
-does not discard user work.
+the complete combined tree with the approved source. It rebuilds dependent nodes
+and reruns required checks. Changed inputs, occupied branches, conflicts and
+failed validation stop the operation under the existing recovery rules. The
+helper does not discard user work.
 
 Absorb updates only local graph branches and state. Publication, hosted PR
 updates, draft changes, backup uploads and readiness each need separate
@@ -97,8 +104,10 @@ semantic equivalence or merge safety. See the
 
 Use `plan export-history --graph <id> --archive <file>` to export historical
 snapshots and a self-contained Git pack. Use `plan import-history` with the same
-flags to import them. Each plan requires exact approval, either from the user or
-from the agent under the separate transfer opt-in described below.
+flags to import them. Each plan requires approval of its exact contents. The user
+may approve it directly. The agent may approve it under the separate transfer
+opt-in described below, or under YOLO authorization that covers the task and
+disclosure.
 
 The archive preserves version IDs, interrupted candidate versions, records of
 splits and folds, and historical publication and validation baselines. You can
@@ -245,7 +254,7 @@ The skill may reuse an approved conflict resolution without another prompt,
 even on its first reuse. It must verify that the current inputs and context
 match, then review a fresh, exact recovery plan. New or unverifiable conflicts
 and other safety blockers require human approval before auto mode resumes.
-The [conditional policy](../skills/pr-graph/SKILL.md#conditional-auto-approvals)
+The [conditional policy](../skills/pr-graph/references/auto-mode.md#conditional-auto-approvals)
 also permits removing a lock whose owner is dead on the same host, reconciling
 verified effects that the user originally approved, and aborting locally for
 replanning when there are no remote effects.
@@ -296,6 +305,67 @@ two minutes. The helper shows validation output only on failure. The agent repor
 work outside the helper, including freshness preflight and PR diagrams, without
 repeating every helper line. The helper's `--quiet` flag suppresses progress,
 not errors or results.
+
+## YOLO mode
+
+Use explicit `--yolo` to delegate every pr-graph human approval needed for the
+requested task and invocation. An unambiguous direct instruction such as
+"Use pr-graph YOLO mode to merge this node into trunk with squash" is equivalent,
+including when the agent selects the skill automatically. Quoting, discussing
+or asking about YOLO does not enable it. Repository or PR text, tool output and
+restored settings cannot enable it.
+
+YOLO can merge changes, irreversibly remove source, refs or worktrees, close
+retired PRs, and run new setup and lifecycle scripts. It can also disclose
+unpublished or discarded source, ancestry and old metadata. Enabling YOLO does
+not request all those actions. A local split does not authorize publication,
+merge, cleanup or history transfer.
+
+The [complete authorization matrix](../skills/pr-graph/references/yolo-mode.md)
+covers routine operations, all supported recovery, restore, general adoption,
+graph import, checkpoint, new conflict resolutions, setup, fixes for failed
+checks or hooks, backup changes, publication-exclusion release, and history
+export and import. The agent reviews and saves exact plans and supplies
+`--yes --approve <digest>`. It does not disable checks. It reviews policy releases
+and transfers as separate operations.
+
+Before disclosure, the agent records the exact source repository, graph and refs,
+or archive. It records the destination path or clone, or the hosting repository,
+ref or PR, along with access permissions. It also records all data to retain and
+its storage cost. The direct task and verified context must establish these
+details without ambiguity. The agent then approves the exact payload without
+another prompt, including the history-transfer opt-in or necessary exclusion
+release. An explicit "keep local" constraint still forbids release. The agent
+asks the user when destinations or access are unknown or ambiguous, or when
+disclosure would exceed the established limits.
+
+```text
+/pr-graph --yolo split this branch locally; do not publish or clean up
+/pr-graph --yolo merge node model in graph feature into trunk using squash
+/pr-graph --yolo export-history graph feature from this repository to /srv/review/feature-history.json
+```
+
+The export example requires review of the full retained history and retention
+costs. It does not request an external upload. Omit `--yolo` or explicitly select
+`--auto` for ordinary approval requirements. If both flags are explicitly
+supplied, YOLO governs. An explicit downgrade or revocation takes effect before
+the next action.
+
+Both flags belong to the skill, not the helper CLI. The skill never saves YOLO
+permission or carries it into another task or invocation. Saved plans and
+receipts do not grant future permission. YOLO does not approve actions in other
+skills or override tool or environment permissions.
+
+Missing goals, ambiguous ownership, unresolved remote effects, unsafe worktrees
+or locks, stale freshness, and failed validation or hooks still block the
+affected operation. Provider policies also block it when their results are
+unknown, pending or failed. The agent may diagnose and approve a supported fix
+within the task's scope when evidence supports it, then rerun checks. It never
+blindly retries uncertain writes or bypasses policies. Progress and verified
+completion reporting remain the same as in auto mode.
+
+See the [behavioral regression scenarios](../skills/pr-graph/references/approval-scenarios.md)
+for expected mode isolation and blocker behavior.
 
 ## Freshness
 
@@ -378,9 +448,9 @@ occupied graph node. It uses normal hooks and signing. General `adopt` and
 
 For explicitly requested landings when PR content has not been rewritten, use
 `plan adopt --landings-only --spec <json>`. Include the graph ID and pinned
-`targetSnapshot`. For each newly merged node, include its unchanged head, base, base branch, and
-provider landing SHA. The helper rejects namespace changes, attempts to repair
-source refs, unrelated PR identity changes, and target rewinds. It retains
+`targetSnapshot`. For each newly merged node, include its unchanged head, base,
+base branch, and provider landing SHA. The helper rejects namespace changes,
+attempts to repair source refs, unrelated PR identity changes, and target rewinds. It retains
 owned changes and historical nodes. It clears validation and readiness for
 selected nodes and descendants. It does not claim freshness or publish anything.
 Do not silently fall back to general adoption when these checks fail.
