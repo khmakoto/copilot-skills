@@ -49,6 +49,15 @@ drift and object-view isolation. Generated publication sequences in
 reconciliation. Extend these alongside optimizations; matching trees alone do
 not prove current validation, authorization, provenance or safe recovery.
 
+`read-performance.test.mjs` measures ref-observation, graph-query, history, and
+immutable-read phases on bounded chains, diamonds, and wide graphs. It asserts
+Git subprocess counts with Trace2, not elapsed-time thresholds. Metadata readers
+are scoped to one repository/object view and one read boundary; do not retain
+them across mutations, fetches, or revalidation. Graph query caches check node
+identities and structural inputs on entry; eligibility still reads live landing
+state. Extend the read-boundary and missing-object differential tests when
+changing these caches.
+
 ## Architecture
 
 This is a collection of portable agent workflows, not an application. Each

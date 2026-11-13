@@ -438,6 +438,31 @@ wall-clock assertions. Gains are topology-dependent: additional prefix metadata
 can increase journal bytes for wide graphs. The uncached replay matrix separately
 checks invalidation and refusal/recovery decisions.
 
+Local observations use one `for-each-ref` snapshot per boundary rather than
+per-branch subprocess pairs. Write-time occupied-worktree checks, individual
+ref readbacks, and expected-old-ref updates remain live. Immutable object
+metadata and peeled tree IDs use bounded `cat-file --batch-check` requests.
+Only validated full IDs and fixed ASCII metadata enter this protocol; arbitrary
+binary object contents are never interpreted as batch framing. Successful
+metadata and full-ID ancestry facts are reused only within one read scope,
+bound to its repository/object view. Absence and failures are not cached.
+History and publication inspection retain their isolated, no-lazy-fetch views;
+there is no persisted object cache or cached provider state.
+
+Graph queries reuse node maps, stable topological order, requested prerequisite
+closures, and active progress positions. Each entry checks structural inputs and
+node identities, so in-place dependency/ID/retirement edits and replaced nodes
+invalidate the index. Landing, validation, readiness, and integration evidence
+remain separate live facts, not cached query answers.
+
+`read-performance.test.mjs` compares results with independent graph models and
+the individual-read baseline. It measures read-phase durations and uses Git
+Trace2 to assert subprocess counts for 128-node chains, diamonds, wide graphs,
+and retained history. Timings are diagnostics, not latency guarantees or test
+thresholds. `git-differential.test.mjs` checks missing refs/objects, ref movement,
+object-view/repository isolation, binary-object metadata, malformed batch output,
+and no-lazy-fetch behavior; seeded graph-query tests cover mutation invalidation.
+
 ```text
 node "<helper>" plan split --repo "<repo>" --spec "<spec.json>" --out "<plan.json>"
 node "<helper>" apply --repo "<repo>" --plan "<plan.json>" --yes --approve "<digest>"

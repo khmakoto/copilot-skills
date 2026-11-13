@@ -44,7 +44,7 @@ function observe(ctx, graph, previous, p) {
   for (const name of names) git.checkBranch(ctx.root, name);
   const remote = git.remoteRefs(ctx.root, graph.repository.remote);
   return {
-    local: Object.fromEntries(names.map((b) => [b, git.refId(ctx.root, `refs/heads/${b}`)])),
+    local: git.localBranches(ctx.root, names),
     remote: Object.fromEntries(names.map((b) => [b, remote[`refs/heads/${b}`] ?? null])),
     prs: Object.fromEntries(graph.nodes.filter((n) => n.pr).map((n) =>
       step("Observing imported PR identity", () => [n.id, p.get(n.pr.id)], nodeDetails(graph, n)))),

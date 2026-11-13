@@ -59,10 +59,10 @@ export function save(ctx, graph, plan) {
         const retained = new Map(git.out(ctx.root,
           ["for-each-ref", "--format=%(refname) %(objectname)", prefix])
           .split("\n").filter(Boolean).map((line) => line.split(" ")));
-        git.withObjectView(ctx, (run) => {
+        git.withObjectView(ctx, (run, objects) => {
+          const available = objects.commits([...commits]);
           for (const sha of commits) {
-            if (/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(sha) &&
-              run(["cat-file", "-e", `${sha}^{commit}`]).status === 0) {
+            if (available.get(sha)) {
               const existing = retained.get(`${prefix}${sha}`);
               requireValue(!existing || existing === sha, "Historical retention ref changed; inspect explicitly.");
               if (!existing) git.out(ctx.root, ["update-ref", `${prefix}${sha}`, sha, "0".repeat(sha.length)]);

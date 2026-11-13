@@ -88,7 +88,10 @@ export function verifyComposition(cwd, graph, target, expected, apply = applyCha
   return step("Verifying whole-graph composition", () => {
     const combined = compose(cwd, target, topological(graph), apply);
     if (expected) {
-      requireValue(git.tree(cwd, combined) === git.tree(cwd, expected),
+      const expectedId = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(expected)
+        ? expected : git.commitId(cwd, expected);
+      const trees = git.readObjects(cwd).trees([combined, expectedId]);
+      requireValue(trees.get(combined) === trees.get(expectedId),
         `Graph is not lossless: reconstructed tree differs from ${expected}. No product refs may be published.`);
     }
     return combined;

@@ -24,7 +24,7 @@ function observations(ctx, graph, previous = graph) {
     g.nodes.flatMap((n) => [n.branch, n.baseBranch, helperBranch(g, n.id)]))
   ].filter(Boolean))].sort();
   return {
-    local: Object.fromEntries(branches.map((b) => [b, git.refId(ctx.root, `refs/heads/${b}`)])),
+    local: git.localBranches(ctx.root, branches),
     remote: Object.fromEntries(branches.map((b) => [b, remote[`refs/heads/${b}`] ?? null])),
     prs: Object.fromEntries(graph.nodes.filter((n) => n.pr).map((n) => [n.id, p.get(n.pr.id)])),
   };

@@ -100,8 +100,8 @@ function rootsOf(graphs) {
 }
 
 function closure(run, roots, sha) {
-  const missing = roots.filter((id) => !sha.test(id) ||
-    run(["cat-file", "-e", `${id}^{commit}`]).status !== 0);
+  const available = git.objectReader(run).commits(roots.filter((id) => sha.test(id)));
+  const missing = roots.filter((id) => !available.get(id));
   const present = roots.filter((id) => !missing.includes(id));
   const result = present.length ? run(["rev-list", "--objects", "--no-object-names",
     "--missing=print", "--stdin"], `${present.join("\n")}\n`) : { status: 0, stdout: "" };
@@ -488,18 +488,21 @@ export function importedHistory(ctx, graph, node, id) {
   requireValue(timeline, `Unknown imported historical node: ${node}`);
   const provenance = { source: "imported", archive: id, origin: archive.origin,
     graphIdentity: archive.identity, authenticated: false };
-  return git.withObjectView(ctx, (run) => ({
-    ...timeline, current: null,
-    versions: timeline.versions.map((v) => ({
-      ...v, provenance,
-      missingCommits: [...new Set([v.snapshot.node.change.base, v.snapshot.node.change.head,
-        v.snapshot.node.base, v.snapshot.node.head, v.snapshot.node.validation?.head,
-        v.snapshot.node.landing?.commit].filter(Boolean))]
-        .filter((sha) => run(["cat-file", "-e", `${sha}^{commit}`]).status !== 0),
-    })),
-    events: timeline.events.map((e) => ({ ...e, source: "imported", originalSource: e.source, provenance })),
-    provenance, baselineOrigins: Object.fromEntries(Object.keys(timeline.baselines)
-      .map((key) => [key, timeline.baselines[key] ? provenance : null])),
-    gaps: [...timeline.gaps], warning: WARNING,
-  }));
+  return git.withObjectView(ctx, (run, objects) => {
+    const commits = (v) => [...new Set([v.snapshot.node.change.base, v.snapshot.node.change.head,
+      v.snapshot.node.base, v.snapshot.node.head, v.snapshot.node.validation?.head,
+      v.snapshot.node.landing?.commit].filter(Boolean))];
+    const available = objects.commits(timeline.versions.flatMap(commits));
+    return {
+      ...timeline, current: null,
+      versions: timeline.versions.map((v) => ({
+        ...v, provenance,
+        missingCommits: commits(v).filter((sha) => !available.get(sha)),
+      })),
+      events: timeline.events.map((e) => ({ ...e, source: "imported", originalSource: e.source, provenance })),
+      provenance, baselineOrigins: Object.fromEntries(Object.keys(timeline.baselines)
+        .map((key) => [key, timeline.baselines[key] ? provenance : null])),
+      gaps: [...timeline.gaps], warning: WARNING,
+    };
+  });
 }

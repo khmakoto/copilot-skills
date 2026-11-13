@@ -1,5 +1,5 @@
 import { performance } from "node:perf_hooks";
-import { topological } from "./graph.mjs";
+import { nodePosition } from "./graph.mjs";
 
 let sink;
 let sequence = 0;
@@ -9,8 +9,7 @@ export function setProgressSink(value) {
 }
 
 export function nodeDetails(graph, node) {
-  const nodes = topological(graph).filter((n) => !n.retired);
-  return { node, index: nodes.findIndex((n) => n.id === node.id) + 1, total: nodes.length };
+  return nodePosition(graph, node);
 }
 
 export function step(label, action, details = {}) {

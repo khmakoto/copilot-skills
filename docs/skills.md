@@ -1,8 +1,8 @@
 # Skill guide
 
-This guide explains how to use each skill. The instructions and references under
-[`skills/`](../skills/) define each workflow. For an overview, see the
-[README](../README.md). Install complete skill directories as described in the
+The instructions and references under [`skills/`](../skills/) define each
+workflow. See the [README](../README.md) for an overview. Install complete skill
+directories as described in the
 [installation instructions](../README.md#installation).
 
 Invoke any skill with the commands below. Agents can also select `brainstorm`,
@@ -15,9 +15,9 @@ The skill analyzes a local or remote repository. It ranks possible improvements
 to the product, engineering practices, reliability, security, accessibility,
 delivery, and design.
 
-The skill presents one suggestion at a time for refinement or triage. It can
-prepare a GitHub issue or Azure DevOps work item after the user confirms the
-exact payload.
+The skill presents one suggestion at a time for the user to refine or triage.
+It can prepare a GitHub issue or Azure DevOps work item once the user confirms
+the exact contents.
 
 ```text
 /brainstorm [repository or path] [suggest-only] [count, focus areas, exclusions, or other constraints]
@@ -52,8 +52,8 @@ implementation and supplied materials, then asks one structured question at a
 time about goals, tradeoffs, and constraints. It covers visual interfaces,
 terminal output, APIs, and agent workflows.
 
-The design separates decisions, proposed defaults, and assumptions. It defines
-scope, non-goals, observable acceptance criteria, and validation plans.
+The design records decisions, proposed defaults, and assumptions separately.
+It defines scope, non-goals, observable acceptance criteria, and validation plans.
 The user must resolve choices that affect the design before approving it.
 
 The workflow is read-only. The user must approve the final design. That approval
@@ -77,8 +77,9 @@ validation evidence for the current PR head from historical results. It also
 reports pending, failed, or unavailable checks.
 
 The user can edit the complete body and must approve its exact content before
-publication. The skill checks for intervening changes and verifies the saved
-description by reading it back. Draft-only mode makes no remote changes.
+publication. The skill checks for intervening changes before publishing.
+It reads back the saved description to verify it. Draft-only mode makes no remote
+changes.
 Neither mode changes code, review threads, graph state, or other PR metadata.
 
 ```text
@@ -106,9 +107,9 @@ specialist code-review agent. It reports defects, regressions, vulnerabilities,
 compatibility problems, and gaps in test coverage.
 
 The review covers every changed hunk. It checks state and lifecycle behavior,
-test validity, and behavioral branch coverage. Where relevant, it runs focused
-checks for UI interactions, wrappers and adapters, design systems, reactive state,
-service contracts, and package boundaries.
+whether tests are valid, and which behavioral branches they cover. Where relevant,
+it runs focused checks for UI interactions, wrappers and adapters, design systems,
+reactive state, service contracts, and package boundaries.
 
 The skill presents one finding at a time. Keeping a local finding does not change
 the worktree. Remote review comments can include suggestion blocks that the
@@ -121,9 +122,9 @@ text before the skill posts it.
 
 ## `pr-walkthrough`
 
-The skill builds a walkthrough for manually reviewing a GitHub or Azure DevOps
-pull request or a branch in the current local repository. It orders review stops
-by their dependencies and makes no changes.
+The skill builds a walkthrough for manual review of a GitHub or Azure DevOps pull
+request or a branch in the current local repository. It orders review stops by
+their dependencies and makes no changes.
 
 The walkthrough explains what to review and how the changes depend on each other.
 It splits files with substantial behavior into focused review stops rather than
@@ -158,12 +159,12 @@ fixes also require human approval.
 The agent pauses when outcomes are uncertain. It never bypasses digests or safety
 checks.
 
-Explicit publication exclusions within a graph protect local-only node lineage,
-retained versions, and metadata in product refs, helper refs, backups, and history
+Publication exclusions within a graph keep local-only node lineage, retained
+versions, and metadata out of product refs, helper refs, backups, and history
 exports. The user must separately approve the release of an exclusion, even in
-ordinary auto mode. Explicit YOLO may delegate that separate release approval
-only within established disclosure limits. These exclusions do not detect secrets
-or protect against external tools. See the
+ordinary auto mode. In YOLO mode, the agent may approve that separate release
+only within established disclosure limits. These exclusions do not detect
+secrets or protect against external tools. See the
 [policy contract](../skills/pr-graph/references/publication-exclusions.md).
 
 Explicit `--yolo` delegates all pr-graph human approvals needed for this task
@@ -172,12 +173,12 @@ and fixes, restore, graph import, checkpoint, exclusion release and history
 transfer. It can irreversibly delete resources, execute setup scripts or disclose
 unpublished or discarded source and metadata.
 
-The agent first establishes the exact source, destination, access permissions
-and limits on retained data from the task and verified context. Missing or
-ambiguous intent or destinations and unresolved remote effects still block
-the operation. Plans, digests, freshness, validation, hooks and provider policies
-remain mandatory. `--yolo` is not a helper flag. Its permission does not persist
-or apply to other skills. Ordinary `--auto` remains unchanged. See the
+The agent first uses the task and verified context to establish the exact source,
+destination, access permissions, and limits on retained data. Missing or ambiguous
+intent or destinations still block the operation. So do unresolved remote
+effects. Plans, digests, freshness, validation, hooks, and provider policies remain
+mandatory. `--yolo` is not a helper flag. Its permission does not persist or apply
+to other skills. Ordinary `--auto` remains unchanged. See the
 [complete matrix](../skills/pr-graph/references/yolo-mode.md) and
 [examples](pr-graph.md#yolo-mode).
 
@@ -201,7 +202,7 @@ The skill uses evidence from the current session or selected past sessions to
 propose changes to a skill, repository instructions, or an explicitly stated user
 preference.
 
-The skill presents one proposal at a time and does not save changes automatically.
+The skill presents one proposal at a time. It does not save changes automatically.
 
 ```text
 /session-distill [selected session IDs] [focus] [proposals-only]
