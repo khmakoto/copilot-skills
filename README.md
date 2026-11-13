@@ -21,19 +21,19 @@ Invoke any skill by name. Copilot can also select `brainstorm`, `pr-walkthrough`
 or `pr-graph` when a request matches its description. The other skills require
 explicit invocation.
 
-| Skill                                                 | Purpose                                                                                                                                        |
-| ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`brainstorm`](docs/skills.md#brainstorm)             | Rank repository improvements and triage them one at a time. Create issues only after confirmation.                                             |
-| [`ci-triage`](docs/skills.md#ci-triage)               | Diagnose failing checks, builds, or tests at a recorded revision. Reproduction, fixes, and remote reruns require approval.                     |
-| [`design-interview`](docs/skills.md#design-interview) | Interview the user about a selected improvement and agree on a design with observable acceptance criteria before implementation.               |
-| [`pr-description`](docs/skills.md#pr-description)     | Draft or refresh PR descriptions from current changes and validation evidence. Preserve managed metadata and require approval to publish.      |
-| [`pr-feedback`](docs/skills.md#pr-feedback)           | Validate PR feedback and implement each approved fix. Remote actions need separate approval.                                                   |
-| [`pr-reviewer`](docs/skills.md#pr-reviewer)           | Review PRs or local branches for defects. Confirm each remote comment before posting.                                                          |
-| [`pr-walkthrough`](docs/skills.md#pr-walkthrough)     | Build a read-only, dependency-ordered route for human review.                                                                                  |
-| [`pr-graph`](docs/skills.md#pr-graph)                 | Manage a PR dependency graph across Git providers, with bounded auto mode or explicit task-scoped YOLO delegation of all approval gates.       |
-| [`session-distill`](docs/skills.md#session-distill)   | Use session evidence to propose workflow improvements without saving changes automatically.                                                    |
-| [`skill-doctor`](docs/skills.md#skill-doctor)         | Audit skill definitions and apply only approved repairs.                                                                                       |
-| [`unslop`](docs/skills.md#unslop)                     | Edit writing with Cursor's upstream unslop rules. Fetch the rules on each explicit invocation.                                                 |
+| Skill                                                 | Purpose                                                                                                                                   |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| [`brainstorm`](docs/skills.md#brainstorm)             | Rank repository improvements and triage them one at a time. Create issues only after confirmation.                                        |
+| [`ci-triage`](docs/skills.md#ci-triage)               | Diagnose failing checks, builds, or tests at a recorded revision. Reproduction, fixes, and remote reruns require approval.                |
+| [`design-interview`](docs/skills.md#design-interview) | Interview the user about a selected improvement and agree on a design with observable acceptance criteria before implementation.          |
+| [`pr-description`](docs/skills.md#pr-description)     | Draft or refresh PR descriptions from current changes and validation evidence. Preserve managed metadata and require approval to publish. |
+| [`pr-feedback`](docs/skills.md#pr-feedback)           | Validate PR feedback and implement each approved fix. Remote actions need separate approval.                                              |
+| [`pr-reviewer`](docs/skills.md#pr-reviewer)           | Review PRs or local branches for defects. Confirm each remote comment before posting.                                                     |
+| [`pr-walkthrough`](docs/skills.md#pr-walkthrough)     | Build a read-only, dependency-ordered route for human review.                                                                             |
+| [`pr-graph`](docs/skills.md#pr-graph)                 | Manage and inspect a PR dependency graph across Git providers, with bounded auto mode or explicit task-scoped YOLO approval delegation.   |
+| [`session-distill`](docs/skills.md#session-distill)   | Use session evidence to propose workflow improvements without saving changes automatically.                                               |
+| [`skill-doctor`](docs/skills.md#skill-doctor)         | Audit skill definitions and apply only approved repairs.                                                                                  |
+| [`unslop`](docs/skills.md#unslop)                     | Edit writing with Cursor's upstream unslop rules. Fetch the rules on each explicit invocation.                                            |
 
 See the [skill guide](docs/skills.md) for invocation examples, detailed behavior,
 requirements, and safety boundaries, with extended coverage in the

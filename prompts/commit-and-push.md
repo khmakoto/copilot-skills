@@ -1,31 +1,38 @@
-Commit and push these changes. If there are any active comments that would be resolved by them, then resolve them. If you resolve any comments, leave a reply. The reply should be humanlike and not sound like AI. Do not include any specific commits in the reply.
+Commit and push these changes. Resolve any active comments that these changes
+address. Reply to each comment you resolve. Write replies in natural language
+and do not mention specific commits.
 
-Then, since the branch/pr will be updated, update the dag accordingly. Keep the already landed PRs as part of the diagrams even if they're not in the internal DAG model anymore.
+Then update the DAG to reflect the branch or PR changes. Keep landed PRs in the
+diagrams even if they are no longer in the internal DAG model.
 
-Use YOLO mode for the `pr-graph` skill for this task and invocation. Apply its
-complete YOLO contract: the agent reviews and approves every pr-graph human
-gate needed for the requested work, without repeated human approval prompts.
-This includes in-scope merging, deletion, recovery, new setup and fixes,
-exclusion release and history transfer; it does not add goals or authorize
-unrelated cleanup. State task bounds and irreversible/disclosure risks before
-the first mutation. Establish exact source, destination, access and retained-data
-bounds before disclosure. Review and save exact plans and apply them with
+Use the `pr-graph` skill's YOLO mode for this task and invocation. Follow its
+full YOLO contract. The agent reviews and approves every pr-graph action that
+needs human approval for this task. Do not repeat approval prompts for those
+actions.
+
+This covers merging, deletion, recovery, new setup and fixes, exclusion release
+and history transfer within the task. It does not add goals or authorize
+unrelated cleanup. Before the first mutation, state the task's scope and any
+risks of irreversible changes or disclosure. Before disclosing content, establish
+the exact source, destination, access and retained-data scope.
+Review and save exact plans, then apply them with
 `--yes --approve <digest>`.
 
 Preserve prerequisite evidence, plans, digests, freshness, validation, hooks,
-provider policies, user work and all correctness/uncertainty blockers. Missing
-or ambiguous intent or destinations and unresolved remote effects still block
-the operation. Authorization does not persist beyond this task/invocation,
-approve other skills' actions (including review-thread replies or resolution)
-or override tool/environment permissions.
+provider policies and user work. Do not bypass correctness failures or unknown
+outcomes. Stop if intent or destinations are missing or ambiguous, or if remote
+effects remain unresolved. Authorization ends with this task and invocation.
+It does not approve other skills' actions, including review-thread replies or
+resolution, or override tool or environment permissions.
 
-Allocate follow-up edits using the skill's absorb workflow on an explicitly
-selected pinned committed delta. Do not stage or commit dirty work implicitly
-as part of absorb. Determine per-hunk owners using retained own patches and
-dependency context. Inspect
-cross-node, binary, new/shared-file and inactive-owner provenance explicitly;
-leave ambiguous ownership unassigned for a user decision. Never assign to an
-inactive owner. Review and save the complete exact plan, including amended
-ownership, preserved identities, descendant reconstruction, validations and
-expected full tree. Apply unambiguous allocations under the skill's YOLO
-contract, without another approval prompt.
+Allocate follow-up edits with the skill's absorb workflow. Explicitly select
+and pin the committed delta. Do not stage or commit dirty work as an implicit
+part of absorb. Use retained own patches and dependency context to determine
+each hunk's owner. Check provenance for cross-node changes, binary changes,
+new or shared files, and inactive owners. Leave ambiguous ownership unassigned
+for the user to decide. Never assign edits to an inactive owner.
+
+Review and save the complete exact plan. It must include amended ownership,
+preserved identities, descendant reconstruction, validations and the expected
+full tree. Apply unambiguous allocations under the skill's YOLO contract
+without another approval prompt.
