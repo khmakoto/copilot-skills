@@ -49,7 +49,8 @@ export function withObjectView(ctx, fn, { isolated = false } = {}) {
     requireValue(initialized.status === 0, initialized.stderr);
     // No remotes or source configuration: missing promisor objects cannot trigger
     // network access even on Git versions without GIT_NO_LAZY_FETCH support.
-    return fn((args, input, encoding) => run("git", args, temp, input, env, encoding));
+    const execute = (args, input, encoding) => run("git", args, temp, input, env, encoding);
+    return fn(execute, objectReader(execute));
   } finally {
     fs.rmSync(temp, { recursive: true, force: true });
   }
@@ -66,6 +67,101 @@ export function refId(cwd, ref) {
   const result = git(cwd, ["show-ref", "--verify", "--quiet", ref], undefined, true);
   requireValue([0, 1].includes(result.status), result.stderr);
   return result.status === 0 ? out(cwd, ["rev-parse", "--verify", ref]) : null;
+}
+
+export function refIds(cwd, refs) {
+  requireValue(refs.every((ref) => typeof ref === "string" && ref.startsWith("refs/") &&
+    !/[\x00-\x20\x7f~^:?*\\[]/.test(ref) && !ref.includes("..") &&
+    !ref.includes("@{") && ref.split("/").every((part) =>
+      part && !part.startsWith(".") && !part.endsWith(".lock")) && !ref.endsWith(".")),
+  "Invalid full ref name.");
+  if (!refs.length) return {};
+  const namespaces = [...new Set(refs.map((ref) => ref.split("/").slice(0, 2).join("/")))];
+  const result = run("git", ["for-each-ref", "--format=%(refname) %(objectname)", ...namespaces],
+    cwd, undefined, { LC_ALL: "C" });
+  requireValue(result.status === 0, `git for-each-ref failed (${result.status}): ${result.stderr.trim()}`);
+  requireValue(!/warning: ignoring broken ref /.test(result.stderr),
+    `Cannot observe local refs: ${result.stderr.trim()}`);
+  const found = new Map(result.stdout.trim().split("\n").filter(Boolean).map((line) => {
+    const match = /^(refs\/[^ ]+) ((?:[0-9a-f]{40}|[0-9a-f]{64}))$/.exec(line);
+    requireValue(match, "Invalid local ref observation.");
+    return [match[1], match[2]];
+  }));
+  return Object.fromEntries(refs.map((ref) => [ref, found.get(ref) ?? null]));
+}
+
+export function localBranches(cwd, branches) {
+  const refs = refIds(cwd, branches.map((branch) => `refs/heads/${branch}`));
+  return Object.fromEntries(branches.map((branch) => [branch, refs[`refs/heads/${branch}`]]));
+}
+
+const OID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
+const OBJECT_QUERY = /^(?:[0-9a-f]{40}|[0-9a-f]{64})(?:\^\{(?:commit|tree)\})?$/;
+
+export function readObjects(cwd) {
+  return objectReader((args, input, encoding) => run("git", args, cwd, input, {}, encoding));
+}
+
+// Each reader belongs to one fixed repository/object view and one read boundary.
+// Never carry it across mutations, fetches, or required revalidation.
+export function objectReader(execute) {
+  const metadata = new Map();
+  const ancestry = new Map();
+  const inspect = (ids) => {
+    requireValue(ids.every((id) => typeof id === "string" && OBJECT_QUERY.test(id)),
+      "Object reads require full immutable IDs.");
+    const pending = [...new Set(ids)].filter((id) => !metadata.has(id));
+    const found = new Map();
+    for (let offset = 0; offset < pending.length; offset += 1024) {
+      const queries = pending.slice(offset, offset + 1024);
+      const result = execute(["cat-file", "--batch-check"], `${queries.join("\n")}\n`);
+      requireValue(result.status === 0, `Cannot inspect Git objects: ${result.stderr}`);
+      const lines = result.stdout.split("\n");
+      requireValue(lines.pop() === "" && lines.length === queries.length, "Invalid Git object batch response.");
+      lines.forEach((line, i) => {
+        const query = queries[i];
+        if (line === `${query} missing`) {
+          found.set(query, null);
+          return;
+        }
+        const match = /^([0-9a-f]{40}|[0-9a-f]{64}) (blob|tree|commit|tag) (\d+)$/.exec(line);
+        requireValue(match && Number.isSafeInteger(Number(match[3])) &&
+          (query.endsWith("^{commit}") ? match[2] === "commit" :
+            query.endsWith("^{tree}") ? match[2] === "tree" : match[1] === query),
+        "Invalid Git object batch metadata.");
+        metadata.set(query, Object.freeze({ id: match[1], type: match[2], size: Number(match[3]) }));
+      });
+    }
+    return new Map(ids.map((id) => [id, metadata.get(id) ?? found.get(id) ?? null]));
+  };
+  return {
+    inspect,
+    commits(ids) {
+      const valid = [...new Set(ids)].filter((id) => typeof id === "string" && OID.test(id));
+      const info = inspect(valid.map((id) => `${id}^{commit}`));
+      return new Map(ids.map((id) => [id, Boolean(info.get(`${id}^{commit}`))]));
+    },
+    trees(ids) {
+      requireValue(ids.every((id) => typeof id === "string" && OID.test(id)), "Trees require full commit IDs.");
+      const trees = inspect(ids.map((id) => `${id}^{tree}`));
+      return new Map(ids.map((id) => {
+        const info = trees.get(`${id}^{tree}`);
+        requireValue(info, `Missing/invalid commit tree: ${id}`);
+        return [id, info.id];
+      }));
+    },
+    ancestor(before, after) {
+      requireValue([before, after].every((id) => typeof id === "string" && OID.test(id)),
+        "Ancestry requires full commit IDs.");
+      const key = `${before} ${after}`;
+      if (!ancestry.has(key)) {
+        const result = execute(["merge-base", "--is-ancestor", before, after]);
+        requireValue([0, 1].includes(result.status), result.stderr);
+        ancestry.set(key, result.status === 0);
+      }
+      return ancestry.get(key);
+    },
+  };
 }
 
 export function checkBranch(cwd, name) {

@@ -252,7 +252,7 @@ export function assertOutbound(ctx, policy, scopes) {
   const blocked = (entry, scope, kind) => {
     throw new Error(`Publication excluded: ${entry.id} via ${scope.route} (${kind}). No further outbound writes permitted; prior effects, if any, require readback.`);
   };
-  git.withObjectView(ctx, (run) => {
+  git.withObjectView(ctx, (run, objects) => {
     for (const scope of scopes) {
       for (const e of active) {
         if (scope.policyEvidence || scope.nodes?.some((id) => e.members.includes(id))) blocked(e, scope, "node/metadata scope");
@@ -268,12 +268,14 @@ export function assertOutbound(ctx, policy, scopes) {
         `${scope.roots.join("\n")}\n`);
       requireValue(listed.status === 0 && !listed.stdout.includes("?"),
         `Cannot prove outbound scope via ${scope.route}; missing/unverifiable objects.`);
-      for (const sha of sorted(listed.stdout.trim().split("\n").filter(Boolean))) {
+      const ids = sorted(listed.stdout.trim().split("\n").filter(Boolean));
+      const metadata = objects.inspect(ids);
+      for (const sha of ids) {
         for (const e of active) if (e.objects.includes(sha)) blocked(e, scope, `object ${sha}`);
-        const type = run(["cat-file", "-t", sha]);
-        requireValue(type.status === 0, `Cannot inspect outbound object via ${scope.route}.`);
-        if (!["blob", "commit", "tag"].includes(type.stdout.trim())) continue;
-        const content = run(["cat-file", type.stdout.trim(), sha]);
+        const info = metadata.get(sha);
+        requireValue(info, `Cannot inspect outbound object via ${scope.route}.`);
+        if (!["blob", "commit", "tag"].includes(info.type)) continue;
+        const content = run(["cat-file", info.type, sha]);
         requireValue(content.status === 0, `Cannot inspect outbound content via ${scope.route}.`);
         const hashes = new Set(markers(content.stdout));
         for (const e of active) if (e.markers.some((h) => hashes.has(h)) ||

@@ -46,10 +46,10 @@ function differences(before, after) {
 
 export function history(ctx, graphId, nodeId, archive) {
   if (archive) return importedHistory(ctx, graphId, nodeId, archive);
-  return git.withObjectView(ctx, (run) => readHistory(ctx, graphId, nodeId, run));
+  return git.withObjectView(ctx, (run, objects) => readHistory(ctx, graphId, nodeId, objects));
 }
 
-function readHistory(ctx, graphId, nodeId, run) {
+function readHistory(ctx, graphId, nodeId, objects) {
   const current = state.load(ctx, graphId, true);
   requireValue(typeof nodeId === "string" && /^[a-z0-9][a-z0-9-]*$/.test(nodeId), "Select --node explicitly.");
   const journals = state.journals(ctx).filter((j) => j.plan.graph?.id === graphId || j.plan.graphId === graphId);
@@ -115,19 +115,16 @@ function readHistory(ctx, graphId, nodeId, run) {
   requireValue(graphs.some((g) => g.nodes.some((n) => n.id === nodeId)) ||
     journals.some((j) => j.plan.graph?.nodes.some((n) => n.id === nodeId)), `Unknown historical node: ${nodeId}`);
   const versions = new Map();
-  const available = new Map();
+  const commitIds = (node) => [...new Set([node.change.base, node.change.head, node.base,
+    node.head, node.validation?.head, node.landing?.commit].filter(Boolean))];
+  const available = objects.commits(graphs.flatMap((graph) =>
+    graph.nodes.filter((node) => lineage.has(node.id)).flatMap(commitIds)));
   const addVersion = (graph, id) => {
     const value = snapshot(graph, id);
     if (!value) return null;
     const key = digest({ graph: digest(graph), node: id });
     if (!versions.has(key)) {
-      const commits = [...new Set([value.node.change.base, value.node.change.head, value.node.base,
-        value.node.head, value.node.validation?.head, value.node.landing?.commit].filter(Boolean))];
-      const missing = commits.filter((sha) => {
-        if (!available.has(sha)) available.set(sha, /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(sha) &&
-          run(["cat-file", "-e", `${sha}^{commit}`]).status === 0);
-        return !available.get(sha);
-      });
+      const missing = commitIds(value.node).filter((sha) => !available.get(sha));
       versions.set(key, { id: key, node: id, revision: graph.revision, snapshot: value,
         persisted: persisted.has(digest(graph)), missingCommits: missing });
     }

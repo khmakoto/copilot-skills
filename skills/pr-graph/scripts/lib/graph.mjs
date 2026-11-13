@@ -101,10 +101,15 @@ export function validateGraph(graph) {
   return graph;
 }
 
-export function topological(graph) {
+const queryCache = new WeakMap();
+
+function graphQueries(graph) {
+  const shape = JSON.stringify(graph.nodes.map((node) => [node.id, node.dependencies, Boolean(node.retired)]));
+  const cached = queryCache.get(graph);
+  if (cached?.shape === shape && cached.nodes.every((node, i) => node === graph.nodes[i])) return cached;
   const visiting = new Set();
   const visited = new Set();
-  const result = [];
+  const ordered = [];
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
   function visit(node) {
     requireValue(node, "Unknown node.");
@@ -114,15 +119,31 @@ export function topological(graph) {
     for (const id of [...node.dependencies].sort()) visit(byId.get(id));
     visiting.delete(node.id);
     visited.add(node.id);
-    result.push(node);
+    ordered.push(node);
   }
   for (const node of [...graph.nodes].sort((a, b) => a.id.localeCompare(b.id))) visit(node);
-  return result;
+  const active = ordered.filter((node) => !node.retired);
+  const positions = new Map(active.map((node, i) => [node.id, i + 1]));
+  const queries = { shape, nodes: [...graph.nodes], byId, ordered, closures: new Map(),
+    positions, total: active.length };
+  queryCache.set(graph, queries);
+  return queries;
+}
+
+export function topological(graph) {
+  return [...graphQueries(graph).ordered];
+}
+
+export function nodePosition(graph, node) {
+  const { positions, total } = graphQueries(graph);
+  return { node, index: positions.get(node.id) ?? 0, total };
 }
 
 export function prerequisites(graph, id) {
+  const { closures, ordered, byId } = graphQueries(graph);
+  requireValue(byId.has(id), `Unknown node: ${id}`);
+  if (closures.has(id)) return [...closures.get(id)];
   const selected = new Set();
-  const byId = new Map(graph.nodes.map((n) => [n.id, n]));
   function collect(key) {
     for (const dependency of byId.get(key).dependencies) {
       if (!selected.has(dependency)) {
@@ -131,9 +152,10 @@ export function prerequisites(graph, id) {
       }
     }
   }
-  requireValue(byId.has(id), `Unknown node: ${id}`);
   collect(id);
-  return topological(graph).filter((n) => selected.has(n.id));
+  const result = ordered.filter((n) => selected.has(n.id));
+  closures.set(id, result);
+  return [...result];
 }
 
 export function eligible(graph, node) {
@@ -177,8 +199,9 @@ const END = "<!-- pr-graph:end -->";
 export function footer(graph, node) {
   const snapshot = node.integration ?? (!node.retired && !node.landing
     && node.baseBranch === graph.target ? { target: graph.target, sha: node.base } : null);
+  const { byId } = graphQueries(graph);
   const deps = node.dependencies.map((id) => {
-    const dep = graph.nodes.find((n) => n.id === id);
+    const dep = byId.get(id);
     const label = dep.pr?.url ? `[${id}](${dep.pr.url})` : `\`${id}\``;
     return dep.landing ? `~~${label}~~` : label;
   }).join(", ") || "none";

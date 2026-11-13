@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { dag, generatedCase, reference, seeds } from "./generated.mjs";
-import { eligible, prerequisites, selectNodes, topological, validateGraph } from "../lib/graph.mjs";
+import { eligible, prerequisites, selectNodes, topological, validateGraph, nodePosition } from "../lib/graph.mjs";
 
 function compare(graph, facts, queries = { prerequisites, eligible, selectNodes, topological }) {
   validateGraph(graph);
@@ -63,4 +63,29 @@ test("the differential oracle detects a deliberately shallow-closure regression 
     assert.ok(reference(reproducer).closure("n03").includes("n00"));
     return true;
   });
+});
+
+test("cached graph queries cannot be changed through returned arrays or stale node identities", () => {
+  const graph = dag(7);
+  const checkPositions = () => {
+    const active = topological(graph).filter((node) => !node.retired);
+    for (const node of graph.nodes) assert.deepEqual(nodePosition(graph, node), {
+      node, index: active.findIndex((n) => n.id === node.id) + 1, total: active.length,
+    });
+  };
+  compare(graph, {});
+  checkPositions();
+  topological(graph).reverse();
+  prerequisites(graph, "n03").splice(0);
+  compare(graph, {});
+  const root = graph.nodes.findIndex((node) => node.id === "n00");
+  graph.nodes[root] = { ...graph.nodes[root], title: "Replacement node object" };
+  assert.equal(prerequisites(graph, "n03").find((node) => node.id === "n00"), graph.nodes[root]);
+  graph.nodes[root].retired = !graph.nodes[root].retired;
+  checkPositions();
+  graph.nodes[root].dependencies.push("n03");
+  assert.throws(() => topological(graph), /Dependency cycle/);
+  graph.nodes[root].dependencies.pop();
+  compare(graph, {});
+  assert.throws(() => prerequisites(graph, "unknown"), /Unknown node: unknown/);
 });

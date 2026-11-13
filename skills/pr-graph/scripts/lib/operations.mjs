@@ -47,13 +47,13 @@ function ancestor(ctx, graph, before, after) {
   return mergeBase(ctx, graph, before, after) === before;
 }
 
-function snapshotFreshness(ctx, graph, target, node) {
+function snapshotFreshness(ctx, graph, target, node, forward = (before, after) => ancestor(ctx, graph, before, after)) {
   const observedAt = now(ctx);
   const freshness = integrationFreshness(graph, node, target, observedAt);
   if (freshness.status !== "stale" || freshness.target !== graph.target || !freshness.thresholdMs ||
     freshness.ageMs === null || freshness.ageMs >= freshness.thresholdMs) return freshness;
   return integrationFreshness(graph, node, target, observedAt,
-    ancestor(ctx, graph, freshness.snapshot, target));
+    forward(freshness.snapshot, target));
 }
 
 function fetchObservation(ctx, graph, input, target, observedAt) {
@@ -78,12 +78,19 @@ function permitsForwardTarget(ctx, plan) {
 function freshnessReport(ctx, graph, facts) {
   return step("Inspecting integration freshness, branch identity, and validation status", () => {
     const target = graph.repository.remote ? facts.remote[graph.target] : facts.local[graph.target];
+    const objects = git.readObjects(ctx.root);
+    const candidates = graph.nodes.map((node) => integrationFreshness(graph, node, target, now(ctx)))
+      .filter((f) => f.status === "stale" && f.target === graph.target &&
+        f.thresholdMs && f.ageMs !== null && f.ageMs < f.thresholdMs);
+    const available = objects.commits(candidates.flatMap((f) => [f.snapshot, target]));
+    const forward = (before, after) => available.get(before) && available.get(after)
+      ? objects.ancestor(before, after) : ancestor(ctx, graph, before, after);
     return Object.fromEntries(graph.nodes.map((node) =>
       step("Inspecting node freshness", () => {
         const local = facts.local[node.branch];
         const remote = facts.remote[node.branch];
         return [node.id, {
-          integration: { ...snapshotFreshness(ctx, graph, target, node),
+          integration: { ...snapshotFreshness(ctx, graph, target, node, forward),
             scope: graph.repository.remote ? "remote" : "local-only" },
           branch: {
             status: !node.head ? "unknown" : !local || (node.pr && graph.repository.remote && !remote) ? "missing" :
@@ -131,7 +138,7 @@ function observe(ctx, graph, provider, discover = false) {
       }
     }
     return {
-      local: Object.fromEntries(branches.map((b) => [b, git.refId(ctx.root, `refs/heads/${b}`)])),
+      local: git.localBranches(ctx.root, branches),
       remote: Object.fromEntries(branches.map((b) => [b, remote[`refs/heads/${b}`] ?? null])),
       prs,
     };
@@ -569,7 +576,7 @@ function preparePlan(ctx, action, options = {}) {
     }
     return seal({ version: VERSION, action, repository: ctx.root, common: ctx.common,
       graph: { ...graph, backup: { ...graph.backup, head: sha } }, previous: null, backupRef: sha,
-      expectedLocal: Object.fromEntries(graph.nodes.map((n) => [n.branch, git.refId(ctx.root, `refs/heads/${n.branch}`)])),
+      expectedLocal: git.localBranches(ctx.root, graph.nodes.map((n) => n.branch)),
       effects: ["Restore verified committed snapshots and local graph state; do not push, mutate PRs, or execute stored validation commands."],
       warnings: warnings(ctx, graph) });
   }
@@ -1858,7 +1865,7 @@ function recoveryPlan(ctx, action, options) {
   }
   return seal({ version: VERSION, action, repository: ctx.root, common: ctx.common,
     operation: journal.id, journalDigest: digest(journal),
-    branches: Object.fromEntries(branches.map((b) => [b, git.refId(ctx.root, `refs/heads/${b}`)])),
+    branches: git.localBranches(ctx.root, branches),
     remoteBranches: Object.fromEntries(remoteBranches.map((b) => [b, remote[`refs/heads/${b}`] ?? null])),
     closeRetired: prs, graphId: graph?.id ?? null,
     worktree: options.spec.worktree === true && fs.existsSync(cwd),
