@@ -2,8 +2,8 @@
 
 This guide explains how to use each skill. The instructions and references under
 [`skills/`](../skills/) define each workflow. For an overview, see the
-[README](../README.md). Install complete skill directories
-as described in the [installation instructions](../README.md#installation).
+[README](../README.md). Install complete skill directories as described in the
+[installation instructions](../README.md#installation).
 
 Invoke any skill with the commands below. Agents can also select `brainstorm`,
 `pr-walkthrough`, or `pr-graph` when a request matches their description. The other
@@ -52,8 +52,8 @@ implementation and supplied materials, then asks one structured question at a
 time about goals, tradeoffs, and constraints. It covers visual interfaces,
 terminal output, APIs, and agent workflows.
 
-The design separates decisions, proposed defaults, and assumptions. It
-defines scope, non-goals, observable acceptance criteria, and validation plans.
+The design separates decisions, proposed defaults, and assumptions. It defines
+scope, non-goals, observable acceptance criteria, and validation plans.
 The user must resolve choices that affect the design before approving it.
 
 The workflow is read-only. The user must approve the final design. That approval
@@ -151,8 +151,8 @@ setup only when receipts prove successful execution and explicit approval in
 the same task and invocation.
 
 In ordinary auto mode, history transfers require separate permission for the
-current invocation.
-The user must still approve merges and deletion of source, refs, or worktrees.
+current invocation. The user must still approve merges and deletion of source,
+refs, or worktrees.
 Restore, general adoption, graph import, checkpoint, new setup, and new conflict
 fixes also require human approval.
 The agent pauses when outcomes are uncertain. It never bypasses digests or safety
@@ -187,7 +187,10 @@ or apply to other skills. Ordinary `--auto` remains unchanged. See the
 
 The helper requires Node.js 22+ and Git 2.31+. Hosted operations also require
 authenticated `gh` or `az` for the selected provider. Install the complete skill
-directory; no dependency installation or build step is needed.
+directory. It needs no dependency installation or build step.
+During reconstruction, the helper can reuse verified sequences of previously
+composed changes when their exact inputs and known execution context match.
+Reuse does not carry over validation or freshness evidence.
 
 See the [`pr-graph` guide](pr-graph.md) for detailed usage, requirements,
 validation, and safety boundaries.

@@ -405,12 +405,38 @@ parents, messages, patches or fingerprints miss the cache. Legacy journals
 retain their existing operation-local caching but do not export unverified
 entries. No global cache or persisted auto-mode authorization is introduced.
 
+The helper also retains linked, digest-checked composition prefixes in the
+operation journal. Identity includes the pinned target, exact ordered node IDs
+and complete own-change inputs, full requested messages/trailers, and the known
+execution fingerprint. It chooses the longest exact prefix and checks its
+complete parent/receipt chain, operation pins, commit trees/messages, and
+reachable object availability before a single clean checkout. Matching complete
+prerequisite bases can be shared. Missing prefix entries fall back to individual
+applications; inconsistent evidence fails explicitly. Unknown context disables
+prefix reuse, even within an operation; individual-commit caching remains the
+fallback. Approved retained-worktree transfers carry only verified prefixes
+backed by the transferred commit receipts. Prefix records carry no validation,
+readiness, authorization, or freshness. Final full-tree checks remain mandatory.
+
 `inspect` reports each operation's `reconstruction` counts: `applied` counts
 patch-application attempts (including failures), `cached` counts cache uses,
-and `inheritedCached` counts uses of transferred receipts. These are work
-counts, not unique commits or elapsed-time savings. Successful conflict recovery
+and `inheritedCached` counts uses of transferred receipts, including applications
+skipped by a prefix. `visits` counts calls into the individual application layer;
+`prefixHits`/`prefixMisses` count nonempty composition lookups, and `prefixAvoided`
+counts individual application visits skipped. Absent counters in older journals
+are not measurements. Progress reports each verified prefix hit on stderr;
+normal stdout result shapes are unchanged. These are work counts, not unique
+commits or elapsed-time savings. Successful conflict recovery
 also records the exact approved resolve plan, captured conflict inputs, and
 before/result trees; inspect exposes its `resolutionReceipts` count.
+
+`composition-differential.test.mjs` measures application visits, subprocesses,
+checkouts, journal writes/bytes, and reconstruction/composition phase durations
+against the individual-commit-cache baseline on chains, shared-ancestor graphs,
+and wide graphs. It compares exact trees and ordered messages, without
+wall-clock assertions. Gains are topology-dependent: additional prefix metadata
+can increase journal bytes for wide graphs. The uncached replay matrix separately
+checks invalidation and refusal/recovery decisions.
 
 ```text
 node "<helper>" plan split --repo "<repo>" --spec "<spec.json>" --out "<plan.json>"

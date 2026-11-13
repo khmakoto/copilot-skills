@@ -653,8 +653,11 @@ reuse a clean detached worktree from a completed or separately approved aborted 
 and ownership transfer. Its path and tooling remain intact; old owners cannot
 recover or clean the transferred worktree. Matching verified reconstruction
 receipts also avoid repeating patch applications and commit hooks for unchanged
-results. Changed or unknown inputs reconstruct normally. Reuse never skips
-validation or freshness checks.
+results. Exact ordered composition prefixes jump to their verified retained
+result with one checkout rather than visiting every cached application. Progress
+reports prefix reuse; inspection exposes hits, misses, and avoided visits.
+Changed or unknown inputs reconstruct normally. Reuse never skips validation,
+full-tree preservation, ownership, or freshness checks.
 See [commands](references/commands.md#reusing-a-retained-operation-worktree).
 
 If the worktree is created only during apply, disclose any unverified tooling

@@ -194,6 +194,8 @@ for (const [index, kind] of cases.entries()) {
       if (kind === "matching") {
         assert.ok(journal.reconstruction.inheritedCached > 0);
         assert.equal(journal.reconstruction.applied, 0);
+        assert.ok(journal.reconstruction.prefixHits > 0);
+        assert.ok(journal.reconstruction.prefixAvoided > 0);
       } else {
         assert.ok(journal.reconstruction.applied > 0);
         if (["missing", "unknown-context", "context", "target"].includes(kind)) {

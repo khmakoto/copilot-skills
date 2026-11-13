@@ -108,6 +108,47 @@ test("legacy retained journals transfer ownership but no unverified reconstructi
     git(f.root, "rev-parse", `${f.head}^{tree}`));
 });
 
+for (const kind of ["tree", "blob", "target-blob"]) {
+  test(`prefix reuse refuses a missing ${kind} even with a complete final tree`, (t) => {
+    const f = fixture({ names: ["a", "b", "c"] });
+    t.after(() => f.dispose());
+    for (const [i, node] of f.spec.nodes.entries()) {
+      node.dependencies = i ? [f.spec.nodes[i - 1].id] : [];
+    }
+    const original = f.apply("split", { spec: f.spec });
+    const plan = createPlan(f.ctx, "fold", {
+      graph: "example", spec: f.spec, reuseWorktree: original.operation,
+    });
+    const intermediate = original.graph.nodes[1].head;
+    const snapshot = kind === "target-blob" ? f.base : intermediate;
+    const object = git(f.root, "rev-parse",
+      kind === "tree" ? `${snapshot}^{tree}` : `${snapshot}:shared.txt`);
+    fs.unlinkSync(path.join(f.ctx.common, "objects", object.slice(0, 2), object.slice(2)));
+    assert.throws(() => applyPlan(f.ctx, plan, plan.approval, true),
+      /missing|bad tree|unable to read tree|rev-parse failed/i);
+    for (const node of original.graph.nodes) {
+      assert.equal(git(f.root, "rev-parse", node.branch), node.head);
+    }
+    assert.equal(git(f.root, "rev-parse", "HEAD"), f.head);
+  });
+}
+
+test("a corrupt ordered prefix cannot be transferred with otherwise valid commit receipts", (t) => {
+  const f = fixture({ names: ["a", "b"] });
+  t.after(() => f.dispose());
+  f.spec.nodes[1].dependencies = ["a"];
+  const original = f.apply("split", { spec: f.spec });
+  const file = journalFile(f.ctx, original.operation);
+  const source = readJson(file);
+  Object.values(source.compositionPrefixes).at(-1).recipe.input.message += " changed";
+  atomicJson(file, source);
+  assert.throws(() => f.apply("fold", {
+    graph: "example", spec: f.spec, reuseWorktree: original.operation,
+  }), /Invalid composition prefix/);
+  assert.equal(readJson(file).worktreeReusedBy, undefined);
+  assert.equal(git(f.root, "rev-parse", "HEAD"), f.head);
+});
+
 test("CLI reuse keeps the retained worktree and tooling, transfers ownership, and rejects old cleanup", (t) => {
   const f = fixture({ names: ["a"] });
   t.after(() => f.dispose());

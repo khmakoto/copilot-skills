@@ -87,6 +87,7 @@ test("conflicts require a staged resolution approval and resume without losing w
   });
   const replay = readJson(journalFile(f.ctx, replayed.operation));
   assert.ok(replay.reconstruction.inheritedCached > 0);
+  assert.ok(replay.reconstruction.prefixHits > 0);
   assert.equal(replay.reconstruction.applied, 0);
   assert.equal(tree(f.root, replayed.graph.combined), tree(f.root, done.graph.combined));
 });
