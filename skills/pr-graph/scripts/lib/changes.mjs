@@ -30,9 +30,13 @@ export function applyChange(cwd, change, title) {
 }
 
 export function compose(cwd, base, nodes, apply = applyChange) {
-  git.checkoutClean(cwd, base);
-  for (const node of nodes) {
-    if (!node.landing && !node.retired) apply(cwd, node.change, node.title);
+  const active = nodes.filter((node) => !node.landing && !node.retired);
+  const prefix = apply.composition?.(cwd, base, active);
+  git.checkoutClean(cwd, prefix?.head ?? base);
+  for (let i = prefix?.length ?? 0; i < active.length; i++) {
+    const node = active[i];
+    const head = apply(cwd, node.change, node.title);
+    prefix?.record(i, head);
   }
   return git.commitId(cwd, "HEAD");
 }
@@ -65,6 +69,8 @@ export function realize(cwd, graph, target, previous, onNode, apply = applyChang
       }
       const base = compose(cwd, target, deps, apply);
       const head = apply(cwd, node.change, node.title);
+      apply.composition?.(cwd, target, [...deps.filter((n) => !n.landing && !n.retired), node],
+        { recordOnly: head });
       node.base = base;
       node.head = head;
       node.signature = signature;

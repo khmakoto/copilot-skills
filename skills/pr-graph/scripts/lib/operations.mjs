@@ -8,6 +8,7 @@ import {
 import * as git from "./git.mjs";
 import * as state from "./state.mjs";
 import { normalizeChange, applyChange, realize, verifyComposition } from "./changes.mjs";
+import { compositionCache, verifyPrefix } from "./composition.mjs";
 import { resolveProvider, identity, providerFor } from "./providers/index.mjs";
 import { createAdoptionPlan, applyAdoptionPlan } from "./adoption.mjs";
 import { createCheckpointPlan, applyCheckpointPlan } from "./checkpoint.mjs";
@@ -330,7 +331,7 @@ function executionFingerprint(cwd) {
       "GIT_AUTHOR_DATE", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL",
       "GIT_COMMITTER_DATE"].map((key) => [key, process.env[key] ?? null]));
     // Persist only an opaque fingerprint, never configuration or identity values.
-    const implementation = ["operations.mjs", "changes.mjs", "git.mjs"]
+    const implementation = ["operations.mjs", "changes.mjs", "git.mjs", "composition.mjs"]
       .map((name) => [name, digest(fs.readFileSync(path.join(import.meta.dirname, name)).toString("base64"))]);
     return digest({ config, hooks, authoring, implementation, node: process.version,
       git: git.out(cwd, ["--version"]) });
@@ -430,6 +431,14 @@ function prepareWorktree(ctx, journal, target) {
           journal.reconstructionReceipts[key] = receipt;
           journal.inheritedReconstructions.push(key);
         }
+        const prefixes = source.reconstructionReceipts ? source.compositionPrefixes ?? {} : {};
+        for (const key of Object.keys(prefixes)) {
+          verifyPrefix(source, key, (commit, receipt) => {
+            requireValue(journal.reconstructionReceipts[commit]?.head === receipt.head,
+              "Composition prefix lost its transferable reconstruction evidence.");
+          });
+        }
+        journal.compositionPrefixes = structuredClone(prefixes);
       }
       source.worktreeReusedBy = journal.id;
       saveJournal(ctx, source);
@@ -953,7 +962,7 @@ function verifyFacts(ctx, plan, provider, journal) {
   return current;
 }
 
-function applyOwned(ctx, journal, cwd, change, title) {
+function applyOwned(ctx, journal, cwd, change, title, onApplied) {
   const before = git.commitId(cwd, "HEAD");
   const message = journal.plan.commitTrailers?.length
     ? `${title}\n\n${journal.plan.commitTrailers.join("\n")}` : title;
@@ -965,6 +974,7 @@ function applyOwned(ctx, journal, cwd, change, title) {
   const inherited = journal.inheritedReconstructions?.includes(key);
   const cached = !inherited || recipe?.execution ? journal.commits[key] : null;
   journal.reconstruction ??= { cached: 0, inheritedCached: 0, applied: 0 };
+  journal.reconstruction.visits = (journal.reconstruction.visits ?? 0) + 1;
   if (cached) {
     if (recipe) {
       const receipt = journal.reconstructionReceipts?.[key];
@@ -975,6 +985,7 @@ function applyOwned(ctx, journal, cwd, change, title) {
     if (inherited) journal.reconstruction.inheritedCached++;
     saveJournal(ctx, journal);
     git.checkoutClean(cwd, cached);
+    onApplied?.(recipe);
     return cached;
   }
   journal.inheritedReconstructions = journal.inheritedReconstructions?.filter((item) => item !== key);
@@ -995,7 +1006,30 @@ function applyOwned(ctx, journal, cwd, change, title) {
   recordReconstruction(cwd, journal, sha);
   journal.pendingChange = null;
   saveJournal(ctx, journal);
+  onApplied?.(recipe);
   return sha;
+}
+
+function ownedApply(ctx, journal) {
+  let lastExecution;
+  const apply = (cwd, change, title) => applyOwned(ctx, journal, cwd, change, title,
+    (recipe) => { lastExecution = recipe?.execution; });
+  if (ctx.compositionPrefixes === false) return apply;
+  apply.composition = compositionCache(journal, {
+    fingerprint: executionFingerprint,
+    recordFingerprint: () => lastExecution,
+    message: (title) => journal.plan.commitTrailers?.length
+      ? `${title}\n\n${journal.plan.commitTrailers.join("\n")}` : title,
+    verifyCommit: (cwd, key, receipt) => {
+      verifyReconstructionReceipt(cwd, key, receipt);
+      requireValue(git.refId(ctx.root, `refs/pr-graph/${journal.id}/commits/${key}`) === receipt.head,
+        "Composition prefix lost its operation pin.");
+    },
+    verifyObjects: (cwd, heads) => git.out(cwd,
+      ["rev-list", "--objects", "--quiet", "--missing=error", "--no-walk", "--stdin"],
+      `${heads.join("\n")}\n`),
+  });
+  return apply;
 }
 
 function validateNodes(ctx, graph, journal, cwd) {
@@ -1485,7 +1519,7 @@ export function applyPlan(ctx, plan, approval, yes) {
         }
       }
       const cwd = plan.action === "describe" ? null : prepareWorktree(ctx, journal, target);
-      const apply = (dir, change, title) => applyOwned(ctx, journal, dir, change, title);
+      const apply = ownedApply(ctx, journal);
       if (plan.action === "record-landing") {
         const node = nodeById(graph, plan.node);
         requireValue(!node.landing && eligible(graph, node), "Node is already landed or its prerequisites have not landed.");
@@ -1644,7 +1678,7 @@ function applyRestore(ctx, plan, journal) {
   requireValue(!state.load(ctx, plan.graph.id, true), "Graph already exists.");
   const graph = structuredClone(plan.graph);
   const cwd = git.createWorktree(ctx, journal.id, graph.targetSha);
-  const apply = (dir, change, title) => applyOwned(ctx, journal, dir, change, title);
+  const apply = ownedApply(ctx, journal);
   for (const node of graph.nodes) {
     step("Verifying restored own-change snapshot", () => {
       if (node.landing) {

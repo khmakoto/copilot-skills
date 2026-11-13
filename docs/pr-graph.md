@@ -1,7 +1,7 @@
 # `pr-graph` guide
 
-This guide explains usage, requirements, and safety boundaries for
-`pr-graph`. For the full skill catalog, see the [skill guide](skills.md).
+This guide explains how to use `pr-graph`, what it requires, and which actions
+need approval. For the full skill catalog, see the [skill guide](skills.md).
 The [skill instructions](../skills/pr-graph/SKILL.md) and their supporting
 references define the workflow.
 
@@ -26,7 +26,7 @@ descriptions unchanged. The skill labels their diagrams as historical snapshots.
 /pr-graph [--auto | --yolo] [split | view | select | history | interdiff | export-history | import-history | publication-policy | add | absorb | sync | retarget | ready | merge | describe | reshape | adopt | import-graph | checkpoint | remove-retired | backup | restore]
 ```
 
-The human approval requirements below apply to interactive and ordinary auto use.
+The human approval requirements below apply to interactive and ordinary auto mode.
 [YOLO mode](#yolo-mode) delegates those approvals for the requested task only.
 It still requires correctness checks, preservation of user work, and a pause
 when outcomes are uncertain.
@@ -38,7 +38,7 @@ The read-only helper `absorb --graph <id> --base <ref> --head <ref>` lists
 the committed changes between the selected base and head. The base tree must
 equal the graph's old combined tree. The inventory lists hunks and file changes
 that cannot be split. It also shows retained node patches, their origins and
-dependencies. Path matches suggest possible owners, but do not determine ownership
+dependencies. Matching paths suggest possible owners, but do not determine ownership
 or authorize changes. The helper never stages or commits dirty work. Staging
 and checkpoint preservation each require separate approval.
 
@@ -81,8 +81,9 @@ receipts and pins available commits. The command reports missing evidence,
 including gaps in legacy records. It also marks where history stops at an import
 or restore. It does not repair these gaps.
 
-The helper command `interdiff --graph <id> --node <id> --from <version|last-published|last-validated>`
-compares against `current` by default. Use `--to` to select another version.
+Use `interdiff --graph <id> --node <id> --from <version|last-published|last-validated>`
+to compare a retained version against `current`. Use `--to` to select another
+comparison version.
 It reports changes to the node's authored patch separately from changes to its
 base or prerequisites.
 It compares each version's realized base-to-head diff on a common base. This
@@ -125,7 +126,7 @@ replace local selectors. Imported `current` is unavailable. Choose an exact
 `--to` version instead.
 
 Digests detect changes to the archive. They do not authenticate its author or
-prove that its results are trustworthy. Import does not restore current
+verify its reported results. Import does not restore current
 validation, readiness or freshness. It never executes imported commands, resumes
 recovery, moves product refs, or changes user worktrees, indexes or existing
 approvals. The helper stores evidence and object-retention refs in separate
@@ -164,7 +165,7 @@ node IDs in stable dependency order. It reports why it excluded each node.
 
 The helper excludes retired and landed nodes. Missing IDs produce an error.
 Empty previews succeed, but mutation plans require at least one selected node.
-Eligibility says only that prerequisites have landed. It does not show whether
+Eligibility means only that prerequisites have landed. It does not show whether
 validation or provider policies passed, or whether the node is ready.
 
 Only `plan publish --select` accepts selectors for mutations. The helper rejects
@@ -266,8 +267,8 @@ An enabled backup in the manifest is not enough. Requested, verified backup
 downloads may write only private local refs. They must not restore branches or
 execute commands.
 
-Verified `abort --retain-published-refs` may stop interrupted first publication
-for replanning while preserving all refs and resources. The graph and local refs
+Use verified `abort --retain-published-refs` to stop an interrupted first
+publication and replan without removing refs or resources. The graph and local refs
 must remain unchanged. There must be no PRs, provider writes, or pending patch.
 Remote refs must match their original or exactly approved candidate values.
 The helper rechecks readback on apply. New namespaces and publication payloads
@@ -378,9 +379,10 @@ start time of the latest successful fetch of the current tip. It does not start
 at fetch completion or plan application. Merge always requires the current
 integration tip. Other integration branch names have no grace.
 
-For GitHub, GitHub Enterprise Server, and Azure DevOps, exact server-side
-ancestry checks can verify remote-only integration and PR-target commits
-without refetching `main` or `master` during that grace window.
+For GitHub, GitHub Enterprise Server, and Azure DevOps, the helper can use exact
+server-side ancestry checks to verify integration and PR-target commits available
+only on the remote. These checks do not require refetching `main` or `master`
+during the grace period.
 The helper still checks live refs and preserves the original expiry. It also
 supports legacy `visualstudio.com/DefaultCollection` repository URLs.
 
@@ -409,8 +411,8 @@ graph-wide policy.
 
 For `add`, `fold`, `sync`, `publish`, and `retarget`, helper plans accept
 `--reuse-worktree <operation-digest>`. This option reuses a clean detached
-worktree. Its previous operation must be completed or aborted and belong to the
-same graph and repository.
+worktree. The previous operation must have completed or been aborted. It must
+belong to the same graph and repository.
 The plan records the worktree's identity and HEAD. The helper rechecks both
 before applying the plan. It records the ownership transfer in both journals.
 It preserves the worktree's path and installed tools that Git ignores. Earlier
@@ -425,6 +427,20 @@ freshness. Legacy journals export no unverified cache entries. Inspection report
 how many patches the helper applied and how many cached results it reused from
 another journal. Reuse does not renew the fetch clock.
 
+During reconstruction, the helper reuses the longest verified sequence of
+previously composed changes, called a composition prefix. It also reuses complete
+prerequisite bases when their exact inputs match. A prefix records the pinned
+target, the order of owned changes, commit messages and trailers, and the known
+execution context. The helper must verify all supporting receipts, pins, and
+objects. If the context is unknown, it applies the changes individually.
+
+Progress reports prefix reuse. Inspection reports the work counts `visits`,
+`prefixHits`, `prefixMisses`, and `prefixAvoided`. Reusing a prefix does not carry
+over validation, readiness, or freshness evidence. The
+[command reference](../skills/pr-graph/references/commands.md#reusing-a-retained-operation-worktree)
+describes the evidence and differential measurements. Savings depend on the
+graph's structure. Extra prefix metadata can increase journal size.
+
 Whole-graph retargeting rebuilds unlanded work on another integration branch.
 It preserves change ownership and existing PR identities. Batch description
 updates leave source branches and draft states unchanged. Custom helper-branch
@@ -434,8 +450,8 @@ pushes.
 Description-only actions do not create or claim a worktree. They leave partial
 checkouts from interrupted older operations untouched.
 
-General `adopt` recovery requires separate approval. It imports verified PR rewrites
-and landings made outside the helper into local graph state. It does not publish
+General `adopt` recovery requires separate approval. It updates local graph state
+with verified PR rewrites and landings made outside the helper. It does not publish
 or claim validation. An adoption spec with `"selective": true` can name only the
 externally updated nodes. It retains the integration snapshot, helper namespace,
 and unselected unpublished work. Unselected hosted heads and targets must still
