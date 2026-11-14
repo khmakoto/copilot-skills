@@ -26,9 +26,9 @@ the exact contents.
 ## `ci-triage`
 
 The skill investigates failures in GitHub or Azure DevOps PR checks, workflow
-runs, build runs, and local build or test commands. Before tracing the failure, it
-records the tested revision, run attempt, job or matrix entry, and relevant
-configuration.
+runs, build runs and local build or test commands. Before investigating a
+failure, it records the tested revision, run attempt, job or matrix entry and
+relevant configuration.
 
 The skill classifies causes as change-related, pre-existing, test-fixture,
 infrastructure or environment, flaky, or undetermined. It gives evidence and a
@@ -72,9 +72,9 @@ and verified validation evidence. It supports GitHub Enterprise Server and legac
 Azure DevOps URLs through each provider's tools.
 
 The skill preserves references, attachments, managed graph footers and diagram
-blocks, and human-maintained content outside the requested scope. It separates
-validation evidence for the current PR head from historical results. It also
-reports pending, failed, or unavailable checks.
+blocks. It leaves human-maintained content outside the requested scope
+unchanged. It separates validation evidence for the current PR head from
+historical results. It also reports pending, failed, or unavailable checks.
 
 The user can edit the complete body and must approve its exact content before
 publication. The skill checks for intervening changes before publishing.
@@ -102,14 +102,14 @@ explicit approval.
 
 ## `pr-reviewer`
 
-The skill reviews a GitHub or Azure DevOps pull request or a local Git branch with a
-specialist code-review agent. It reports defects, regressions, vulnerabilities,
-compatibility problems, and gaps in test coverage.
+The skill uses a specialist code-review agent to review a GitHub or Azure DevOps
+pull request or a local Git branch. It reports defects, regressions,
+vulnerabilities, compatibility problems and gaps in test coverage.
 
 The review covers every changed hunk. It checks state and lifecycle behavior,
-whether tests are valid, and which behavioral branches they cover. Where relevant,
-it runs focused checks for UI interactions, wrappers and adapters, design systems,
-reactive state, service contracts, and package boundaries.
+whether tests are valid, and which behavioral branches they cover. When needed,
+it runs focused checks for UI interactions, wrappers and adapters, design
+systems, reactive state, service contracts and package boundaries.
 
 The skill presents one finding at a time. Keeping a local finding does not change
 the worktree. Remote review comments can include suggestion blocks that the
@@ -139,6 +139,13 @@ treating each file as one review unit.
 The skill splits existing branches and manages changes as a multi-parent
 dependency graph in local Git, GitHub, GitHub Enterprise Server, or Azure DevOps.
 
+The read-only `operation-diff` command reports graph and node changes for a
+retained operation. It includes lineage, validation and readiness evidence.
+It distinguishes intended effects, interrupted candidates and remote attempts
+from matching verified publication. It reports missing evidence rather than
+inferring success. Neither JSON nor text output authorizes undo, renews
+freshness or establishes merge safety.
+
 All published nodes start as drafts. Blocked drafts use helper integration
 bases to show only their own changes. A node becomes eligible for review after
 every prerequisite lands. Mutations require approval of the exact plan.
@@ -153,11 +160,9 @@ the same task and invocation.
 
 In ordinary auto mode, history transfers require separate permission for the
 current invocation. The user must still approve merges and deletion of source,
-refs, or worktrees.
-Restore, general adoption, graph import, checkpoint, new setup, and new conflict
-fixes also require human approval.
-The agent pauses when outcomes are uncertain. It never bypasses digests or safety
-checks.
+refs, or worktrees. Restore, general adoption, graph import, checkpoint, new
+setup, and new conflict fixes also require human approval. The agent pauses
+when outcomes are uncertain. It never bypasses digests or safety checks.
 
 Publication exclusions within a graph keep local-only node lineage, retained
 versions, and metadata out of product refs, helper refs, backups, and history
@@ -167,34 +172,36 @@ only within established disclosure limits. These exclusions do not detect
 secrets or protect against external tools. See the
 [policy contract](../skills/pr-graph/references/publication-exclusions.md).
 
-Explicit `--yolo` delegates all pr-graph human approvals needed for this task
-and invocation. This includes merging, deletion, PR closure, recovery, new setup
-and fixes, restore, graph import, checkpoint, exclusion release and history
-transfer. It can irreversibly delete resources, execute setup scripts or disclose
-unpublished or discarded source and metadata.
+Explicit `--yolo` lets the agent approve every pr-graph action that needs human
+approval for this task and invocation. This includes merging, deletion,
+PR closure, recovery, new setup and fixes, restore, graph import, checkpoint,
+exclusion release and history transfer. It can irreversibly delete resources,
+execute setup scripts or disclose unpublished or discarded source and metadata.
 
 The agent first uses the task and verified context to establish the exact source,
-destination, access permissions, and limits on retained data. Missing or ambiguous
-intent or destinations still block the operation. So do unresolved remote
-effects. Plans, digests, freshness, validation, hooks, and provider policies remain
-mandatory. `--yolo` is not a helper flag. Its permission does not persist or apply
-to other skills. Ordinary `--auto` remains unchanged. See the
+destination, access permissions and limits on retained data. The operation
+stops if intent or destinations are missing or ambiguous, or if remote effects
+remain unresolved. Plans, digests, freshness, validation, hooks and provider
+policies remain mandatory. `--yolo` is not a helper flag. Its permission ends
+with this task and invocation and does not apply to other skills. Ordinary
+`--auto` remains unchanged. See the
 [complete matrix](../skills/pr-graph/references/yolo-mode.md) and
 [examples](pr-graph.md#yolo-mode).
 
 ```text
-/pr-graph [--auto | --yolo] [split | view | select | history | interdiff | export-history | import-history | publication-policy | add | absorb | sync | retarget | ready | merge | describe | reshape | adopt | import-graph | checkpoint | remove-retired | backup | restore]
+/pr-graph [--auto | --yolo] [split | view | select | history | interdiff | operation-diff | export-history | import-history | publication-policy | add | absorb | sync | retarget | ready | merge | describe | reshape | adopt | import-graph | checkpoint | remove-retired | backup | restore]
 ```
 
 The helper requires Node.js 22+ and Git 2.31+. Hosted operations also require
 authenticated `gh` or `az` for the selected provider. Install the complete skill
-directory. It needs no dependency installation or build step.
-During reconstruction, the helper can reuse verified sequences of previously
+directory. It needs no dependency installation or build step. During
+reconstruction, the helper can reuse verified sequences of previously
 composed changes when their exact inputs and known execution context match.
 Reuse does not carry over validation or freshness evidence.
 
-See the [`pr-graph` guide](pr-graph.md) for detailed usage, requirements,
-validation, and safety boundaries.
+See [example requests](pr-graph.md#example-requests) for tasks you can ask the
+skill to perform. The [`pr-graph` guide](pr-graph.md) covers detailed usage,
+requirements, validation and safety boundaries.
 
 ## `session-distill`
 

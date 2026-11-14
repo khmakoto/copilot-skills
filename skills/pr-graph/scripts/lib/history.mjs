@@ -7,6 +7,9 @@ import { importedHistory } from "./history-archive.mjs";
 
 const WARNING = "Historical evidence only: comparisons do not establish semantic equivalence, current freshness, validation, readiness, or merge safety.";
 
+const commitIds = (node) => [...new Set([node.change.base, node.change.head, node.base,
+  node.head, node.validation?.head, node.landing?.commit].filter(Boolean))];
+
 function snapshot(graph, id) {
   const node = graph?.nodes.find((n) => n.id === id);
   if (!node) return null;
@@ -44,14 +47,26 @@ function differences(before, after) {
   };
 }
 
+function matchingEvidence(journal, value, id) {
+  const p = journal?.published?.[id];
+  const v = journal?.validated?.[id];
+  const node = value?.node;
+  return {
+    publication: p && node && p.head === node.head && p.base === node.base &&
+      p.baseBranch === node.baseBranch && (p.scope === "remote-refs" ||
+        (p.scope === "hosted-pr" && p.pr?.head === node.head && p.pr?.baseBranch === node.baseBranch)) ? p : null,
+    validation: v && node && Array.isArray(node.validations) && v.head === node.head &&
+      v.commands === digest(node.validations) ? v : null,
+  };
+}
+
 export function history(ctx, graphId, nodeId, archive) {
   if (archive) return importedHistory(ctx, graphId, nodeId, archive);
   return git.withObjectView(ctx, (run, objects) => readHistory(ctx, graphId, nodeId, objects));
 }
 
-function readHistory(ctx, graphId, nodeId, objects) {
+function retainedHistory(ctx, graphId) {
   const current = state.load(ctx, graphId, true);
-  requireValue(typeof nodeId === "string" && /^[a-z0-9][a-z0-9-]*$/.test(nodeId), "Select --node explicitly.");
   const journals = state.journals(ctx).filter((j) => j.plan.graph?.id === graphId || j.plan.graphId === graphId);
   const byOperation = new Map(journals.map((j) => [j.id, j]));
   const dir = path.join(ctx.dir, "history", graphId);
@@ -96,11 +111,18 @@ function readHistory(ctx, graphId, nodeId, objects) {
       }
     }
   } while (grew);
+  return { current, journals, byOperation, records, graphs, persisted };
+}
+
+function readHistory(ctx, graphId, nodeId, objects) {
+  const { current, journals, byOperation, records, graphs, persisted } = retainedHistory(ctx, graphId);
+  requireValue(typeof nodeId === "string" && /^[a-z0-9][a-z0-9-]*$/.test(nodeId), "Select --node explicitly.");
   const lineage = new Set([nodeId]);
   const links = graphs.flatMap((g) => g.nodes.flatMap((n) => [
     ...(n.supersedes ?? []).map((id) => ({ from: id, to: n.id })),
     ...(n.replacedBy ?? []).map((id) => ({ from: n.id, to: id })),
   ]));
+  let grew;
   do {
     grew = false;
     for (const link of links) {
@@ -115,8 +137,6 @@ function readHistory(ctx, graphId, nodeId, objects) {
   requireValue(graphs.some((g) => g.nodes.some((n) => n.id === nodeId)) ||
     journals.some((j) => j.plan.graph?.nodes.some((n) => n.id === nodeId)), `Unknown historical node: ${nodeId}`);
   const versions = new Map();
-  const commitIds = (node) => [...new Set([node.change.base, node.change.head, node.base,
-    node.head, node.validation?.head, node.landing?.commit].filter(Boolean))];
   const available = objects.commits(graphs.flatMap((graph) =>
     graph.nodes.filter((node) => lineage.has(node.id)).flatMap(commitIds)));
   const addVersion = (graph, id) => {
@@ -146,13 +166,7 @@ function readHistory(ctx, graphId, nodeId, objects) {
       const after = addVersion(record.after, id);
       if (!before && !after && !journal?.plan.graph?.nodes.some((n) => n.id === id)) continue;
       const s = after ? versions.get(after).snapshot : null;
-      const p = journal?.published?.[id];
-      const v = journal?.validated?.[id];
-      const publication = p && s && p.head === s.node.head && p.base === s.node.base &&
-        p.baseBranch === s.node.baseBranch && (p.scope === "remote-refs" ||
-          (p.scope === "hosted-pr" && p.pr?.head === s.node.head && p.pr?.baseBranch === s.node.baseBranch)) ? p : null;
-      const validation = v && s && v.head === s.node.head &&
-        v.commands === digest(s.node.validations) ? v : null;
+      const { publication, validation } = matchingEvidence(journal, s, id);
       events.push({
         id: record.id, node: id, operation: record.operation, action: record.action,
         status: journal?.status ?? "unknown", persisted: Boolean(record.after && persisted.has(digest(record.after))),
@@ -207,14 +221,18 @@ export function interdiff(ctx, graphId, nodeId, from, to = "current", archive) {
     comparison: null, gaps: timeline.gaps, warning: WARNING,
     ...(timeline.provenance ? { provenance: timeline.provenance } : {}),
   };
+  result.comparison = compareVersions(ctx, old, next);
+  return result;
+}
+
+function compareVersions(ctx, old, next) {
   if ([old, next].some((v) => !v.snapshot.node.base || !v.snapshot.node.head ||
     v.missingCommits.some((sha) => [v.snapshot.node.base, v.snapshot.node.head].includes(sha)))) {
-    result.comparison = { status: "unavailable", scope: "realized-own-change",
+    return { status: "unavailable", scope: "realized-own-change",
       reason: "A realized base/head snapshot is missing locally.", patch: null };
-    return result;
   }
   try {
-    result.comparison = git.withObjectView(ctx, (run) => {
+    return git.withObjectView(ctx, (run) => {
       const checked = (args, input) => {
         const r = run(args, input);
         requireValue(r.status === 0, r.stderr.trim() || `git ${args[0]} failed.`);
@@ -243,10 +261,179 @@ export function interdiff(ctx, graphId, nodeId, from, to = "current", archive) {
         beforeTree: trees[0], afterTree: trees[1], patch: patch.stdout };
     });
   } catch (error) {
-    result.comparison = { status: "unavailable", scope: "realized-own-change", patch: null,
+    return { status: "unavailable", scope: "realized-own-change", patch: null,
       reason: "Local object comparison could not be completed.", details: error.message };
   }
-  return result;
+}
+
+export function operationDiff(ctx, graphId, operation) {
+  requireValue(typeof operation === "string" && /^[0-9a-f]{64}$/.test(operation),
+    "Operation diff requires an exact --operation <digest>.");
+  const evidence = retainedHistory(ctx, graphId);
+  const journal = evidence.byOperation.get(operation);
+  const records = evidence.records.filter((r) => r.operation === operation);
+  requireValue(records.length || journal, `Unknown retained operation for graph ${graphId}: ${operation}`);
+  requireValue(!journal || (journal.id === operation && journal.plan.approval === operation),
+    "Operation journal identity mismatch; preserve it and inspect explicitly.");
+  const gaps = new Set();
+  if (!journal) gaps.add("No operation journal remains; execution status and verified effect receipts are unavailable.");
+  if (journal?.candidate && !records.some((r) => r.after && digest(r.after) === digest(journal.candidate))) {
+    records.push({ id: operation, operation, action: journal.plan.action, source: "journal-candidate",
+      before: journal.plan.previous ?? records[0]?.before ?? null, after: journal.candidate, recordedAt: null });
+  }
+  const descriptor = (graph) => graph ? {
+    id: digest(graph), revision: graph.revision, lastOperation: graph.lastOperation ?? null,
+    persisted: evidence.persisted.has(digest(graph)),
+  } : null;
+  const intended = journal?.plan.graph ?? null;
+  for (const graph of [...records.flatMap((r) => [r.before, r.after]), intended].filter(Boolean)) {
+    requireValue(validateGraph(graph).id === graphId, "Operation graph identity mismatch.");
+  }
+  if (!evidence.current) gaps.add("No persisted graph exists; retained snapshots may be candidates only.");
+  const comparisons = git.withObjectView(ctx, (run, objects) => {
+    const available = objects.commits(records.flatMap((r) => [r.before, r.after]).filter(Boolean)
+      .flatMap((g) => g.nodes.flatMap(commitIds)));
+    return records.map((record) => {
+      const beforeGraph = descriptor(record.before);
+      const afterGraph = descriptor(record.after);
+      const beforeKnown = Boolean(record.before) || (record.source === "receipt" && record.before === null) ||
+        journal?.plan.previousDigest === null;
+      const afterKnown = Boolean(record.after);
+      if (record.source === "legacy-journal") gaps.add("Legacy journals may lack complete snapshots and verified effect receipts.");
+      if (!beforeKnown) gaps.add("The before graph snapshot is unavailable; absence is not evidence of added nodes.");
+      if (!afterKnown) gaps.add("No retained after snapshot exists; intended changes are not executed results.");
+      if (["restore", "import-graph"].includes(record.action)) {
+        gaps.add(`${record.action} is a history boundary; upstream clone history is not imported.`);
+      }
+      const nodeIds = [...new Set([record.before, record.after].filter(Boolean)
+        .flatMap((g) => g.nodes.map((n) => n.id)))].sort();
+      const nodes = nodeIds.map((id) => {
+        const before = snapshot(record.before, id);
+        const after = snapshot(record.after, id);
+        const known = beforeKnown && afterKnown;
+        const changes = known ? differences(before, after) : null;
+        const fields = known ? [...new Set([...Object.keys(before?.node ?? {}), ...Object.keys(after?.node ?? {})])]
+          .filter((key) => digest(before?.node[key] ?? null) !== digest(after?.node[key] ?? null)).sort() : null;
+        const version = (graph, value) => ({
+          id: digest({ graph: graph.id, node: id }), snapshot: value,
+          missingCommits: commitIds(value.node).filter((sha) => !available.get(sha)),
+        });
+        const old = before ? version(beforeGraph, before) : null;
+        const next = after ? version(afterGraph, after) : null;
+        const missingCommits = {
+          before: old?.missingCommits ?? [],
+          after: next?.missingCommits ?? [],
+        };
+        if (missingCommits.before.length || missingCommits.after.length) {
+          gaps.add(`Node ${id}: some historical commits are unavailable locally.`);
+        }
+        let comparison = { status: "unavailable", scope: "realized-own-change", patch: null,
+          reason: "Both before and after node snapshots are required; inspect presence and lineage separately." };
+        if (old && next) {
+          comparison = compareVersions(ctx, old, next);
+          if (["unavailable", "inconclusive"].includes(comparison.status)) {
+            gaps.add(`Node ${id}: ${comparison.reason}`);
+          }
+        }
+        return {
+          id, presence: !known ? "unknown" : !before ? "added" : !after ? "removed" : "retained",
+          before, after, changes, fields, missingCommits,
+          ownChange: before && after ? {
+            baseChanged: before.node.change.base !== after.node.change.base,
+            patchChanged: before.node.change.patch !== after.node.change.patch,
+            fingerprintChanged: before.node.change.fingerprint !== after.node.change.fingerprint,
+          } : null,
+          comparison, ...matchingEvidence(journal, after, id),
+        };
+      });
+      const links = [record.before, record.after].filter(Boolean).flatMap((g) => g.nodes.flatMap((n) => [
+        ...(n.supersedes ?? []).map((id) => ({ from: id, to: n.id })),
+        ...(n.replacedBy ?? []).map((id) => ({ from: n.id, to: id })),
+      ]));
+      const keys = [...new Set([record.before, record.after].filter(Boolean).flatMap(Object.keys))]
+        .filter((key) => !["nodes", "revision", "lastOperation"].includes(key)).sort();
+      return {
+        receipt: record.id, source: record.source, recordedAt: record.recordedAt,
+        before: beforeGraph, after: afterGraph, beforeKnown, afterKnown,
+        graphChanges: beforeKnown && afterKnown ? keys.filter((key) =>
+          digest(record.before?.[key] ?? null) !== digest(record.after?.[key] ?? null)).map((key) => ({
+          field: key, before: record.before?.[key] ?? null, after: record.after?.[key] ?? null,
+        })) : null,
+        lineage: [...new Map(links.map((link) => [digest(link), link])).values()]
+          .sort((a, b) => a.from.localeCompare(b.from) || a.to.localeCompare(b.to)),
+        nodes,
+      };
+    });
+  });
+  const published = Object.entries(journal?.published ?? {}).map(([node, receipt]) => ({
+    node, receipt, matchesSnapshot: comparisons.some((c) => c.nodes.some((n) =>
+      n.id === node && n.publication !== null)),
+  }));
+  if (published.some((p) => !p.matchesSnapshot)) gaps.add("Some publication receipts do not match any retained after snapshot.");
+  if (Object.keys(journal?.validated ?? {}).some((id) => !comparisons.some((c) =>
+    c.nodes.some((node) => node.id === id && node.validation !== null)))) {
+    gaps.add("Some validation receipts do not match any retained after snapshot or command specification.");
+  }
+  if (journal?.remoteStarted) {
+    gaps.add("Remote attempts and response/ref records are not verified publication; unrecorded effects cannot be inferred or retried from this report.");
+  }
+  return {
+    graph: graphId, operation, action: journal?.plan.action ?? records[0].action,
+    status: journal?.status ?? "unknown", current: descriptor(evidence.current),
+    intended: journal ? { graph: intended, effects: journal.plan.effects ?? [],
+      localOnly: journal.plan.localOnly ?? false, publishNodes: journal.plan.publishNodes ?? null } : null,
+    comparisons,
+    execution: journal ? {
+      remoteStarted: journal.remoteStarted ?? false, providerStarted: journal.providerStarted ?? false,
+      localRefs: journal.local ?? {}, remoteRefRecords: journal.remote ?? {}, prResponses: journal.prs ?? {},
+      published, validations: journal.validated ?? {}, pendingChange: journal.pendingChange ?? null,
+      mergeReceipt: journal.mergeReceipt ?? null, backupCommit: journal.backupCommit ?? null,
+      recoveries: journal.recoveries ?? [], error: journal.error ?? null,
+    } : null,
+    gaps: [...gaps], warning: WARNING,
+  };
+}
+
+export function renderOperationDiff(value) {
+  return [
+    `${value.graph} / operation ${value.operation}: ${value.action}, ${value.status}`,
+    `Current persisted graph: ${value.current?.id ?? "absent"}`,
+    "Intended effects (not execution evidence):",
+    ...(value.intended?.effects.map((effect) => `  ${typeof effect === "string" ? effect : JSON.stringify(effect)}`) ??
+      ["  unavailable"]),
+    ...value.comparisons.flatMap((c) => [
+      `${c.source} ${c.receipt}: ${c.before?.id ?? (c.beforeKnown ? "absent" : "unavailable")} -> ` +
+        `${c.after?.id ?? "unavailable"} (${c.after?.persisted ? "persisted snapshot" : "candidate, not proven persisted"})`,
+      `  Graph fields: ${c.graphChanges?.map((change) => change.field).join(", ") || (c.graphChanges ? "unchanged" : "unknown")}`,
+      ...(c.graphChanges ?? []).map((change) =>
+        `    ${change.field}: ${JSON.stringify(change.before)} -> ${JSON.stringify(change.after)}`),
+      ...c.lineage.map((link) => `  Lineage: ${link.from} -> ${link.to}`),
+      ...c.nodes.flatMap((n) => [
+        `  ${n.id}: ${n.presence}; fields: ${n.fields?.join(", ") || (n.fields ? "unchanged" : "unknown")}`,
+        `    Authored patch: ${n.ownChange ? n.ownChange.patchChanged ? "changed" : "unchanged" : "unavailable"}; ` +
+          `realization: ${n.changes ? n.changes.realization ? "changed" : "unchanged" : "unknown"}; ` +
+          `common-base realized comparison: ${n.comparison.status}`,
+        n.comparison.reason ? `    ${n.comparison.reason}` : "",
+        n.comparison.patch ?? "",
+        n.publication ? `    Matching verified publication: ${n.publication.scope}` : "    Verified publication: unavailable",
+        n.validation ? `    Matching validation: ${n.after.node.validations.length ? "recorded checks" :
+          `no automated checks (${n.validation.reason ? "recorded rationale" : "rationale unavailable"})`}` : "",
+        ...(n.fields ?? []).filter((key) => key !== "change").map((key) =>
+          `    ${key}: ${JSON.stringify(n.before?.node[key] ?? null)} -> ${JSON.stringify(n.after?.node[key] ?? null)}`),
+      ]),
+    ]),
+    `Execution: remote attempt ${value.execution?.remoteStarted ? "recorded" : value.execution ? "not recorded" : "unknown"}; ` +
+      `PR responses/ref records are not publication verification.`,
+    ...(value.execution ? [
+      `Local ref records: ${JSON.stringify(value.execution.localRefs)}`,
+      `Remote ref records (not publication verification): ${JSON.stringify(value.execution.remoteRefRecords)}`,
+      `PR responses (not publication verification): ${JSON.stringify(value.execution.prResponses)}`,
+      ...value.execution.recoveries.map((recovery) => `Recovery receipt: ${JSON.stringify(recovery)}`),
+    ] : []),
+    ...(value.execution?.pendingChange ? [`Pending change: ${JSON.stringify(value.execution.pendingChange)}`] : []),
+    ...(value.execution?.error ? [`Recorded error: ${value.execution.error}`] : []),
+    ...value.gaps.map((gap) => `Gap: ${gap}`), value.warning,
+  ].filter(Boolean).join("\n");
 }
 
 export function renderHistory(value) {

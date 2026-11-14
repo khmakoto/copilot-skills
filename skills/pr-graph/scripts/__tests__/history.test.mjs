@@ -6,7 +6,7 @@ import { fixture, git, cli } from "./fixtures.mjs";
 import * as state from "../lib/state.mjs";
 import { digest } from "../lib/graph.mjs";
 import { normalizeChange } from "../lib/changes.mjs";
-import { history, interdiff } from "../lib/history.mjs";
+import { history, interdiff, operationDiff, renderOperationDiff } from "../lib/history.mjs";
 
 function userState(f) {
   return {
@@ -39,7 +39,7 @@ test("history and interdiff separate shared-prerequisite reconstruction from own
   fs.writeFileSync(path.join(f.root, "shared.txt"), f.text([]).replace("a context 4", "new context\na context 4"));
   git(f.root, "commit", "-qam", "advance target");
   git(f.root, "checkout", "source");
-  f.apply("sync", { graph: "example", localOnly: true });
+  const synced = f.apply("sync", { graph: "example", localOnly: true });
   fs.writeFileSync(path.join(f.root, "staged.txt"), "preserve staged work\n");
   git(f.root, "add", "staged.txt");
   fs.appendFileSync(path.join(f.root, "shared.txt"), "dirty work\n");
@@ -57,6 +57,27 @@ test("history and interdiff separate shared-prerequisite reconstruction from own
   assert.equal(timeline.events.at(-1).status, "done");
   assert.equal(timeline.events.at(-1).persisted, true);
   assert.deepEqual(timeline.gaps, []);
+  const operation = operationDiff(f.ctx, "example", synced.operation);
+  assert.equal(operation.comparisons.length, 1);
+  const changes = operation.comparisons[0];
+  assert.equal(changes.after.persisted, true);
+  assert.ok(changes.graphChanges.some((change) => change.field === "targetSha"));
+  assert.equal(changes.nodes.length, 5);
+  assert.ok(changes.nodes.every((node) => node.ownChange.patchChanged === false));
+  assert.ok(changes.nodes.every((node) => node.comparison.status === "equal"));
+  assert.ok(changes.nodes.some((node) => node.changes.realization && node.changes.validation));
+  assert.ok(changes.nodes.every((node) => node.validation && node.publication === null));
+  assert.equal(operation.intended.localOnly, true);
+  assert.equal(operation.execution.remoteStarted, false);
+  assert.deepEqual(operation.gaps, []);
+  const opJson = cli(f.root, "operation-diff", "--graph", "example", "--operation", synced.operation, "--quiet");
+  assert.equal(opJson.status, 0, opJson.stderr);
+  assert.deepEqual(JSON.parse(opJson.stdout), operation);
+  const opText = cli(f.root, "operation-diff", "--graph", "example", "--operation", synced.operation,
+    "--format", "text", "--quiet");
+  assert.equal(opText.status, 0, opText.stderr);
+  assert.match(opText.stdout, /Authored patch: unchanged; realization: changed; common-base realized comparison: equal/);
+  assert.match(opText.stdout, /no automated checks \(recorded rationale\)/);
   const json = cli(f.root, "history", "--graph", "example", "--node", "f", "--quiet");
   assert.equal(json.status, 0, json.stderr);
   assert.equal(JSON.parse(json.stdout).current, timeline.current);
@@ -73,7 +94,7 @@ test("history follows explicit fold lineage and interdiff detects changed owners
   f.apply("split", { spec: f.spec });
   const original = history(f.ctx, "example", "a").current;
   const other = history(f.ctx, "example", "b").current;
-  f.apply("fold", { graph: "example", spec: { id: "example", nodes: [{
+  const folded = f.apply("fold", { graph: "example", spec: { id: "example", nodes: [{
     id: "a", title: "Combined", dependencies: [], supersedes: ["b"],
     change: { base: f.base, head: f.head }, validationReason: "No build system.",
   }] } });
@@ -87,6 +108,18 @@ test("history follows explicit fold lineage and interdiff detects changed owners
   assert.match(result.comparison.patch, /\+b=1/);
   assert.equal(interdiff(f.ctx, "example", "a", other).comparison.status, "different");
   assert.equal(timeline.events.filter((e) => e.node === "b" && e.action === "fold").length, 1);
+  const report = operationDiff(f.ctx, "example", folded.operation);
+  const comparison = report.comparisons[0];
+  assert.deepEqual(comparison.lineage, [{ from: "b", to: "a" }]);
+  const combined = comparison.nodes.find((n) => n.id === "a");
+  assert.equal(combined.ownChange.patchChanged, true);
+  assert.equal(combined.comparison.status, "different");
+  assert.match(combined.comparison.patch, /\+b=1/);
+  const retired = comparison.nodes.find((n) => n.id === "b");
+  assert.equal(retired.presence, "retained");
+  assert.equal(retired.before.node.retired, false);
+  assert.equal(retired.after.node.retired, true);
+  assert.ok(retired.fields.includes("retired"));
 });
 
 test("common-base comparison isolates context movement and reports conflicting edits as inconclusive", (t) => {
@@ -199,6 +232,7 @@ test("history receipts pin versions and reject corrupted evidence; CLI rejects i
   receipt.after.nodes[0].title = "corrupted";
   state.atomicJson(file, receipt);
   assert.throws(() => history(f.ctx, "example", "a"), /Invalid history receipt/);
+  assert.throws(() => operationDiff(f.ctx, "example", timeline.events[0].operation), /Invalid history receipt/);
 });
 
 test("interdiff preserves binary content and Git mode metadata", (t) => {
@@ -257,6 +291,10 @@ test("historical comparison does not hydrate missing blobs from a promisor remot
   assert.equal(result.comparison.patch, null);
   assert.equal(fs.existsSync(file), false);
   assert.deepEqual(fs.readdirSync(path.join(objects, "pack")), []);
+  const timeline = history(f.ctx, "example", "a");
+  const operation = operationDiff(f.ctx, "example", timeline.events[0].operation);
+  assert.equal(operation.comparisons[0].nodes[0].comparison.status, "unavailable");
+  assert.equal(fs.existsSync(file), false);
 });
 
 test("history distinguishes a receipt written before graph persistence from a completed save", (t) => {
@@ -271,10 +309,12 @@ test("history distinguishes a receipt written before graph persistence from a co
   let event = history(f.ctx, "example", "a").events.at(-1);
   assert.equal(event.action, "describe");
   assert.equal(event.persisted, false);
+  assert.equal(operationDiff(f.ctx, "example", graph.lastOperation).comparisons[0].after.persisted, false);
   state.atomicJson(state.graphFile(f.ctx, "example"), graph);
   event = history(f.ctx, "example", "a").events.at(-1);
   assert.equal(event.persisted, true);
   assert.equal(event.status, "unknown");
+  assert.equal(operationDiff(f.ctx, "example", graph.lastOperation).comparisons[0].after.persisted, true);
 });
 
 test("history inspects an interrupted first operation without inventing a persisted graph", (t) => {
@@ -297,4 +337,156 @@ test("history inspects an interrupted first operation without inventing a persis
   assert.throws(() => interdiff(f.ctx, "example", "a", version), /Unavailable node version/);
   assert.equal(git(f.root, "show-ref"), before);
   assert.equal(fs.existsSync(state.graphFile(f.ctx, "example")), false);
+  const operation = operationDiff(f.ctx, "example", split.operation);
+  assert.equal(operation.current, null);
+  assert.equal(operation.comparisons[0].after.persisted, false);
+  assert.equal(operation.comparisons[0].nodes[0].presence, "added");
+  assert.ok(operation.gaps.some((gap) => gap.includes("No persisted graph")));
+});
+
+test("operation diff keeps partial publication proof separate from responses and uncertain attempts", (t) => {
+  const f = fixture({ remote: true, names: ["a", "b"] });
+  t.after(() => f.dispose());
+  f.apply("split", { spec: f.spec });
+  const previous = state.load(f.ctx, "example");
+  const publication = f.apply("publish", { graph: "example" });
+  const journal = state.readJson(state.journalFile(f.ctx, publication.operation));
+  journal.status = "running";
+  journal.error = "Lost response after a partial hosted publication";
+  const a = journal.candidate.nodes.find((n) => n.id === "a");
+  journal.published.a = { ...journal.published.a, scope: "hosted-pr",
+    pr: { id: 1, head: a.head, base: a.base, baseBranch: a.baseBranch } };
+  delete journal.published.b;
+  journal.prs.b = { id: 2, head: journal.candidate.nodes.find((n) => n.id === "b").head };
+  journal.pendingChange = { key: "pending", before: a.base, worktree: "retained-worktree" };
+  state.atomicJson(state.journalFile(f.ctx, journal.id), journal);
+  state.atomicJson(state.graphFile(f.ctx, "example"), previous);
+  const before = userState(f);
+  const report = operationDiff(f.ctx, "example", journal.id);
+  assert.equal(report.status, "running");
+  assert.equal(report.comparisons[0].after.persisted, false);
+  assert.equal(report.comparisons[0].nodes.find((n) => n.id === "a").publication.scope, "hosted-pr");
+  assert.equal(report.comparisons[0].nodes.find((n) => n.id === "b").publication, null);
+  assert.deepEqual(report.execution.prResponses.b, journal.prs.b);
+  assert.deepEqual(report.execution.remoteRefRecords, journal.remote);
+  assert.deepEqual(report.execution.pendingChange, journal.pendingChange);
+  assert.deepEqual(report.execution.published.map((p) => [p.node, p.matchesSnapshot]), [["a", true]]);
+  assert.match(renderOperationDiff(report), /candidate, not proven persisted/);
+  assert.ok(report.gaps.some((gap) => gap.includes("not verified publication")));
+  assert.deepEqual(userState(f), before);
+  journal.published.a.head = "0".repeat(40);
+  state.atomicJson(state.journalFile(f.ctx, journal.id), journal);
+  const mismatch = operationDiff(f.ctx, "example", journal.id);
+  assert.equal(mismatch.execution.published[0].matchesSnapshot, false);
+  assert.equal(mismatch.comparisons[0].nodes.find((n) => n.id === "a").publication, null);
+  assert.ok(mismatch.gaps.some((gap) => gap.includes("do not match")));
+  journal.candidate.nodes.find((n) => n.id === "b").title = "Interrupted candidate title";
+  state.atomicJson(state.journalFile(f.ctx, journal.id), journal);
+  const distinct = operationDiff(f.ctx, "example", journal.id);
+  assert.equal(distinct.comparisons.length, 2);
+  assert.equal(distinct.comparisons[1].source, "journal-candidate");
+  assert.notEqual(distinct.comparisons[0].after.id, distinct.comparisons[1].after.id);
+  assert.ok(distinct.comparisons.every((c) => !c.after.persisted));
+});
+
+test("operation diff distinguishes new split identities, retirement and later metadata removal", (t) => {
+  const f = fixture({ names: ["a", "b"] });
+  t.after(() => f.dispose());
+  const spec = { ...f.spec, nodes: [{
+    id: "combined", title: "Combined", dependencies: [], change: { base: f.base, head: f.head },
+    validationReason: "No build system.",
+  }] };
+  f.apply("split", { spec });
+  const split = f.apply("split-node", { graph: "example", spec: {
+    id: "example", nodes: f.spec.nodes.map((n) => ({ ...n, supersedes: ["combined"] })),
+  } });
+  const before = userState(f);
+  const report = operationDiff(f.ctx, "example", split.operation).comparisons[0];
+  assert.deepEqual(report.lineage, [{ from: "combined", to: "a" }, { from: "combined", to: "b" }]);
+  assert.deepEqual(report.nodes.map((n) => [n.id, n.presence]), [
+    ["a", "added"], ["b", "added"], ["combined", "retained"],
+  ]);
+  assert.ok(report.nodes.find((n) => n.id === "combined").after.node.retired);
+  assert.ok(report.nodes.filter((n) => n.presence === "added").every((n) =>
+    n.before === null && n.after.node.change.patch && n.comparison.status === "unavailable"));
+  assert.deepEqual(userState(f), before);
+  const removed = f.apply("remove-retired", { graph: "example", node: "combined" });
+  const removal = operationDiff(f.ctx, "example", removed.operation).comparisons[0];
+  assert.equal(removal.nodes.find((n) => n.id === "combined").presence, "removed");
+  assert.equal(removal.nodes.find((n) => n.id === "combined").after, null);
+});
+
+test("operation diff shows validation invalidation, readiness, landing, and receipt-only graph changes", (t) => {
+  const f = fixture({ names: ["a"] });
+  t.after(() => f.dispose());
+  f.apply("split", { spec: f.spec });
+  const graph = state.load(f.ctx, "example");
+  delete graph.nodes[0].validation;
+  graph.nodes[0].ready = true;
+  graph.nodes[0].landing = { commit: graph.nodes[0].head, source: graph.nodes[0].head,
+    target: graph.target, strategy: "merge" };
+  graph.nodes[0].title = "Updated title";
+  saveSnapshot(f, graph, "record-landing");
+  const before = userState(f);
+  const report = operationDiff(f.ctx, "example", graph.lastOperation);
+  const node = report.comparisons[0].nodes[0];
+  assert.equal(node.changes.validation, true);
+  assert.equal(node.before.node.validation.head, graph.nodes[0].head);
+  assert.equal(node.after.node.validation, undefined);
+  assert.equal(node.changes.readiness, true);
+  assert.equal(node.changes.landing, true);
+  assert.equal(node.changes.metadata, true);
+  assert.equal(node.ownChange.patchChanged, false);
+  assert.equal(node.comparison.status, "equal");
+  assert.equal(report.status, "unknown");
+  assert.equal(report.execution, null);
+  assert.equal(report.comparisons[0].after.persisted, true);
+  assert.match(renderOperationDiff(report), /ready: false -> true/);
+  assert.match(renderOperationDiff(report), /validation: .* -> null/);
+  assert.deepEqual(userState(f), before);
+});
+
+test("operation diff reports legacy missing snapshots and keeps plan intent separate from results", (t) => {
+  const f = fixture({ names: ["a"] });
+  t.after(() => f.dispose());
+  const split = f.apply("split", { spec: f.spec });
+  for (const file of fs.readdirSync(path.join(f.ctx.dir, "history", "example"))) {
+    fs.unlinkSync(path.join(f.ctx.dir, "history", "example", file));
+  }
+  const journal = state.readJson(state.journalFile(f.ctx, split.operation));
+  journal.status = "running";
+  delete journal.historyVersion;
+  delete journal.candidate;
+  delete journal.plan.previousDigest;
+  state.atomicJson(state.journalFile(f.ctx, journal.id), journal);
+  const before = userState(f);
+  let report = operationDiff(f.ctx, "example", journal.id);
+  assert.equal(report.comparisons[0].beforeKnown, false);
+  assert.equal(report.comparisons[0].afterKnown, false);
+  assert.deepEqual(report.comparisons[0].nodes, []);
+  assert.deepEqual(report.intended.graph, journal.plan.graph);
+  assert.ok(report.gaps.some((gap) => gap.includes("Legacy")));
+  assert.ok(report.gaps.some((gap) => gap.includes("intended changes")));
+  assert.deepEqual(userState(f), before);
+  journal.candidate = state.load(f.ctx, "example");
+  journal.candidate.nodes[0].base = "0".repeat(40);
+  state.atomicJson(state.journalFile(f.ctx, journal.id), journal);
+  report = operationDiff(f.ctx, "example", journal.id);
+  assert.equal(report.comparisons[0].nodes[0].presence, "unknown");
+  assert.equal(report.comparisons[0].nodes[0].changes, null);
+  assert.ok(report.gaps.some((gap) => gap.includes("unavailable locally")));
+  delete journal.candidate.nodes[0].validations;
+  state.atomicJson(state.journalFile(f.ctx, journal.id), journal);
+  report = operationDiff(f.ctx, "example", journal.id);
+  assert.equal(report.comparisons[0].nodes[0].validation, null);
+  assert.ok(report.gaps.some((gap) => gap.includes("command specification")));
+  assert.equal(cli(f.root, "operation-diff", "--graph", "example", "--operation", journal.id,
+    "--format", "text", "--quiet").status, 0);
+  assert.equal(cli(f.root, "operation-diff", "--graph", "example", "--operation", "0".repeat(64), "--quiet").status, 1);
+  assert.equal(cli(f.root, "operation-diff", "--graph", "example", "--operation", journal.id,
+    "--node", "a", "--quiet").status, 1);
+  assert.equal(cli(f.root, "operation-diff", "--graph", "example", "--operation", journal.id,
+    "--archive", "0".repeat(64), "--quiet").status, 1);
+  assert.equal(cli(f.root, "operation-diff", "--graph", "example", "--operation", journal.id,
+    "--from", "current", "--quiet").status, 1);
 });

@@ -2,7 +2,7 @@
 name: pr-graph
 description: Split a large Git branch into small, independently reviewable changes and manage their multi-parent dependency graph. Create clean blocked draft PRs, add or reshape nodes, sync after prerequisites land, and explicitly ready or merge eligible changes. Supports local Git, GitHub, GitHub Enterprise Server, and Azure DevOps. Use when the user invokes /pr-graph or asks to split work into dependent PRs, manage a PR tree or DAG, or land independent parts of a change.
 compatibility: Requires Node.js 22+ and Git 2.31+. Hosted workflows require authenticated gh or az. Scripts are portable across Linux, macOS, and Windows; no package installation or build step.
-argument-hint: "[--auto | --yolo] [split | view | select | history | interdiff | export-history | import-history | publication-policy | add | absorb | sync | ready | merge | reshape | backup | restore] [repository, graph, or constraints]"
+argument-hint: "[--auto | --yolo] [split | view | select | history | interdiff | operation-diff | export-history | import-history | publication-policy | add | absorb | sync | ready | merge | reshape | backup | restore] [repository, graph, or constraints]"
 ---
 
 # Pull Request Graph
@@ -210,7 +210,7 @@ ordinary graph execution or makes historical observations current.
 
 Before **any graph or change inspection or mutation**, explicitly establish
 each node's branch, integration-snapshot, and validation freshness. This includes `analyze`,
-`status`, `view`, `history`, `interdiff`, `check`, `doctor`, planning, applying, continuing, and recovery.
+`status`, `view`, `history`, `interdiff`, `operation-diff`, `check`, `doctor`, planning, applying, continuing, and recovery.
 Only the minimal reads needed to identify the repository, applicable safety
 instructions, graph branches, remotes, upstreams, worktree occupancy, and pending
 operations may precede this gate. `help` does not inspect a repository.
@@ -366,6 +366,7 @@ For questions about why a node changed, inspect its retained history:
 ```text
 node "<skill-directory>/scripts/pr-graph.mjs" history --repo "<repo>" --graph "<id>" --node "<node>" --format text
 node "<skill-directory>/scripts/pr-graph.mjs" interdiff --repo "<repo>" --graph "<id>" --node "<node>" --from last-published --format text
+node "<skill-directory>/scripts/pr-graph.mjs" operation-diff --repo "<repo>" --graph "<id>" --operation "<operation-digest>" --format text
 ```
 
 Read [historical inspection](references/commands.md#node-history-and-interdiff)
@@ -382,6 +383,18 @@ receipts, and missing evidence. A recorded no-check rationale is not a test run.
 Inspection performs no hosting writes, validation, repair, or freshness renewal;
 the normal preflight still applies. An equal comparison never establishes
 semantic equivalence, current validation, readiness, or merge safety.
+
+For aggregate sync or reshape inspection, use
+[operation-wide diffs](references/commands.md#operation-wide-diffs) with an exact
+operation digest from status or history. Present graph changes and every node's
+own-change, realization, dependency, validation, readiness, landing and lineage
+evidence together. Keep the plan's intended graph/effects separate from retained
+results, and remote attempts/response records separate from matching verified
+publication receipts. A receipt written before graph persistence is still a
+candidate. Report missing snapshots and objects rather than inferring success
+or silently comparing against today's graph. This command does not undo,
+reconcile, compensate, fetch, repair, publish, run checks or renew freshness.
+Normal preflight and all recovery/side-effect approvals remain unchanged.
 
 To transfer history across clones, read
 [portable history archives](references/history-archives.md). Prepare

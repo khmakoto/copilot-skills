@@ -8,7 +8,7 @@ import * as state from "./lib/state.mjs";
 import { requireValue, render, validateGraph } from "./lib/graph.mjs";
 import { createPlan, applyPlan, inspect, previewSelection } from "./lib/operations.mjs";
 import { ProgressReporter, setProgressSink, step } from "./lib/progress.mjs";
-import { history, interdiff, renderHistory, renderInterdiff } from "./lib/history.mjs";
+import { history, interdiff, operationDiff, renderHistory, renderInterdiff, renderOperationDiff } from "./lib/history.mjs";
 import { historyArchives } from "./lib/history-archive.mjs";
 import { inspectAbsorb } from "./lib/absorb.mjs";
 
@@ -20,6 +20,7 @@ Read-only:
   status|view|check|doctor --graph <id>
   select --graph <id> --select <selector>
   history --graph <id> --node <id> [--format json|text]
+  operation-diff --graph <id> --operation <digest> [--format json|text]
   history-archives --graph <id>
   history|interdiff ... --archive <imported-archive-digest>  Explicit imported evidence only
   interdiff --graph <id> --node <id> --from <version|last-published|last-validated|current>
@@ -47,7 +48,7 @@ Prepare a concrete mutation plan:
   --landing <sha>             Verified external local landing to record
   --remote <name>             Backup download/restore remote
   --backup-ref <sha>          Downloaded snapshot to restore
-  --operation <digest>        Resolve/abort/cleanup operation
+  --operation <digest>        Inspect/resolve/abort/cleanup operation
   --retain-published-refs     Abort push-only publication without deleting its verified candidate refs
   --body-file <file>          Explicit describe replacement
   --fetch-observation <json>  Main/master live-tip SHA and fetch-start time
@@ -102,11 +103,12 @@ export function main(argv) {
 
 function execute(flags, command, action) {
   const historical = ["history", "interdiff"].includes(command);
+  const operationReport = command === "operation-diff";
   requireValue(flags.archive === undefined || historical ||
     (command === "plan" && ["export-history", "import-history"].includes(action)),
   "Use --archive only with history/interdiff or plan export-history/import-history.");
-  requireValue(flags.format === undefined || (historical && ["json", "text"].includes(flags.format)),
-    "Use --format json|text only with history or interdiff.");
+  requireValue(flags.format === undefined || ((historical || operationReport) && ["json", "text"].includes(flags.format)),
+    "Use --format json|text only with history, interdiff, or operation-diff.");
   requireValue((flags.from === undefined && flags.to === undefined) || command === "interdiff",
     "Use --from/--to only with interdiff.");
   requireValue(flags["source-repo"] === undefined || (command === "plan" && action === "import-graph"),
@@ -123,7 +125,12 @@ function execute(flags, command, action) {
     "Use --landings-only only when planning adopt; apply and continue use the approved plan's mode.");
   const ctx = step("Locating repository", () => git.context(flags.repo ?? process.cwd()));
   let result;
-  if (command === "history-archives") {
+  if (operationReport) {
+    requireValue(flags.graph && flags.operation && flags.node === undefined,
+      "Operation diff requires --graph and --operation, not --node.");
+    result = operationDiff(ctx, flags.graph, flags.operation);
+    if (flags.format === "text") return process.stdout.write(`${renderOperationDiff(result)}\n`);
+  } else if (command === "history-archives") {
     requireValue(flags.graph, "Select --graph explicitly.");
     result = historyArchives(ctx, flags.graph);
   } else if (command === "absorb") {

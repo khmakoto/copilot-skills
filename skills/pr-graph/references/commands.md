@@ -40,7 +40,8 @@ node "<helper>" plan publication-policy --repo "<repo>" --graph feature --spec "
 Commands emit JSON except `help` and `view`. Failures emit a JSON error to stderr
 and exit nonzero. Errors include the retained operation ID when applicable.
 `doctor` is read-only; it does not repair state implicitly.
-`history` and `interdiff` also accept `--format text`; their default is JSON.
+`history`, `interdiff`, and `operation-diff` also accept `--format text`;
+their default is JSON.
 
 `absorb` is read-only hunk/whole-file inventory with retained own-patch and
 dependency provenance, not automatic ownership selection or staging. `plan
@@ -171,6 +172,69 @@ one imported timeline explicitly; local baselines remain unchanged.
 Imported `current` is unavailable: use a retained ID with `--to`.
 Read the [archive contract](history-archives.md) before transfer, including
 sensitive-source preview, incomplete evidence, origin trust, and deletion limits.
+
+### Operation-wide diffs
+
+```text
+node "<helper>" operation-diff --repo "<repo>" --graph feature --operation "<operation-digest>"
+node "<helper>" operation-diff --repo "<repo>" --graph feature --operation "<operation-digest>" --format text
+```
+
+Select an exact full 64-character operation digest from `status`, `history`, or
+an apply result. This is an operation identity, not a Git SHA, node version,
+branch name, or a guessed latest operation. Unknown IDs or graph mismatches are
+errors. `--node`, `--from`, `--to`, and imported `--archive` selections are not
+supported. The command inspects only local retained evidence and is usable
+before the first graph is persisted; the normal skill freshness preflight
+remains unchanged.
+
+The report returns:
+
+- `operation`, `action`, `status`, and `current`: exact operation identity,
+  recorded journal status (or `unknown`), and the current persisted graph digest.
+- `intended`: the journal's planned graph, human-readable effects, local-only
+  mode, and selected publication nodes. These are intent, not proof of execution.
+  Without a journal they are unavailable; the command does not invent a plan.
+- `comparisons`: retained before/after snapshots grouped by receipt, or a
+  journal/candidate fallback. Graph digests, revisions, recorded times and
+  `persisted` flags remain separate from operation status. Multiple retained
+  receipts or a distinct latest journal candidate are shown separately rather
+  than flattened into an invented final state.
+- Each comparison's `graphChanges` lists changed graph-level fields with their
+  values. `nodes` lists stable IDs with before/after node and prerequisite
+  snapshots, changed-aspect flags, exact changed field names, authored
+  base/patch/fingerprint changes, missing commits, and common-base
+  `realized-own-change` comparisons using the same isolation as interdiff.
+  SHA movement alone is not reported as an authored edit. `presence` distinguishes
+  added, removed, retained, and unknown; retirement is a separate field change.
+  `lineage` preserves explicit split/fold links without conflating identities.
+- Per-node `publication` and `validation` require matching journal receipts for
+  that retained after snapshot. A no-automated-check rationale is not passing
+  tests; before/after validation fields expose invalidation separately.
+  Readiness and landing changes are historical evidence, not live eligibility.
+- `execution` exposes recorded local refs, remote ref records, PR responses,
+  attempt flags, validation/publication receipts, pending changes, merge receipts,
+  backup commit, recoveries and errors. Remote ref records and provider responses
+  alone are **not verified publication**. Publication receipts that match no
+  retained after snapshot are preserved and explicitly flagged, not promoted.
+  Attempt flags do not identify every attempted node or prove that no unrecorded
+  remote effect occurred. Unknown outcomes still require approved live recovery.
+- `gaps` names missing journals/snapshots/objects, legacy records, mismatched
+  receipts, and import/restore boundaries. Missing snapshots produce unknown
+  changes, not inferred addition/removal or comparison to the current graph.
+
+The text format groups these facts by snapshot and node and includes available
+binary/full-index comparison patches. An added/removed node has no paired
+common-base comparison; inspect its snapshot and lineage. Conflicting
+comparisons are `inconclusive`; missing local evidence is `unavailable`.
+Persisted state is established using current graph/history evidence, not merely
+the existence of an after receipt, which can precede the graph write.
+
+This command never fetches or hydrates missing objects, repairs state, moves
+refs, runs checks, publishes, or renews freshness. It preserves user worktrees,
+indexes, operation state and refs. It is not undo, reconciliation, or remote
+compensation. Empty comparisons establish neither semantic equivalence nor
+current validation, readiness, freshness or merge safety.
 
 ### Live progress
 

@@ -1,6 +1,8 @@
-PR [PR-NUMBER] has been [updated/merged]. It was part of the PR stack below, please update the stack accordingly.
+PR [PR-NUMBER] has been [updated/merged]. Update the PR stack below to reflect
+this change.
 
-Before you make any updates, please fast-forward main to latest so you have the latest base. Also ensure all local branches in the PR stack are not stale before you make any updates.
+Before updating the stack, fast-forward main to its latest tip. Do not update
+the stack until every local branch in it is current.
 
-PR Stack:
+PR stack:
 [PR-STACK]
