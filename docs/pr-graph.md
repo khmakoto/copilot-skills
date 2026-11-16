@@ -25,9 +25,8 @@ descriptions unchanged. The skill labels their diagrams as historical snapshots.
 
 The human approval requirements below apply to interactive mode and ordinary
 auto mode. [YOLO mode](#yolo-mode) lets the agent approve those actions for the
-requested task only.
-The agent must still check correctness, preserve user work, and pause when
-outcomes are uncertain.
+requested task only. The agent must still check correctness, preserve user work,
+and pause when outcomes are uncertain.
 
 ## Example requests
 
@@ -69,7 +68,7 @@ Equal comparisons do not establish merge safety.
 
 The agent chooses semantic boundaries and proposes dependencies. The helper
 checks that approved splits and folds preserve the complete combined tree.
-For absorb, select and pin the committed changes to allocate. Every change
+For `absorb`, select and pin the committed changes to allocate. Every change
 needs an active, unlanded owner. Absorb preserves node identities and
 dependencies. It does not stage dirty work, create new nodes or publish the
 result.
@@ -134,8 +133,8 @@ edits. Supply validation commands or reasons for running no automated checks.
 Absorb preserves node identities and dependency edges. New nodes or dependencies
 need separate approved graph changes.
 
-The user must approve the exact plan digest. Auto mode may approve a requested
-allocation when ownership is unambiguous and the plan meets the
+The user must approve the exact plan digest. In auto mode, the agent may approve
+a requested allocation when ownership is unambiguous and the plan meets the
 [conditional policy](../skills/pr-graph/references/auto-mode.md#conditional-auto-approvals).
 The helper checks each owner's changes against its assigned edits. It compares
 the complete combined tree with the approved source. It rebuilds dependent nodes
@@ -202,9 +201,10 @@ The report lists gaps for missing or legacy snapshots, unavailable objects and
 unmatched receipts. It does not infer success from incomplete evidence.
 
 Inspection preserves worktrees, indexes, refs and operation state. It does not
-fetch, repair, run checks, publish or renew freshness. It is not undo or remote
-compensation. The normal skill preflight still applies. Equal comparisons do
-not establish semantic equivalence, current validation or merge safety.
+fetch, repair, run checks, publish or renew freshness. It cannot undo an operation
+or reverse remote effects. The normal skill preflight still applies. Equal
+comparisons do not establish semantic equivalence, current validation or merge
+safety.
 See the [operation report contract](../skills/pr-graph/references/commands.md#operation-wide-diffs).
 
 ## Portable historical evidence
@@ -374,21 +374,24 @@ An enabled backup in the manifest is not enough. Requested, verified backup
 downloads may write only private local refs. They must not restore branches or
 execute commands.
 
-Use verified `abort --retain-published-refs` to stop an interrupted first
-publication and replan without removing refs or resources. The graph and local
-refs must remain unchanged. There must be no PRs, provider writes, or pending patch.
+Use `abort --retain-published-refs` after verification to stop an interrupted
+first publication and replan without removing refs or resources. The graph and
+local refs must remain unchanged. There must be no PRs, provider writes, or pending
+patch.
 Remote refs must match their original or exactly approved candidate values.
 The helper rechecks readback on apply. New namespaces and publication payloads
 require their normal authorization.
 
-Requested landing-only adoption may use `plan adopt --landings-only` when the
-helper proves unchanged source identities and provider-confirmed landings on the
-intended target. It never rewrites existing branch refs or owned changes.
+For requested landing-only adoption, use `plan adopt --landings-only` when the
+helper proves that source identities are unchanged and the provider confirms
+the landings on the intended target. It never rewrites existing branch refs or
+owned changes.
 The agent may repeat previously approved setup only with a
 [receipt](../skills/pr-graph/references/setup-replay.md). The receipt must prove
 successful execution and explicit approval in the same task and invocation.
 The commands, scopes, environment, and destination must remain unchanged.
-The complete identities of the relevant executables and inputs must also match.
+The helper must also verify the exact identities of the relevant executables
+and inputs.
 A matching command or lockfile alone is not enough. New or failed setup,
 changed inputs, and unverifiable evidence still require approval.
 
@@ -443,7 +446,7 @@ refs, or archive. It records the destination and its access permissions. This
 includes the path or clone, or the hosting repository, ref, or PR. It also
 records all data to retain and its storage cost.
 
-The direct task and verified context must establish these details without
+The user's task and verified context must establish these details without
 ambiguity. The agent then approves the exact payload without another prompt.
 This includes the history-transfer opt-in or any necessary exclusion release.
 An explicit "keep local" constraint still forbids release. The agent asks the
@@ -486,10 +489,10 @@ validation status. Integration branches named `main` or `master` allow a
 3-hour freshness grace for verified forward movement. This avoids repeated
 source rewrites during review. The grace period does not apply to merging.
 
-The clock uses the recorded start time of the latest successful fetch of the
-current tip. It does not start at fetch completion or plan application. Merge
-always requires the current integration tip. Other integration branch names
-have no grace.
+The grace period starts at the recorded start time of the latest successful
+fetch of the current tip. It does not start at fetch completion or plan
+application. Merge always requires the current integration tip. Other
+integration branch names have no grace.
 
 For GitHub, GitHub Enterprise Server, and Azure DevOps, the helper can check exact
 commit ancestry on the server to verify integration and PR-target commits
@@ -516,9 +519,9 @@ Continuation never accepts the change implicitly. Recovery does not establish
 validation or readiness. Historical inspection retains the recovery evidence.
 
 Reconstruction plans accept `--commit-trailers-file <json>`. The helper records
-the required trailers in the approved payload and adds them to generated commit
-messages, including during conflict recovery. It does not change PR titles. The
-option applies to one operation and changes neither Git configuration nor
+the required trailers in the approved payload. It adds them to generated commit
+messages, including during conflict recovery, but leaves PR titles unchanged.
+The option applies to one operation and changes neither Git configuration nor
 graph-wide policy.
 
 For `add`, `fold`, `sync`, `publish`, and `retarget`, helper plans accept
@@ -559,6 +562,7 @@ updates leave source branches and draft states unchanged. Custom helper-branch
 prefixes support namespace restrictions. If some pushes succeed before
 publication fails, the user can approve recovery that keeps those verified
 pushes.
+
 Description-only actions do not create or claim a worktree. They leave partial
 checkouts from interrupted older operations untouched.
 
@@ -581,9 +585,8 @@ For explicitly requested landings when PR content has not been rewritten, use
 base branch, and provider landing SHA. The helper rejects namespace changes,
 attempts to repair source refs, unrelated PR identity changes, and target rewinds.
 It retains owned changes and historical nodes. It clears validation and readiness
-for selected nodes and descendants. It does not claim freshness or publish
-anything.
-Do not silently fall back to general adoption when these checks fail.
+for selected nodes and descendants. It does not establish freshness or publish
+anything. Do not silently fall back to general adoption when these checks fail.
 
 `import-graph --source-repo <path>` requires separate human approval, even in
 auto mode. Use it to import changed node ownership or dependencies from another
@@ -644,14 +647,30 @@ The `pr-graph` workflow runs this suite on Linux, macOS, and Windows with Node.j
 
 The helper batches local ref snapshots and metadata reads for immutable objects.
 This needs no new flags and leaves result formats unchanged. Caches never
-replace live write-boundary checks, validation, provider observations, or
+replace live checks before writes, validation, provider observations, or
 freshness evidence.
 
-To measure read times and Git subprocess counts for chains, diamonds, wide
-graphs, and history, run:
+The helper also reads PRs in bounded pages through native `gh` and `az` commands.
+It reads fresh evidence at every required check. Selecting nodes does not narrow
+graph-wide drift checks.
+
+The helper reads individual PRs when records are missing, discovery scans are
+incomplete, or Azure DevOps descriptions may be truncated. Sparse graphs or long
+descriptions may require extra calls. Verification after writes, provider
+policies and freshness requirements remain unchanged.
+
+Progress on stderr reports observation time and counts of provider calls,
+requests and subprocesses. Plans and stdout results keep their existing formats.
+See the
+[complete evidence and fallback contract](../skills/pr-graph/references/providers.md#live-observation-query-boundaries).
+
+To measure local read times and Git subprocess counts for chains, diamonds, wide
+graphs, and history, run the first command. The second compares sequential and
+batched provider reads:
 
 ```text
 node --test skills/pr-graph/scripts/__tests__/read-performance.test.mjs
+node --test skills/pr-graph/scripts/__tests__/observations.test.mjs
 ```
 
 These tests check results and work counts. They report timings but do not require

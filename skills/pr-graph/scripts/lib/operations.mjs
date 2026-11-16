@@ -16,6 +16,7 @@ import { createRetiredRemovalPlan, applyRetiredRemovalPlan } from "./retirement.
 import { createImportPlan, applyImportPlan } from "./import.mjs";
 import { createHistoryTransferPlan, applyHistoryTransferPlan } from "./history-archive.mjs";
 import { nodeDetails, step } from "./progress.mjs";
+import { readPullRequests } from "./observations.mjs";
 import { planAbsorb, verifyAbsorb } from "./absorb.mjs";
 import {
   loadPolicy, effectivePolicy, createPolicyPlan, applyPolicyPlan, outboundScope,
@@ -129,14 +130,7 @@ function observe(ctx, graph, provider, discover = false) {
   return step("Observing local refs, remote refs, and PR state", () => {
     const branches = graphRefs(graph);
     const remote = git.remoteRefs(ctx.root, graph.repository.remote);
-    const prs = {};
-    for (const node of graph.nodes) {
-      if (node.pr) prs[node.id] = step("Reading PR state", () => provider.get(node.pr.id), nodeDetails(graph, node));
-      else if (discover && provider.kind !== "local") {
-        const found = step("Looking for an existing PR", () => provider.find(node.branch), nodeDetails(graph, node));
-        if (found) prs[node.id] = found;
-      }
-    }
+    const prs = readPullRequests(provider, graph.nodes, discover);
     return {
       local: git.localBranches(ctx.root, branches),
       remote: Object.fromEntries(branches.map((b) => [b, remote[`refs/heads/${b}`] ?? null])),

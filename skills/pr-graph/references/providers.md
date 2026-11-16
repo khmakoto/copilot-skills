@@ -17,6 +17,61 @@ Legacy ADO HTTPS URLs of the form
 are also recognized, alongside URLs without `DefaultCollection`. Other collection
 prefixes are not supported.
 
+## Live observation query boundaries
+
+Transport batching changes how the helper reads evidence, not which evidence
+an action requires. Every `observe` boundary first selects the complete graph's
+ref names and recorded PR identities, independently of any publication selector:
+
+| Boundary                                                                  | Required evidence                                                                                                                                                      |
+| ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Ordinary planning, status/freshness inspection, and recovery observations | Local and remote integration, node, helper-base and configured backup refs; every recorded PR, including landed, retired and unselected nodes.                         |
+| Selector preview/planning and selector apply/continue checks              | The same full set, plus open-PR discovery for every node without a recorded PR. Selection narrows writes, never this drift evidence.                                   |
+| `verifyFacts` at apply/continue and existing mutation boundaries          | Fresh observations of the candidate graph (or approved graph), checked against pinned plan facts and journaled effects. Nothing from the preceding boundary is reused. |
+| Individual writes, readiness, merge and uncertain-effect recovery         | Existing exact PR readbacks, own-diff, ancestry and policy checks remain separate. A collection observation never substitutes for them.                                |
+
+Within one boundary, duplicate PR IDs and branch queries are read once and
+mapped back into graph-node order. All existing normalized fields remain:
+identity/URL, title, complete human body, draft/state, source and target branch
+names/SHAs, landing and update metadata. Immutable patch/graph queries do not
+become live evidence. Expensive policy, ancestry and file-diff queries still
+run only where their existing gates require them.
+
+GitHub/GHES use repository PR collection pages through host-qualified `gh api`;
+Azure DevOps uses repository-scoped `az repos pr list --status all`. The scan
+budget is the smaller of three pages or one less than the number of required
+PR/branch queries, at 100 entries per page. Single queries and adapters without
+batch support retain exact `get`/`find`. Stop early when all recorded identities
+are present and no discovery remains. GitHub honors the response `Link`
+pagination even for short pages; ADO uses explicit `--skip`/`--top`.
+
+Missing identities fall back to individual reads, never an inferred closure or
+absence. If the bounded scan is incomplete, every discovery query falls back to
+its complete branch-filtered pagination, even if a candidate was already seen:
+another page could contain a duplicate. Missing list fields are hydrated through
+individual reads. ADO's collection descriptions can be truncated at 400
+characters; descriptions at or above that length always require full `show`
+readback. Long-description ADO graphs and sparse/old graphs may therefore use
+more calls, not fewer. No latency improvement is assumed for those workloads.
+
+All pages must succeed. Malformed results, repeated page identities,
+authorization failures and rate limits fail the whole boundary; retain native
+diagnostics and do not retry, switch credentials, or consume a partial set.
+Pages, remote refs and PR reads are not an atomic snapshot. Existing rechecks,
+expected identities, leases, freshness and uncertain-write recovery remain
+mandatory. Observations are never cached across boundaries, persisted as a
+renewed freshness receipt, or used to parallelize writes.
+
+The shared observation progress phase reports elapsed time, logical provider
+calls, PR-data requests/pages and native CLI subprocess invocations, including
+failed attempts. These counters describe helper transport work, not hidden CLI
+authentication requests or internal retries. If a native paginated command fails
+without a complete page envelope, its request count is labeled a lower bound.
+They are stderr progress metadata,
+not new fields in plans or command results. The fixture benchmark compares
+sequential and batched reads of identical facts; it does not certify live
+provider latency or an atomic snapshot.
+
 ## Local Git
 
 No `gh`, `az`, or hosting authentication is needed. Graph creation, splitting,

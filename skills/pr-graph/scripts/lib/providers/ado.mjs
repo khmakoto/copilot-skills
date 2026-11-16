@@ -1,11 +1,12 @@
 import { requireValue } from "../graph.mjs";
 import { run } from "../git.mjs";
+import { batchPullRequests, providerRequest } from "../observations.mjs";
 
 export function adoProvider(config, cwd, runner = run) {
   const org = `https://${config.host}/${config.organization}`;
   const resource = "499b84ac-1321-427f-aa17-267ca6975798";
   function az(args) {
-    const result = runner("az", [...args, "--only-show-errors", "-o", "json"], cwd);
+    const result = providerRequest(() => runner("az", [...args, "--only-show-errors", "-o", "json"], cwd));
     requireValue(result.status === 0, `ADO request failed: ${result.stderr}`);
     return result.stdout.trim() ? JSON.parse(result.stdout) : null;
   }
@@ -31,6 +32,29 @@ export function adoProvider(config, cwd, runner = run) {
     };
   }
   const get = (id) => normalize(az(["repos", "pr", "show", "--id", String(id), "--org", org, "--detect", "false"]));
+  // The list endpoint truncates descriptions at 400 characters.
+  const usable = (p) => (p.description === null || typeof p.description === "string" && p.description.length < 400) &&
+    [p.title, p.creationDate, p.sourceRefName, p.targetRefName,
+      p.lastMergeSourceCommit?.commitId, p.lastMergeTargetCommit?.commitId]
+      .every((value) => typeof value === "string") &&
+    typeof p.isDraft === "boolean" && ["active", "completed", "abandoned"].includes(p.status) &&
+    (p.status !== "completed" || Object.hasOwn(p, "lastMergeCommit"));
+  function find(branch) {
+    const all = [];
+    for (let skip = 0; ; skip += 100) {
+      const page = az(["repos", "pr", "list", "--org", org, "--project", config.project,
+        "--repository", config.repo, "--source-branch", branch, "--status", "active",
+        "--skip", String(skip), "--top", "100", "--detect", "false"]);
+      requireValue(Array.isArray(page), "Invalid ADO PR list.");
+      all.push(...page);
+      if (page.length < 100) break;
+    }
+    requireValue(all.length <= 1, `Multiple ADO PRs for ${branch}.`);
+    if (!all.length) return null;
+    const pr = usable(all[0]) ? normalize(all[0]) : get(all[0].pullRequestId);
+    requireValue(pr.id === all[0].pullRequestId, "Mismatched ADO PR discovery identity.");
+    return pr;
+  }
   return {
     kind: "ado",
     capabilities() {
@@ -39,6 +63,23 @@ export function adoProvider(config, cwd, runner = run) {
         strategies: ["merge", "squash", "rebase"] };
     },
     get,
+    readMany(query) {
+      return batchPullRequests(query, {
+        page: (page) => {
+          const values = az(["repos", "pr", "list", "--org", org, "--project", config.project,
+            "--repository", config.repo, "--status", "all", "--skip", String(page * 100),
+            "--top", "100", "--detect", "false"]);
+          return { values, more: Array.isArray(values) && values.length === 100 };
+        },
+        id: (p) => p?.pullRequestId,
+        matches: (p, branch) => {
+          requireValue(["active", "completed", "abandoned"].includes(p.status) && typeof p.sourceRefName === "string",
+            "Invalid ADO PR discovery evidence.");
+          return p.status === "active" && p.sourceRefName === `refs/heads/${branch}`;
+        },
+        normalize, get, find, usable,
+      });
+    },
     mergeBase(before, after) {
       requireValue([before, after].every((sha) => /^[a-f0-9]{40}$/.test(sha)),
         "ADO ancestry requires full commit SHAs.");
@@ -47,19 +88,7 @@ export function adoProvider(config, cwd, runner = run) {
         "ADO ancestry is unavailable.");
       return result.commonCommit;
     },
-    find(branch) {
-      const all = [];
-      for (let skip = 0; ; skip += 100) {
-        const page = az(["repos", "pr", "list", "--org", org, "--project", config.project,
-          "--repository", config.repo, "--source-branch", branch, "--status", "active",
-          "--skip", String(skip), "--top", "100", "--detect", "false"]);
-        requireValue(Array.isArray(page), "Invalid ADO PR list.");
-        all.push(...page);
-        if (page.length < 100) break;
-      }
-      requireValue(all.length <= 1, `Multiple ADO PRs for ${branch}.`);
-      return all.length ? normalize(all[0]) : null;
-    },
+    find,
     create(node, body) {
       requireValue(body.length <= 4000, "ADO description exceeds 4000 characters; shorten explicitly.");
       return normalize(az(["repos", "pr", "create", "--org", org, "--project", config.project,

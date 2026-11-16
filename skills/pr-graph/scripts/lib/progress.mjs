@@ -20,6 +20,7 @@ export function step(label, action, details = {}) {
     for (const scope of scopes) sink({
       type, id: scope.id, label, elapsed: performance.now() - started,
       outcome: scope.success ?? "done",
+      ...(scope.metrics ? { metrics: { ...scope.metrics } } : {}),
       ...(scope.node ? {
         node: scope.node.id, branch: scope.node.branch,
         pr: scope.node.pr?.url ?? scope.node.pr?.id,
@@ -82,7 +83,10 @@ export class ProgressReporter {
       this.line(`${this.text(event)}: started`);
     } else {
       this.active.delete(event.id);
-      this.line(`${this.text(event)}: ${event.type === "done" ? event.outcome ?? "done" : "failed"} (${duration(event.elapsed)})`,
+      const metrics = event.metrics
+        ? `; ${event.metrics.calls} provider calls, ${event.metrics.requestsExact === false ? "at least " : ""}` +
+          `${event.metrics.requests} requests, ${event.metrics.subprocesses} subprocesses` : "";
+      this.line(`${this.text(event)}: ${event.type === "done" ? event.outcome ?? "done" : "failed"} (${duration(event.elapsed)}${metrics})`,
         event.type === "done" ? "32" : "31");
     }
   }

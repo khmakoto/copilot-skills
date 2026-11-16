@@ -141,17 +141,17 @@ dependency graph in local Git, GitHub, GitHub Enterprise Server, or Azure DevOps
 
 The read-only `operation-diff` command reports graph and node changes for a
 retained operation. It includes lineage, validation and readiness evidence.
-It distinguishes intended effects, interrupted candidates and remote attempts
-from matching verified publication. It reports missing evidence rather than
+It separates planned effects, interrupted candidate states and attempted remote
+writes from verified publication. It reports missing evidence rather than
 inferring success. Neither JSON nor text output authorizes undo, renews
-freshness or establishes merge safety.
+freshness or proves that a merge is safe.
 
 All published nodes start as drafts. Blocked drafts use helper integration
 bases to show only their own changes. A node becomes eligible for review after
 every prerequisite lands. Mutations require approval of the exact plan.
 `--auto` lets the agent approve routine plans within the task. Conditional
-allowances cover recovery, requested follow-up allocation, requested retired
-metadata removal, and backup effects the user previously authorized.
+permissions cover recovery, requested follow-up allocation, requested removal
+of retired metadata, and backup effects the user previously authorized.
 
 The agent may also abort verified publication attempts while retaining refs,
 or adopt requested landings without source rewrites. It may repeat unchanged
@@ -178,7 +178,7 @@ PR closure, recovery, new setup and fixes, restore, graph import, checkpoint,
 exclusion release and history transfer. It can irreversibly delete resources,
 execute setup scripts or disclose unpublished or discarded source and metadata.
 
-The agent first uses the task and verified context to establish the exact source,
+The agent first checks the task and verified context to establish the exact source,
 destination, access permissions and limits on retained data. The operation
 stops if intent or destinations are missing or ambiguous, or if remote effects
 remain unresolved. Plans, digests, freshness, validation, hooks and provider
@@ -198,6 +198,10 @@ directory. It needs no dependency installation or build step. During
 reconstruction, the helper can reuse verified sequences of previously
 composed changes when their exact inputs and known execution context match.
 Reuse does not carry over validation or freshness evidence.
+
+The helper can batch live-provider reads within a check. It never caches them
+across checks. Selecting nodes does not skip graph-wide drift checks or readback
+after writes.
 
 See [example requests](pr-graph.md#example-requests) for tasks you can ask the
 skill to perform. The [`pr-graph` guide](pr-graph.md) covers detailed usage,
