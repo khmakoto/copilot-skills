@@ -13,6 +13,7 @@ import { digest } from "../lib/graph.mjs";
 import { history, interdiff } from "../lib/history.mjs";
 import * as state from "../lib/state.mjs";
 import { generatedCase, random, seeds } from "./generated.mjs";
+import { batchPullRequests } from "../lib/observations.mjs";
 
 test("provider detection handles GitHub, GHES, ADO SSH/HTTPS and local Git", () => {
   assert.equal(resolveProvider("git@github.com:me/repo.git").kind, "github");
@@ -306,6 +307,20 @@ function hostedFixture(f) {
     kind: "github",
     capabilities: () => ({ drafts: true, retarget: true, strategies: ["merge", "squash", "rebase"] }),
     get,
+    readMany(query) {
+      return batchPullRequests(query, {
+        page: (page) => {
+          const values = [...records.keys()].sort((a, b) => b - a)
+            .slice(page * 100, (page + 1) * 100).map((id) => p.get(id));
+          return { values, more: values.length === 100 };
+        },
+        id: (pr) => pr.id,
+        matches: (pr, branch) => pr.state === "open" && pr.branch === branch,
+        usable: () => true,
+        normalize: (pr) => ({ ...pr }),
+        get: (id) => p.get(id), find: (branch) => p.find(branch),
+      });
+    },
     mergeBase(before, after) {
       return bare("merge-base", before, after);
     },
@@ -346,6 +361,42 @@ function hostedFixture(f) {
   f.ctx.providerFactory = () => p;
   return { p, records, loseResponse: () => { loseResponse = true; } };
 }
+
+test("batched selective publication still rechecks unselected multi-parent PRs and helper bases between boundaries", (t) => {
+  for (const drift of ["pr", "helper"]) {
+    const f = fixture({ remote: true });
+    t.after(() => f.dispose());
+    const host = hostedFixture(f);
+    f.apply("split", { spec: f.spec });
+    const { graph } = f.apply("publish", { graph: "example" });
+    const plan = createPlan(f.ctx, "publish", { graph: graph.id, selector: "node:e" });
+    assert.deepEqual(plan.publishNodes, ["e"]);
+    assert.deepEqual(Object.keys(plan.facts.prs), ["a", "b", "c", "d", "e", "f"]);
+    const joint = graph.nodes.find((n) => n.id === "c");
+    const leaf = graph.nodes.find((n) => n.id === "f");
+    assert.deepEqual(joint.dependencies, ["a", "b"]);
+    assert.deepEqual(leaf.dependencies, ["c", "d", "e"]);
+    assert.ok(Object.hasOwn(plan.facts.remote, leaf.baseBranch));
+    const readMany = host.p.readMany;
+    let boundaries = 0, writes = 0;
+    host.p.readMany = (query) => {
+      const result = readMany(query);
+      assert.equal(query.ids.length, 6);
+      if (++boundaries === 1) {
+        if (drift === "pr") host.records.get(joint.pr.id).body += "\nConcurrent unselected edit";
+        else git(f.root, `--git-dir=${f.bare}`, "update-ref", `refs/heads/${leaf.baseBranch}`, f.base);
+      }
+      return result;
+    };
+    const update = host.p.update;
+    host.p.update = (...args) => { writes++; return update(...args); };
+    assert.throws(() => applyPlan(f.ctx, plan, plan.approval, true),
+      drift === "pr" ? /PR c changed/ : /Remote ref changed/);
+    assert.ok(boundaries >= 2, "fresh batch at the next required boundary");
+    assert.equal(writes, 0);
+    assert.deepEqual(state.readJson(state.journalFile(f.ctx, plan.approval)).plan.publishNodes, ["e"]);
+  }
+});
 
 for (const distinctCandidate of [false, true]) {
   test(`node history distinguishes uncertain PR creation, reconciliation, and verified publication with ${distinctCandidate ? "distinct" : "persisted"} candidate snapshots`, (t) => {

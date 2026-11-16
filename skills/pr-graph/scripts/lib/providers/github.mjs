@@ -1,16 +1,29 @@
 import { requireValue } from "../graph.mjs";
 import { run } from "../git.mjs";
+import { batchPullRequests, providerRequest, providerPages } from "../observations.mjs";
 
 export function githubProvider(config, cwd, runner = run) {
   const repo = `${config.owner}/${config.repo}`;
   const qualified = `${config.host}/${repo}`;
-  function api(endpoint, method = "GET", body, paginate = false) {
+  function api(endpoint, method = "GET", body, paginate = false, includeHeaders = false) {
     const args = ["api", "--hostname", config.host, endpoint, "--method", method];
     if (paginate) args.push("--paginate", "--slurp");
+    if (includeHeaders) args.push("--include");
     if (body) args.push("--input", "-");
-    const result = runner("gh", args, cwd, body ? JSON.stringify(body) : undefined);
+    const result = providerRequest(() => runner("gh", args, cwd, body ? JSON.stringify(body) : undefined), paginate);
     requireValue(result.status === 0, `GitHub request failed: ${result.stderr}`);
-    const value = JSON.parse(result.stdout);
+    let text = result.stdout, more;
+    if (includeHeaders) {
+      const separator = /\r?\n\r?\n/.exec(text);
+      requireValue(separator && /^HTTP\/[\d.]+ 200(?:[ \r\n]|$)/.test(text),
+        "Invalid GitHub PR observation headers.");
+      const headers = text.slice(0, separator.index);
+      more = /^link:.*<[^>]+>;\s*rel="next"/im.test(headers);
+      text = text.slice(separator.index + separator[0].length);
+    }
+    const value = JSON.parse(text);
+    if (paginate) providerPages(value.length);
+    if (includeHeaders) return { values: value, more };
     return paginate ? value.flat() : value;
   }
   function normalize(p) {
@@ -24,6 +37,18 @@ export function githubProvider(config, cwd, runner = run) {
     };
   }
   const get = (id) => normalize(api(`repos/${repo}/pulls/${id}`));
+  function matches(p, branch) {
+    requireValue(p && ["open", "closed"].includes(p.state) && typeof p.head?.ref === "string" &&
+      (p.head.repo === null || typeof p.head.repo?.full_name === "string"),
+    "Invalid GitHub PR discovery evidence.");
+    return p.head.ref === branch && p.head.repo?.full_name === repo && p.state === "open";
+  }
+  function find(branch) {
+    const prs = api(`repos/${repo}/pulls?state=all&head=${encodeURIComponent(`${config.owner}:${branch}`)}&per_page=100`, "GET", undefined, true);
+    const found = prs.filter((p) => matches(p, branch));
+    requireValue(found.length <= 1, `Multiple PRs for ${branch}; reconcile explicitly.`);
+    return found.length ? normalize(found[0]) : null;
+  }
   function update(id, fields) {
     if (fields.draft !== undefined) {
       const query = api(`repos/${repo}/pulls/${id}`);
@@ -61,6 +86,21 @@ export function githubProvider(config, cwd, runner = run) {
       };
     },
     get,
+    readMany(query) {
+      return batchPullRequests(query, {
+        page: (page) => api(`repos/${repo}/pulls?state=all&sort=created&direction=desc&per_page=100&page=${page + 1}`,
+          "GET", undefined, false, true),
+        id: (p) => p?.number,
+        matches, normalize, get, find,
+        usable: (p) => ["body", "merged_at", "merge_commit_sha"].every((key) =>
+          p[key] === null || typeof p[key] === "string") &&
+          [p.title, p.html_url, p.updated_at, p.head?.ref, p.head?.sha, p.base?.ref, p.base?.sha]
+            .every((value) => typeof value === "string") &&
+          (p.head.repo === null || Number.isSafeInteger(p.head.repo?.id)) &&
+          Number.isSafeInteger(p.base.repo?.id) &&
+          typeof p.draft === "boolean" && ["open", "closed"].includes(p.state),
+      });
+    },
     mergeBase(before, after) {
       requireValue([before, after].every((sha) => /^[a-f0-9]{40}$/.test(sha)),
         "GitHub ancestry requires full commit SHAs.");
@@ -69,12 +109,7 @@ export function githubProvider(config, cwd, runner = run) {
         "GitHub ancestry is unavailable.");
       return result.merge_base_commit.sha;
     },
-    find(branch) {
-      const prs = api(`repos/${repo}/pulls?state=all&head=${encodeURIComponent(`${config.owner}:${branch}`)}&per_page=100`, "GET", undefined, true);
-      const matches = prs.filter((p) => p.head.ref === branch && p.head.repo?.full_name === repo && p.state === "open");
-      requireValue(matches.length <= 1, `Multiple PRs for ${branch}; reconcile explicitly.`);
-      return matches.length ? normalize(matches[0]) : null;
-    },
+    find,
     create(node, body) {
       return normalize(api(`repos/${repo}/pulls`, "POST", {
         title: node.title, body, head: node.branch, base: node.baseBranch, draft: true,
@@ -86,8 +121,8 @@ export function githubProvider(config, cwd, runner = run) {
         .flatMap((f) => f.previous_filename ? [f.previous_filename, f.filename] : [f.filename]).sort();
     },
     policies(id) {
-      const result = runner("gh", ["pr", "view", String(id), "-R", qualified,
-        "--json", "mergeStateStatus,reviewDecision,statusCheckRollup"], cwd);
+      const result = providerRequest(() => runner("gh", ["pr", "view", String(id), "-R", qualified,
+        "--json", "mergeStateStatus,reviewDecision,statusCheckRollup"], cwd));
       requireValue(result.status === 0, `Cannot inspect GitHub policies: ${result.stderr}`);
       const value = JSON.parse(result.stdout);
       const checks = value.statusCheckRollup;

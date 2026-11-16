@@ -43,6 +43,12 @@ and exit nonzero. Errors include the retained operation ID when applicable.
 `history`, `interdiff`, and `operation-diff` also accept `--format text`;
 their default is JSON.
 
+Live-provider observation progress includes elapsed time and
+call/request/subprocess counts. Bounded collection reads preserve the full
+required evidence set and fall back to exact reads where needed; they do not
+cache across checks or change result formats. See
+[provider observation boundaries](providers.md#live-observation-query-boundaries).
+
 `absorb` is read-only hunk/whole-file inventory with retained own-patch and
 dependency provenance, not automatic ownership selection or staging. `plan
 absorb` requires a complete replacement spec, pinned follow-up/expected source,

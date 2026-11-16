@@ -112,6 +112,21 @@ test("phase events include newly observed PR identity and never report failed wo
   }
 });
 
+test("provider work counts stay on progress output and mark incomplete pagination counts", () => {
+  const out = output();
+  const reporter = new ProgressReporter({ stream: out.stream });
+  try {
+    reporter.receive({ type: "done", id: 1, label: "Reading live provider evidence", elapsed: 123,
+      metrics: { calls: 1, requests: 2, subprocesses: 2, requestsExact: true } });
+    reporter.receive({ type: "failed", id: 2, label: "Reading live provider evidence", elapsed: 123,
+      metrics: { calls: 1, requests: 1, subprocesses: 1, requestsExact: false } });
+    assert.match(out.text(), /done \(0s; 1 provider calls, 2 requests, 2 subprocesses\)/);
+    assert.match(out.text(), /failed \(0s; 1 provider calls, at least 1 requests, 1 subprocesses\)/);
+  } finally {
+    reporter.close();
+  }
+});
+
 test("CLI progress arrives while validation is blocked and stdout remains a JSON result", { timeout: 30_000 }, async () => {
   const f = fixture({ names: ["a"] });
   const gate = path.join(f.dir, "release");

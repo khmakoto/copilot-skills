@@ -183,6 +183,8 @@ It suppresses progress only, not errors or final results.
 - Also report shared phases such as planning, ref observation, freshness
   inspection, whole-graph verification, backup, and recovery. Progress is not
   evidence that a freshness gate, validation, or provider write succeeded.
+  Live-provider observation reports call/request/subprocess counts and elapsed
+  time without adding fields to stdout results.
 - Use colors and a spinner in an interactive terminal, preserving completed
   steps as lines. Fall back to plain append-only lines when redirected or the
   terminal is dumb; honor `NO_COLOR`. After two minutes without a new progress
@@ -495,6 +497,12 @@ node "<skill-directory>/scripts/pr-graph.mjs" apply --repo "<repo>" --plan "<pla
 
 Plans pin inputs and observations. Stale inputs require a new plan, not a
 different payload under the same approval.
+
+The helper batches required live PR evidence within each observation boundary;
+it never reuses a batch across checks or treats multiple pages as an atomic
+snapshot. Even selective publication observes all recorded graph PRs and refs.
+Full descriptions, post-write readback, freshness and recovery gates remain
+required; see [provider observation boundaries](references/providers.md#live-observation-query-boundaries).
 
 ## 4. Publish and manage review
 
