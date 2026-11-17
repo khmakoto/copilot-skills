@@ -222,7 +222,7 @@ for (const kind of ["same-file", "cross-file"]) {
     }
     f.spec.nodes[1].validations = [{ command: process.execPath, args: kind === "cross-file"
       ? ["consumer.mjs"] : ["-e",
-        "if (!require('node:fs').readFileSync('shared.txt','utf8').startsWith('a=1\\n')) throw Error('producer required')"] }];
+        "if (!/^a=1\\r?\\n/.test(require('node:fs').readFileSync('shared.txt','utf8'))) throw Error('producer required')"] }];
     const original = f.apply("split", { spec: f.spec }).graph;
     const report = inspectDependencies(f.ctx, original.id);
     assert.deepEqual(report.redundantEdges, []);
