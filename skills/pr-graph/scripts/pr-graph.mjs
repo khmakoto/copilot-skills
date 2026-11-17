@@ -11,6 +11,7 @@ import { ProgressReporter, setProgressSink, step } from "./lib/progress.mjs";
 import { history, interdiff, operationDiff, renderHistory, renderInterdiff, renderOperationDiff } from "./lib/history.mjs";
 import { historyArchives } from "./lib/history-archive.mjs";
 import { inspectAbsorb } from "./lib/absorb.mjs";
+import { inspectDependencies } from "./lib/dependencies.mjs";
 
 const HELP = `pr-graph (Node.js 22+, Git 2.31+)
 
@@ -18,6 +19,7 @@ Read-only:
   analyze --base <ref> --head <ref>
   absorb --graph <id> --base <ref> --head <ref>  Inventory pinned follow-up hunks; no mutations
   status|view|check|doctor --graph <id>
+  dependencies --graph <id>   Redundant edges and unassessed sequencing candidates; no probes
   select --graph <id> --select <selector>
   history --graph <id> --node <id> [--format json|text]
   operation-diff --graph <id> --operation <digest> [--format json|text]
@@ -133,6 +135,11 @@ function execute(flags, command, action) {
   } else if (command === "history-archives") {
     requireValue(flags.graph, "Select --graph explicitly.");
     result = historyArchives(ctx, flags.graph);
+  } else if (command === "dependencies") {
+    requireValue(flags.graph && action === undefined &&
+      Object.keys(flags).every((key) => ["repo", "graph", "quiet"].includes(key)),
+    "Dependencies requires --graph and accepts only --repo and --quiet; mutations use approved deps plans.");
+    result = inspectDependencies(ctx, flags.graph);
   } else if (command === "absorb") {
     requireValue(flags.graph && flags.base && flags.head, "Absorb requires --graph, --base and --head.");
     result = inspectAbsorb(ctx, flags.graph, flags.base, flags.head);

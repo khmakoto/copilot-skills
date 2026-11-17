@@ -1,8 +1,8 @@
 ---
 name: pr-graph
-description: Split a large Git branch into small, independently reviewable changes and manage their multi-parent dependency graph. Create clean blocked draft PRs, add or reshape nodes, sync after prerequisites land, and explicitly ready or merge eligible changes. Supports local Git, GitHub, GitHub Enterprise Server, and Azure DevOps. Use when the user invokes /pr-graph or asks to split work into dependent PRs, manage a PR tree or DAG, or land independent parts of a change.
+description: Split a large Git branch into small, independently reviewable changes and manage their multi-parent dependency graph. Create clean blocked draft PRs, advise on redundant dependencies and unnecessary sequencing, add or reshape nodes, sync after prerequisites land, and explicitly ready or merge eligible changes. Supports local Git, GitHub, GitHub Enterprise Server, and Azure DevOps. Use when the user invokes /pr-graph or asks to split work into dependent PRs, simplify a PR DAG's dependencies, manage a PR tree or DAG, or land independent parts of a change.
 compatibility: Requires Node.js 22+ and Git 2.31+. Hosted workflows require authenticated gh or az. Scripts are portable across Linux, macOS, and Windows; no package installation or build step.
-argument-hint: "[--auto | --yolo] [split | view | select | history | interdiff | operation-diff | export-history | import-history | publication-policy | add | absorb | sync | ready | merge | reshape | backup | restore] [repository, graph, or constraints]"
+argument-hint: "[--auto | --yolo] [split | view | dependencies | select | history | interdiff | operation-diff | export-history | import-history | publication-policy | add | absorb | sync | ready | merge | reshape | backup | restore] [repository, graph, or constraints]"
 ---
 
 # Pull Request Graph
@@ -212,7 +212,7 @@ ordinary graph execution or makes historical observations current.
 
 Before **any graph or change inspection or mutation**, explicitly establish
 each node's branch, integration-snapshot, and validation freshness. This includes `analyze`,
-`status`, `view`, `history`, `interdiff`, `operation-diff`, `check`, `doctor`, planning, applying, continuing, and recovery.
+`status`, `view`, `dependencies`, `history`, `interdiff`, `operation-diff`, `check`, `doctor`, planning, applying, continuing, and recovery.
 Only the minimal reads needed to identify the repository, applicable safety
 instructions, graph branches, remotes, upstreams, worktree occupancy, and pending
 operations may precede this gate. `help` does not inspect a repository.
@@ -412,6 +412,21 @@ report its origin and gaps, and choose explicit version IDs for `--to`.
 Imported `current` is unavailable and imported validation commands never run.
 
 ## 2. Analyze and design the DAG
+
+For an existing graph, read [dependency advice](references/dependency-advice.md)
+when asked to simplify edges or find unnecessary sequencing:
+
+```text
+node "<skill-directory>/scripts/pr-graph.mjs" dependencies --repo "<repo>" --graph "<id>"
+```
+
+Separate proven transitive redundancy (with alternate paths) from unassessed
+semantic sequencing candidates. Inspect owned patches, prerequisites, consumers
+and explicit edge intent; show exact affected IDs and closure/eligibility effects.
+Missing evidence means uncertainty, not independence. Do not run probes during
+read-only advice or remove edges automatically. Accepted changes use only
+exact-approved `deps` plans, normal reconstruction, full-tree preservation and
+required validation; publication/readiness remain separate.
 
 For an existing branch, resolve and inspect its full committed diff:
 

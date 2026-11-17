@@ -15,6 +15,15 @@ landing are separate facts. A draft can be eligible. A published draft can be
 blocked. An eligible node may still fail checks. Nothing is merged merely
 because it is eligible.
 
+Read-only [`dependencies` diagnostics](dependency-advice.md) distinguish
+reachability-redundant direct edges from unassessed semantic sequencing
+candidates. They show alternate paths and independent removal effects on exact
+node closures and eligibility. Explicit edges can preserve intent even when
+redundant; path overlap or disjointness cannot prove independence. Keep missing
+semantic evidence uncertain. Accepted edits require existing exact-approved
+`deps` reconstruction, full-tree preservation and validation, never automatic
+transitive reduction or executable probes during inspection.
+
 Integration freshness is another independent fact. Each realized node records
 `integration: { target, sha, verifiedAt }`; the graph records the verification
 used for its authored snapshot too. With `--fetch-observation`, `verifiedAt` is

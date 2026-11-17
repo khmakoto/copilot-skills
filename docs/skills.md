@@ -25,8 +25,8 @@ the exact contents.
 
 ## `ci-triage`
 
-The skill investigates failures in GitHub or Azure DevOps PR checks, workflow
-runs, build runs and local build or test commands. Before investigating a
+The skill investigates failures in GitHub or Azure DevOps pull request checks,
+workflow runs, build runs and local build or test commands. Before investigating a
 failure, it records the tested revision, run attempt, job or matrix entry and
 relevant configuration.
 
@@ -67,20 +67,21 @@ publishing anything. Implementation requires a separate instruction.
 ## `pr-description`
 
 The skill drafts or updates a GitHub or Azure DevOps pull request description.
-It uses the current published diff, the repository's PR template when one applies,
-and verified validation evidence. It supports GitHub Enterprise Server and legacy
+It uses the current published diff and the repository's pull request template
+when one applies. It includes verified validation evidence. It supports GitHub
+Enterprise Server and legacy
 Azure DevOps URLs through each provider's tools.
 
 The skill preserves references, attachments, managed graph footers and diagram
 blocks. It leaves human-maintained content outside the requested scope
-unchanged. It separates validation evidence for the current PR head from
-historical results. It also reports pending, failed, or unavailable checks.
+unchanged. It separates validation evidence for the current pull request head
+from historical results. It also reports pending, failed, or unavailable checks.
 
-The user can edit the complete body and must approve its exact content before
+The user may edit the complete body and must approve its exact content before
 publication. The skill checks for intervening changes before publishing.
 It reads back the saved description to verify it. Draft-only mode makes no remote
-changes.
-Neither mode changes code, review threads, graph state, or other PR metadata.
+changes. Neither mode changes code, review threads, graph state, or other pull
+request metadata.
 
 ```text
 /pr-description <pull-request-url> [draft-only] [scope or constraints]
@@ -112,8 +113,8 @@ it runs focused checks for UI interactions, wrappers and adapters, design
 systems, reactive state, service contracts and package boundaries.
 
 The skill presents one finding at a time. Keeping a local finding does not change
-the worktree. Remote review comments can include suggestion blocks that the
-reviewer can apply. The user can edit each comment and must approve its exact
+the worktree. Remote review comments may include suggestion blocks for the
+reviewer to apply. The user may edit each comment and must approve its exact
 text before the skill posts it.
 
 ```text
@@ -139,12 +140,23 @@ treating each file as one review unit.
 The skill splits existing branches and manages changes as a multi-parent
 dependency graph in local Git, GitHub, GitHub Enterprise Server, or Azure DevOps.
 
+The read-only `dependencies` command reports redundant edges with alternate
+paths. It lists unassessed sequencing candidates separately, not as findings
+of unnecessary sequencing. For each hypothetical edge removal, it shows exact
+affected nodes and changes to prerequisite closures and dependency eligibility.
+The agent reviews owned patches, consumers and edge intent before proposing a
+change. If evidence is missing, it reports the gap rather than recommending
+removal. The command runs no checks or reconstruction. The helper applies
+accepted advice only through approved `deps` plans that preserve the complete
+combined tree and run required validation. See
+[dependency advice](pr-graph.md#simplify-dependencies-and-review-sequencing).
+
 The read-only `operation-diff` command reports graph and node changes for a
 retained operation. It includes lineage, validation and readiness evidence.
-It separates planned effects, interrupted candidate states and attempted remote
-writes from verified publication. It reports missing evidence rather than
-inferring success. Neither JSON nor text output authorizes undo, renews
-freshness or proves that a merge is safe.
+It distinguishes verified publication from planned effects, interrupted
+candidate states and attempted remote writes. It reports missing evidence
+rather than inferring success. Its output does not authorize undo, renew
+freshness or prove that a merge is safe.
 
 All published nodes start as drafts. Blocked drafts use helper integration
 bases to show only their own changes. A node becomes eligible for review after
@@ -153,10 +165,10 @@ every prerequisite lands. Mutations require approval of the exact plan.
 permissions cover recovery, requested follow-up allocation, requested removal
 of retired metadata, and backup effects the user previously authorized.
 
-The agent may also abort verified publication attempts while retaining refs,
-or adopt requested landings without source rewrites. It may repeat unchanged
-setup only when receipts prove successful execution and explicit approval in
-the same task and invocation.
+The agent may also abort verified publication attempts and retain their refs.
+It may adopt requested landings without source rewrites. It may repeat unchanged
+setup only when receipts prove both successful execution and explicit approval
+in the same task and invocation.
 
 In ordinary auto mode, history transfers require separate permission for the
 current invocation. The user must still approve merges and deletion of source,
@@ -174,11 +186,12 @@ secrets or protect against external tools. See the
 
 Explicit `--yolo` lets the agent approve every pr-graph action that needs human
 approval for this task and invocation. This includes merging, deletion,
-PR closure, recovery, new setup and fixes, restore, graph import, checkpoint,
-exclusion release and history transfer. It can irreversibly delete resources,
-execute setup scripts or disclose unpublished or discarded source and metadata.
+pull request closure, recovery, new setup and fixes, restore, graph import,
+checkpoint, exclusion release and history transfer. It can irreversibly delete
+resources, execute setup scripts or disclose unpublished or discarded source
+and metadata.
 
-The agent first checks the task and verified context to establish the exact source,
+The agent uses the task and verified context to establish the exact source,
 destination, access permissions and limits on retained data. The operation
 stops if intent or destinations are missing or ambiguous, or if remote effects
 remain unresolved. Plans, digests, freshness, validation, hooks and provider
@@ -189,7 +202,7 @@ with this task and invocation and does not apply to other skills. Ordinary
 [examples](pr-graph.md#yolo-mode).
 
 ```text
-/pr-graph [--auto | --yolo] [split | view | select | history | interdiff | operation-diff | export-history | import-history | publication-policy | add | absorb | sync | retarget | ready | merge | describe | reshape | adopt | import-graph | checkpoint | remove-retired | backup | restore]
+/pr-graph [--auto | --yolo] [split | view | dependencies | select | history | interdiff | operation-diff | export-history | import-history | publication-policy | add | absorb | sync | retarget | ready | merge | describe | reshape | adopt | import-graph | checkpoint | remove-retired | backup | restore]
 ```
 
 The helper requires Node.js 22+ and Git 2.31+. Hosted operations also require
@@ -199,13 +212,13 @@ reconstruction, the helper can reuse verified sequences of previously
 composed changes when their exact inputs and known execution context match.
 Reuse does not carry over validation or freshness evidence.
 
-The helper can batch live-provider reads within a check. It never caches them
+The helper batches live-provider reads within a check. It never caches them
 across checks. Selecting nodes does not skip graph-wide drift checks or readback
 after writes.
 
-See [example requests](pr-graph.md#example-requests) for tasks you can ask the
-skill to perform. The [`pr-graph` guide](pr-graph.md) covers detailed usage,
-requirements, validation and safety boundaries.
+See [example requests](pr-graph.md#example-requests) for sample invocations.
+The [`pr-graph` guide](pr-graph.md) covers usage, requirements, validation and
+approval requirements.
 
 ## `session-distill`
 
