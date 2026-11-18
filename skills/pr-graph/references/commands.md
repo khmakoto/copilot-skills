@@ -12,6 +12,8 @@ Read the relevant action reference before preparing a plan:
   in-scope human gates, including disclosure bounds; no helper flag or check bypass.
 - [Change specifications and shape commands](change-specs.md): complete graph
   specs, splitting, adding, dependencies, folding, removal, and follow-up allocation.
+- [Dependency advice](dependency-advice.md): read-only redundant-edge diagnostics,
+  unassessed sequencing candidates and agent-guided exact-approved dependency edits.
 - [Lifecycle commands](lifecycle-commands.md): publication, sync, retargeting,
   readiness, merging, descriptions, and landing receipts.
 - [Backup and recovery commands](recovery-commands.md): checkpoint, adoption, local graph import,
@@ -28,6 +30,7 @@ node "<helper>" help
 node "<helper>" analyze --repo "<repo>" --base "<integration-ref>" --head "<source>"
 node "<helper>" status --repo "<repo>" --graph feature
 node "<helper>" view --repo "<repo>" --graph feature
+node "<helper>" dependencies --repo "<repo>" --graph feature
 node "<helper>" check --repo "<repo>" --graph feature
 node "<helper>" select --repo "<repo>" --graph feature --select "dependents:model"
 node "<helper>" absorb --repo "<repo>" --graph feature --base "<old-combined>" --head "<follow-up>"
@@ -64,6 +67,24 @@ approval receipts, never uploads or reconstructs source, and cannot be silently
 substituted by shape specs. Policy and outbound payload scope are part of plans;
 apply/continue reject drift. Exclusion release requires human approval unless
 the skill's explicit YOLO authorization covers the reviewed release and disclosure.
+
+### Dependency diagnostics and advice
+
+`dependencies --graph <id>` emits read-only JSON with `redundantEdges` (each with
+an alternate path), `sequencingCandidates` marked `unassessed`, `excludedEdges`
+for inactive endpoints, and retained per-node patch/consumer/check evidence.
+Each edge's independent hypothetical removal lists affected IDs and before/after
+closures and recorded-receipt eligibility. The graph digest is evidence, not
+an approval digest. It does not contact providers, check object availability,
+reconstruct, run checks, write refs/state or renew freshness. The normal skill
+preflight still applies.
+
+Retain explicit-intent edges unless removal is accepted. Same-file edits,
+cross-file edits, clean application and passing checks do not prove semantic
+independence. Missing evidence stays uncertain. The agent reviews source and
+contracts and proposes exact dependencies; only existing approved `deps` plans
+can apply accepted advice. See the [complete workflow](dependency-advice.md),
+including multi-edge effects and separately authorized reconstruction/checks.
 
 ### Graph-relative node selection
 

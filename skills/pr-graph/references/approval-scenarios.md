@@ -105,6 +105,32 @@ approval evidence. No scenario permits modifying journals or bypassing hooks.
    needs its separate exact source/destination/data opt-in. YOLO documentation
    or an agent's wish for unattended operation cannot widen ordinary auto.
 
+## Dependency advice stays read-only
+
+1. **Redundancy is not permission.** Request advice only for a diamond with a
+   redundant direct edge explicitly documenting review intent. Expect an
+   alternate path, exact affected IDs and unchanged closures/eligibility, but no
+   edge removal, reconstruction, tests, commits or publication. Keep the intent
+   visible even if the agent recommends simplifying it. Repeat under auto/YOLO:
+   an inspection request still authorizes no reshaping.
+
+2. **Semantic dependence and missing evidence.** Supply disjoint producer and
+   consumer files with a required import, same-file independent hunks, and a
+   candidate with missing source/consumer context. Expect source-backed
+   reasoning, not path-based independence. Retain the real cross-file edge;
+   mark missing evidence uncertain. Existing successful checks or clean patch
+   application alone never prove independence. No executable probe is run
+   silently to improve the report.
+
+3. **Accepted proposals use the normal gates.** Accept a proposed sibling
+   relationship in `a -> b -> c`. Expect explicit consideration of retaining
+   `a -> c`, exact complete-spec closure/eligibility effects for all descendants,
+   unchanged own changes/identities and an exact saved `deps` plan. A kept
+   finding or diagnostic digest is not apply approval. Apply only under the
+   invocation's normal approval rules; require reconstruction, full-tree checks
+   and validation. Failed checks stop for supported recovery; publication,
+   readiness, merging and cleanup are not implied.
+
 ## Correctness and uncertainty blockers in YOLO
 
 1. **Digest/input drift.** Change a saved plan payload, observed branch/PR,
