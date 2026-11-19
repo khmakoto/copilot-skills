@@ -156,6 +156,15 @@ ADO, verify their actual supported upload mechanism; do not assume GitHub's
 attachment behavior applies. If a compatible media-upload skill is available,
 follow it without making that skill a portability requirement.
 
+Before declaring diagram uploads blocked, distinguish unsupported image formats,
+client transport limitations, and missing authentication. When the CLI cannot
+transmit the required binary image, check for an already-installed, approved
+browser—including a host browser in WSL environments—before installing another.
+Verify authentication in the exact automation context; a separate browser's
+sign-in is not evidence. Use only a supported, authorized attachment workflow,
+without extracting credentials, and retain the existing image and description
+verification requirements.
+
 The bundled helper does not render Mermaid or upload attachments. These are
 mandatory agent steps around its approved PR operations. Do not fabricate a
 helper command, add a rendering dependency to the product repository, or use
