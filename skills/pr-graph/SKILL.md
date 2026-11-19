@@ -1,8 +1,8 @@
 ---
 name: pr-graph
-description: Split a large Git branch into small, independently reviewable changes and manage their multi-parent dependency graph. Create clean blocked draft PRs, advise on redundant dependencies and unnecessary sequencing, add or reshape nodes, sync after prerequisites land, and explicitly ready or merge eligible changes. Supports local Git, GitHub, GitHub Enterprise Server, and Azure DevOps. Use when the user invokes /pr-graph or asks to split work into dependent PRs, simplify a PR DAG's dependencies, manage a PR tree or DAG, or land independent parts of a change.
+description: Split a large Git branch into small, independently reviewable changes and manage their multi-parent dependency graph. Create clean blocked draft PRs, advise on dependencies, add or reshape nodes, rerun configured checks without reconstruction, sync after prerequisites land, and explicitly ready or merge eligible changes. Supports local Git, GitHub, GitHub Enterprise Server, and Azure DevOps. Use when the user invokes /pr-graph or asks to split work into dependent PRs, simplify or validate a PR DAG, manage a PR tree or DAG, or land independent parts of a change.
 compatibility: Requires Node.js 22+ and Git 2.31+. Hosted workflows require authenticated gh or az. Scripts are portable across Linux, macOS, and Windows; no package installation or build step.
-argument-hint: "[--auto | --yolo] [split | view | dependencies | select | history | interdiff | operation-diff | export-history | import-history | publication-policy | add | absorb | sync | ready | merge | reshape | backup | restore] [repository, graph, or constraints]"
+argument-hint: "[--auto | --yolo] [split | view | dependencies | select | validate | history | interdiff | operation-diff | export-history | import-history | publication-policy | add | absorb | sync | ready | merge | reshape | backup | restore] [repository, graph, or constraints]"
 ---
 
 # Pull Request Graph
@@ -66,8 +66,8 @@ For graph-relative requests, preview the exact IDs with helper `select --graph
 <id> --select <selector>`. The fixed vocabulary is `node:<id>`,
 `dependents:<id>` (root included), `eligible`, and `unpublished`; inactive nodes
 are excluded. Follow the [selection contract](references/commands.md#graph-relative-node-selection).
-Only selective publication accepts `plan publish --select`; never forward
-selectors to other actions or silently publish missing prerequisites.
+Only selective publication and standalone validation accept `--select` on plans;
+never forward selectors to other actions or silently publish missing prerequisites.
 Review the resolved IDs, prerequisite/helper-base requirements, validation and
 backup effects in the exact plan. Apply/continue retain its pinned IDs and
 observations; drift requires a new plan. Dependency eligibility is not
@@ -518,6 +518,31 @@ it never reuses a batch across checks or treats multiple pages as an atomic
 snapshot. Even selective publication observes all recorded graph PRs and refs.
 Full descriptions, post-write readback, freshness and recovery gates remain
 required; see [provider observation boundaries](references/providers.md#live-observation-query-boundaries).
+
+## Standalone validation
+
+For a request to run configured checks without changing the graph's source,
+read the [validation contract](references/validation.md). Prepare `plan validate
+--graph <id> --select <selector>` and obtain exact-plan approval before execution.
+This is not read-only inspection. Preview and review exact selected IDs, existing
+realized heads, explicit-argv commands, no-check reasons and blocked inputs.
+
+The helper always reruns configured checks, even previously successful ones,
+serially in separate owned worktrees for each node. It reports clean command
+failures together; dirty output skips that node's remaining checks while other
+nodes can run. Identity/input drift and uncertain execution stop for recovery.
+Report executed checks, retained same-operation receipts, no-check rationales,
+stale/unavailable inputs and skipped checks separately. Passing checks alone do
+not establish dependency eligibility or permission to ready/merge.
+
+Do not reconstruct nodes, refresh integration snapshots, install dependencies,
+replay setup, fix failed checks, stage/commit output, publish, ready or merge as
+an implicit validation prerequisite, including under auto/YOLO. If inputs need
+sync or configuration, report the blocker and obtain separate task scope and
+approval. A validation-only request is not a request to make failing checks pass.
+Preserve all diagnostic output; abort and clean-worktree cleanup have their own
+exact plans and normal approval gates. Never retry a command with an uncertain
+outcome. Repository commands are not sandboxed; review their effects before approval.
 
 ## 4. Publish and manage review
 

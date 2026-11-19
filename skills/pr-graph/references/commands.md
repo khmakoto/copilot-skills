@@ -16,6 +16,8 @@ Read the relevant action reference before preparing a plan:
   unassessed sequencing candidates and agent-guided exact-approved dependency edits.
 - [Lifecycle commands](lifecycle-commands.md): publication, sync, retargeting,
   readiness, merging, descriptions, and landing receipts.
+- [Standalone validation](validation.md): separately approved checks at existing
+  pinned heads, aggregate results, local evidence updates and retained output.
 - [Backup and recovery commands](recovery-commands.md): checkpoint, adoption, local graph import,
   backup/restore, interrupted operations, and cleanup.
 - [Approved setup replay](setup-replay.md): agent-side approval receipts and
@@ -33,6 +35,7 @@ node "<helper>" view --repo "<repo>" --graph feature
 node "<helper>" dependencies --repo "<repo>" --graph feature
 node "<helper>" check --repo "<repo>" --graph feature
 node "<helper>" select --repo "<repo>" --graph feature --select "dependents:model"
+node "<helper>" plan validate --repo "<repo>" --graph feature --select "dependents:model" --out "<new-plan.json>"
 node "<helper>" absorb --repo "<repo>" --graph feature --base "<old-combined>" --head "<follow-up>"
 node "<helper>" plan absorb --repo "<repo>" --graph feature --spec "<spec.json>" --out "<new-plan.json>"
 node "<helper>" plan remove-retired --repo "<repo>" --graph feature --node staging --out "<plan.json>"
@@ -112,7 +115,9 @@ Eligibility is dependency eligibility only, not passing validation, readiness,
 current integration/branch identity, or provider-policy success. Preview uses
 recorded landing receipts, not an implicit reconciliation of external merges.
 
-Only `plan publish --select <selector>` currently accepts selectors for mutation.
+`plan publish --select <selector>` and `plan validate --select <selector>` accept
+selectors for approved execution. Validation uses existing realized heads and
+configured checks, never publication or reconstruction; see [validation](validation.md).
 All other actions reject them, including sync, ready, merge, shape changes, and
 recovery. Do not combine `--select` with `--nodes`, `--node`, or `--spec`.
 This is a fixed vocabulary, not an expression language: no unions, shell

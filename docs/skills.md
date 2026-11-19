@@ -69,8 +69,7 @@ publishing anything. Implementation requires a separate instruction.
 The skill drafts or updates a GitHub or Azure DevOps pull request description.
 It uses the current published diff and the repository's pull request template
 when one applies. It includes verified validation evidence. It supports GitHub
-Enterprise Server and legacy
-Azure DevOps URLs through each provider's tools.
+Enterprise Server and legacy Azure DevOps URLs through each provider's tools.
 
 The skill preserves references, attachments, managed graph footers and diagram
 blocks. It leaves human-maintained content outside the requested scope
@@ -141,9 +140,10 @@ The skill splits existing branches and manages changes as a multi-parent
 dependency graph in local Git, GitHub, GitHub Enterprise Server, or Azure DevOps.
 
 The read-only `dependencies` command reports redundant edges with alternate
-paths. It lists unassessed sequencing candidates separately, not as findings
-of unnecessary sequencing. For each hypothetical edge removal, it shows exact
-affected nodes and changes to prerequisite closures and dependency eligibility.
+paths. It lists sequencing candidates that the agent has not assessed. These
+candidates are not findings of unnecessary sequencing. For each hypothetical
+edge removal, it shows the affected nodes and changes to prerequisite closures
+and dependency eligibility.
 The agent reviews owned patches, consumers and edge intent before proposing a
 change. If evidence is missing, it reports the gap rather than recommending
 removal. The command runs no checks or reconstruction. The helper applies
@@ -158,6 +158,14 @@ candidate states and attempted remote writes. It reports missing evidence
 rather than inferring success. Its output does not authorize undo, renew
 freshness or prove that a merge is safe.
 
+The helper reruns configured checks at existing pinned heads through a separately
+approved `plan validate --select <selector>` plan. It does not reconstruct or
+publish nodes. It runs checks in a separate worktree for each node and collects
+their results. It distinguishes no-check reasons from stale or unavailable
+inputs. It preserves source checkouts, refs and pull requests. Failed checks
+do not authorize fixes or setup. See
+[standalone validation](pr-graph.md#standalone-validation).
+
 All published nodes start as drafts. Blocked drafts use helper integration
 bases to show only their own changes. A node becomes eligible for review after
 every prerequisite lands. Mutations require approval of the exact plan.
@@ -166,8 +174,8 @@ permissions cover recovery, requested follow-up allocation, requested removal
 of retired metadata, and backup effects the user previously authorized.
 
 The agent may also abort verified publication attempts and retain their refs.
-It may adopt requested landings without source rewrites. It may repeat unchanged
-setup only when receipts prove both successful execution and explicit approval
+It may adopt requested landings without source rewrites. Repeating unchanged
+setup requires receipts that prove successful execution and explicit approval
 in the same task and invocation.
 
 In ordinary auto mode, history transfers require separate permission for the
@@ -202,7 +210,7 @@ with this task and invocation and does not apply to other skills. Ordinary
 [examples](pr-graph.md#yolo-mode).
 
 ```text
-/pr-graph [--auto | --yolo] [split | view | dependencies | select | history | interdiff | operation-diff | export-history | import-history | publication-policy | add | absorb | sync | retarget | ready | merge | describe | reshape | adopt | import-graph | checkpoint | remove-retired | backup | restore]
+/pr-graph [--auto | --yolo] [split | view | dependencies | select | validate | history | interdiff | operation-diff | export-history | import-history | publication-policy | add | absorb | sync | retarget | ready | merge | describe | reshape | adopt | import-graph | checkpoint | remove-retired | backup | restore]
 ```
 
 The helper requires Node.js 22+ and Git 2.31+. Hosted operations also require
@@ -216,9 +224,8 @@ The helper batches live-provider reads within a check. It never caches them
 across checks. Selecting nodes does not skip graph-wide drift checks or readback
 after writes.
 
-See [example requests](pr-graph.md#example-requests) for sample invocations.
-The [`pr-graph` guide](pr-graph.md) covers usage, requirements, validation and
-approval requirements.
+See the [`pr-graph` guide](pr-graph.md) for requirements, validation and approval
+rules, and [example requests](pr-graph.md#example-requests) for invocations.
 
 ## `session-distill`
 
@@ -252,7 +259,7 @@ stays deferred.
 ## `unslop`
 
 The skill edits selected writing using Cursor's upstream `unslop` rules. The
-installed skill is a local wrapper that fetches the complete instructions from
+installed skill is a local wrapper. It fetches the complete instructions from
 `https://raw.githubusercontent.com/cursor/plugins/main/pstack/skills/unslop/SKILL.md`
 on every explicit invocation, not during installation.
 

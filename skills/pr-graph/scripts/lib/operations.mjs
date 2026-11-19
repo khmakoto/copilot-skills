@@ -18,6 +18,7 @@ import { createHistoryTransferPlan, applyHistoryTransferPlan } from "./history-a
 import { nodeDetails, step } from "./progress.mjs";
 import { readPullRequests } from "./observations.mjs";
 import { planAbsorb, verifyAbsorb } from "./absorb.mjs";
+import { createValidationPlan, applyValidationPlan, validationRecoveryPlan, applyValidationRecovery } from "./validation.mjs";
 import {
   loadPolicy, effectivePolicy, createPolicyPlan, applyPolicyPlan, outboundScope,
   assertOutbound, checkOutbound, mergePolicies,
@@ -28,7 +29,7 @@ const FORWARD_TARGET = new Set(["retarget", "describe"]);
 const ACTIONS = new Set([...SHAPE, "publish", "sync", "retarget", "ready", "merge", "backup",
   "fetch-backup", "restore", "resolve", "abort", "cleanup", "describe", "reconcile", "unlock",
   "record-landing", "adopt", "checkpoint", "remove-retired", "import-graph", "export-history", "import-history",
-  "publication-policy"]);
+  "publication-policy", "validate"]);
 
 const now = (ctx) => ctx.now?.() ?? Date.now();
 
@@ -137,6 +138,13 @@ function observe(ctx, graph, provider, discover = false) {
       prs,
     };
   });
+}
+
+function validationIO(ctx) {
+  return {
+    observe: (graph) => observe(ctx, graph, getProvider(ctx, graph), true),
+    freshness: (graph, facts) => freshnessReport(ctx, graph, facts),
+  };
 }
 
 function normalizeSpec(ctx, spec, previous) {
@@ -486,9 +494,9 @@ export function createPlan(ctx, action, options = {}) {
 
 function preparePlan(ctx, action, options = {}) {
   requireValue(ACTIONS.has(action), `Unknown action: ${action}`);
-  requireValue(options.selector === undefined || (action === "publish" &&
+  requireValue(options.selector === undefined || (["publish", "validate"].includes(action) &&
     options.publishNodes === undefined && options.node === undefined && options.spec === undefined),
-  "Selectors support only publish; do not combine with --nodes, --node, or --spec.");
+  "Selectors support only publish or validate; do not combine with --nodes, --node, or --spec.");
   requireValue(options.publishNodes === undefined || (action === "publish" &&
     !options.node && Array.isArray(options.publishNodes) && options.publishNodes.length > 0 &&
     options.publishNodes.every((id) => typeof id === "string" && /^[a-z0-9][a-z0-9-]*$/.test(id)) &&
@@ -511,6 +519,7 @@ function preparePlan(ctx, action, options = {}) {
         /^[A-Za-z0-9-]+: [^\r\n\0]+$/.test(line)),
     "Commit trailers require reconstruction and a nonempty array of single-line Key: value strings.");
   }
+  if (action === "validate") return createValidationPlan(ctx, options, validationIO(ctx));
   if (["export-history", "import-history"].includes(action)) {
     return createHistoryTransferPlan(ctx, action, options);
   }
@@ -1453,6 +1462,7 @@ export function applyPlan(ctx, plan, approval, yes) {
       }
     }
     if (plan.action === "publication-policy") return applyPolicyPlan(ctx, plan);
+    if (plan.action === "validate") return applyValidationPlan(ctx, plan, validationIO(ctx));
     if (["export-history", "import-history"].includes(plan.action)) return applyHistoryTransferPlan(ctx, plan);
     if (plan.action === "import-graph") return step("Importing approved local DAG snapshot", () => applyImportPlan(ctx, plan));
     if (plan.action === "adopt") return step("Recovering approved external graph identities", () => applyAdoptionPlan(ctx, plan));
@@ -1760,6 +1770,7 @@ function recoveryPlan(ctx, action, options) {
   requireValue(journal.id === options.operation, "Operation journal identity mismatch.");
   requireValue(!journal.worktreeReusedBy,
     `Operation worktree was transferred to ${journal.worktreeReusedBy}; recover or clean its latest owner instead.`);
+  if (journal.plan.action === "validate") return seal(validationRecoveryPlan(ctx, action, options, journal));
   const graph = state.load(ctx, journal.plan.graph?.id ?? options.graph, true);
   const cwd = worktreePath(ctx, journal);
   if (action === "reconcile") {
@@ -1872,6 +1883,10 @@ function recoveryPlan(ctx, action, options) {
 function applyRecovery(ctx, plan) {
   const journal = state.readJson(state.journalFile(ctx, plan.operation));
   requireValue(digest(journal) === plan.journalDigest, "Operation changed after recovery approval.");
+  if (journal.plan.action === "validate") {
+    requireValue(plan.validationRecovery, "Validation recovery requires its own exact plan.");
+    return applyValidationRecovery(ctx, plan, journal);
+  }
   const cwd = worktreePath(ctx, journal);
   if (plan.action === "reconcile") {
     const candidate = structuredClone(journal.candidate ?? journal.plan.graph);
@@ -2083,7 +2098,11 @@ export function inspect(ctx, id) {
     eligible: graph?.nodes.filter((n) => eligible(graph, n)).map((n) => n.id) ?? [],
     operations: state.journals(ctx, (j) => j.plan.graph?.id === id ? ({
       id: j.id, status: j.status, error: j.error, pending: j.pendingChange,
-      worktree: worktreePath(ctx, j),
+      ...(j.plan.action === "validate" ? {
+        worktrees: j.validationResults.filter((r) => r.worktree).map((r) => r.worktree),
+        validationResults: j.validationResults, pendingValidation: j.pendingValidation ?? null,
+        pendingValidationWorktree: j.pendingValidationWorktree ?? null,
+      } : { worktree: worktreePath(ctx, j) }),
       ...(j.reconstruction ? { reconstruction: j.reconstruction } : {}),
       ...(j.resolutionReceipts ? { resolutionReceipts: j.resolutionReceipts.length } : {}),
       ...(j.worktreeReusedBy ? { worktreeReusedBy: j.worktreeReusedBy } : {}),
