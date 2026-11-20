@@ -528,7 +528,12 @@ This is not read-only inspection. Preview and review exact selected IDs, existin
 realized heads, explicit-argv commands, no-check reasons and blocked inputs.
 
 The helper always reruns configured checks, even previously successful ones,
-serially in separate owned worktrees for each node. It reports clean command
+serially in separate owned worktrees for each node by default. For an explicitly
+requested warm environment, review `--validation-environment <json>` under the
+validation contract: exact cache/input identity, worker/cache-byte budgets and
+latest-owner transfers. Reuse only supported build artifacts, never test success
+or setup authority; report checkout/artifact reuse separately from fresh checks.
+Clean mode allocates fresh bounded workers with no retained artifacts. It reports clean command
 failures together; dirty output skips that node's remaining checks while other
 nodes can run. Identity/input drift and uncertain execution stop for recovery.
 Report executed checks, retained same-operation receipts, no-check rationales,

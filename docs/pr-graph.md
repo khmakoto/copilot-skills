@@ -123,18 +123,31 @@ its exact digest and apply it. The plan records the selected node identifiers,
 existing realized heads and exact executable and argument arrays. The fixed
 selectors also include `node:<id>`, `eligible` and `unpublished`. They exclude
 landed and retired nodes. Validation executes repository code. It is not
-read-only inspection. Auto mode lets the agent approve an in-scope plan.
+read-only inspection. Auto mode lets the agent approve a plan within the task's scope.
 A validation-only request does not authorize setup, fixes, sync or publication
 in either auto or YOLO mode.
 
 The helper reruns all configured checks, even previously successful checks.
-It runs them serially in a separate owned worktree for each node.
+It runs them serially in a separate owned worktree for each node by default.
+An explicitly approved `--validation-environment <json>` policy can manage one
+to four owned validation workers. The policy identifies ignored cache directories
+and pins environment, toolchain and configuration inputs. It sets a cache-byte
+budget for each worker. Compatible nearby revisions reuse worktrees and build
+artifacts. The helper still reruns checks and does not replay setup.
+
+Reuse across runs requires an exact ownership transfer from the worker's latest
+owner. Failures or contaminated output prevent further reuse of that worker.
+Execution remains serial. If the worker budget is exhausted, the helper reports
+remaining nodes as unavailable. It does not add workers or clean output.
+Clean mode starts each node in a fresh worker without inherited artifacts.
+See the validation contract for the policy schema and metrics.
+
 If a command fails without changing its worktree, the helper runs the remaining
 checks. If a command changes tracked files or creates untracked files, the
 helper retains those files and skips that node's remaining checks. Other nodes
-run in separate worktrees. Unknown execution outcomes or changes to identities
-or inputs stop the operation. Validation accepts current snapshots and the
-existing verified-forward freshness grace for `main` and `master`. It never
+run in separate healthy workers. Unknown execution outcomes or changes to
+identities or inputs stop the operation. Validation accepts current snapshots
+and the existing verified-forward freshness grace for `main` and `master`. It never
 renews that grace or refreshes integration snapshots.
 
 Results distinguish newly executed checks, retained receipts from the same
@@ -172,8 +185,8 @@ The report considers each edge removal on its own. Review multiple proposed
 edits together. The report excludes edges with retired or landed endpoints
 from advice but retains those nodes as context.
 
-The agent reviews pinned own patches, producers, consumers, tests and explicit
-edge intent before proposing a change. Edits in the same file need not conflict.
+The agent reviews pinned own patches, producers, consumers, tests and the reason
+for each edge before proposing a change. Edits in the same file need not conflict.
 Edits in different files need not be independent. Clean application or passing
 checks alone do not prove independence. A redundant edge may still document
 intent. If evidence is missing, the agent reports the gap rather than
@@ -394,8 +407,8 @@ then approve and apply its exact digest. For example:
 Exclusions follow stable node identifiers through absorb, split, and fold. They
 retain old objects and metadata after retirement. Before publication, the helper
 checks all objects reachable from product and helper refs, along with hosted
-metadata.
-This includes ancestors whose content no longer appears in the tip tree.
+metadata. These checks include ancestors whose content no longer appears in the
+tip tree.
 The helper also blocks enabled whole-graph backups and history exports that
 contain excluded evidence. It does not disable them to permit publication.
 It allows unrelated publication only after every outgoing ref and metadata
@@ -707,8 +720,8 @@ pull request, landing, remote product branch, or dependents. The previous manife
 stays in the operation journal. The helper preserves Git refs, commits, files,
 indexes, worktrees, and existing validation and readiness evidence. It does not
 reconstruct source, publish, or upload a backup. The user must approve removal
-unless auto mode covers their explicit request to remove that specific metadata. The agent
-does not remove metadata on its own. Use `continue` with the original digest
+unless auto mode covers their explicit request to remove that specific metadata.
+The agent does not remove metadata on its own. Use `continue` with the original digest
 after an interrupted metadata write.
 
 ## Pull request diagrams

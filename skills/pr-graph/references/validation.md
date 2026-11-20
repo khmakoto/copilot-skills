@@ -37,7 +37,7 @@ renewal, target movement, reconciliation, setup or dependency installation occur
 Current snapshots and the existing strictly-less-than-three-hour verified-forward
 main/master grace are accepted. Expiring grace stops execution; it is not extended.
 
-Execution is serial, using one newly owned detached worktree per selected node
+By default execution is serial, using one newly owned detached worktree per selected node
 with executable checks. Each starts at that node's exact realized head, including
 its already-realized prerequisites. Commands execute in order with explicit argv,
 without a shell. Existing successful graph validation is **always rerun**; it is
@@ -55,6 +55,78 @@ and ambiguous spawn/recording outcomes stop the operation. Repository commands
 are **not sandboxed**: arbitrary checks can access shared refs, configuration,
 network and files outside their working directory. Approval must review these
 effects; isolation is checkout separation, not a security guarantee.
+
+## Explicit managed validation environments
+
+For incremental builds, add `--validation-environment "<policy.json>"` only to
+`plan validate`. This is a separately reviewed part of the exact approval payload,
+not persisted graph configuration or permission to install/replay setup. Example:
+
+```json
+{
+  "mode": "warm",
+  "identity": "project-toolchain-and-cache-contract-v1",
+  "maxWorkers": 2,
+  "maxCacheBytes": 1073741824,
+  "inputPaths": ["package-lock.json", "build.config.json"],
+  "caches": [".build", ".dependency-cache"],
+  "reuse": []
+}
+```
+
+Use only ignored, untracked, relative directories containing regular files;
+no traversal, `.git`, symlinks, overlapping directories or tracked input overlap.
+Identify the complete relevant dependency/configuration input closure in
+`inputPaths` and the supported build-cache semantics in `identity`. Approval must
+establish that the build tool invalidates artifacts when source inputs change;
+this is not a general purity detector or cached test-success mechanism. Unknown
+cache semantics require default fresh worktrees or `clean` mode, not guessed reuse.
+Commands in managed mode must name absolute installed executable paths. The
+helper fingerprints their bytes, exact commands, the declared tracked input
+trees (including root `.gitignore`; include relevant nested ignore/config files),
+environment, Git configuration, hooks and local/global
+ignore files. It stores only opaque fingerprints of environment/configuration.
+Changing these inputs prevents reuse; changes after approval block apply.
+Missing executables do not authorize setup. Cache presence is not an approved
+setup receipt and never causes the helper to replay setup or install dependencies.
+
+Execution remains **serial (concurrency 1)**. A run owns at most `maxWorkers`
+(1..4) retained workers, with at most `maxCacheBytes` of allowed cache files per
+worker. These are cache-byte limits checked at observed boundaries, not OS quotas
+or command memory/time limits. Dependency-first ordering keeps nearby pinned
+revisions together; the most recently allocated compatible healthy worker is
+preferred. Different command/configuration keys need separate workers. When the
+budget is exhausted, remaining nodes are `unavailable`, with no checks or implicit
+cleanup/new workers. Dirty output, unknown ignored files, oversized caches and
+failed checks quarantine their worker; another approved slot isolates later nodes.
+Every configured check still runs, including when the checkout/head or build
+artifacts are reused. The helper never reuses another operation's test results.
+
+To retain a warm worker across runs, explicitly select its latest local owner:
+`"reuse": [{ "operation": "<completed-operation-digest>", "worker": 0 }]`.
+The plan pins the source journal, detached worktree identity/head and cache file
+content manifest. Only compatible, healthy workers from completed or safely
+aborted local validation operations may transfer. Each transfer records ownership
+in both journals before checkout or execution. The former owner cannot reuse or
+clean the transferred worker. Changed bytes, dirty output, uncertain commands,
+failed checkout hooks or ownership drift block reuse. No automatic cache clearing,
+eviction, source-worktree pooling or user-output deletion occurs.
+
+`"mode": "clean"` requires an empty `reuse` list. It starts every node in a fresh
+worker with no inherited artifacts; only declared cache directories may hold new
+ignored build output. Declare enough worker slots or select a smaller scope.
+Fresh output is retained for diagnosis, never reused in clean mode.
+The default mode still preserves the original
+per-node behavior, including retained ignored diagnostic/build output.
+
+Managed per-node `environment` evidence distinguishes `worktreeReused`,
+`artifactsReused`, `setupReplayed: false` and `resultsReused: false`, and records
+`checkoutMs`, `cacheBytes` and `cacheFiles`. Check timestamps/output retain command
+timings and tool-reported setup/build/check metrics. `validation.workers` (also
+`validationWorkers` in status operations) reports final worker heads, content snapshots,
+quarantine and transfer ownership; historical per-node heads need not equal a
+shared worker's final head. Compare cold/warm command process counts and actual
+cache bytes alongside timings; a cache hit alone is not a demonstrated speedup.
 
 ## Results and current evidence
 
@@ -105,5 +177,8 @@ effects. Cleanup requires a completed or aborted operation, a separate exact
 `{ "branches": [], "worktree": true }`, and unchanged clean owned worktrees.
 It removes only those validation worktrees, never forces dirty/ignored-output deletion
 or removes product refs/PRs. Dirty output requires explicit user handling first.
-No worker pooling, general result cache, content transformations, regression
-search, automatic fixes or concurrency is included in this operation.
+Managed workers are deduplicated during cleanup and must be cleaned by their
+latest owner. Approved artifacts remain ignored output: cleanup never forces their
+deletion. Explicit user handling may remove output first, followed by a fresh
+cleanup plan. No general result cache, content transformations, regression search,
+automatic fixes or parallel command execution is included.
