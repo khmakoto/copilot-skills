@@ -6,10 +6,14 @@ import * as git from "./git.mjs";
 import * as state from "./state.mjs";
 import { loadPolicy } from "./publication.mjs";
 import { nodeDetails, step } from "./progress.mjs";
+import { planWorkers, fingerprint, prepareWorker, inspectWorker } from "./validation-workers.mjs";
 
 const now = (ctx) => ctx.now?.() ?? Date.now();
 const save = (ctx, journal) => state.atomicJson(state.journalFile(ctx, journal.id), journal);
 const worktreeId = (operation, node) => digest({ operation, validationNode: node });
+const retainedWorktrees = (journal) => journal.validationWorkers ?
+  journal.validationWorkers.map((worker, index) => ({ worker: index, worktree: worker.path })) :
+  journal.validationResults.filter((result) => result.worktree);
 
 function noPending(ctx, operation) {
   const pending = state.journals(ctx, ({ id, status }) => ({ id, status }))
@@ -61,13 +65,18 @@ export function createValidationPlan(ctx, options, io) {
   const selection = selectNodes(graph, options.selector, facts);
   requireValue(selection.nodes.length, "Selector resolved to no active nodes; preview exclusions and choose a new selection.");
   const freshness = io.freshness(graph, facts);
+  const validationInputs = inputs(ctx, graph, selection, facts, freshness);
+  const validationEnvironment = options.validationEnvironment === undefined ? undefined :
+    planWorkers(ctx, options.validationEnvironment, validationInputs, graph);
   return {
     version: VERSION, action: "validate", repository: ctx.root, common: ctx.common,
     graph, previousDigest: digest(graph), run: randomUUID(), facts, freshness,
-    validationSelection: selection, validationInputs: inputs(ctx, graph, selection, facts, freshness),
+    validationSelection: selection, validationInputs,
+    ...(validationEnvironment ? { validationEnvironment } : {}),
     effects: [
       "Rerun the exact configured commands serially at each selected pinned realized head, even if prior validation succeeded; do not reconstruct nodes.",
-      "Create one owned detached operation worktree per node with checks. Retain all worktrees, outputs and command receipts; cleanup requires a separate approved plan.",
+      validationEnvironment ? "Use only the exact approved managed worker/cache policy and ownership transfers. Execute serially within worker and cache-byte budgets; quarantine contamination and retain output. Never reuse test success or replay setup. Clean mode never reuses workers or artifacts."
+        : "Create one owned detached operation worktree per node with checks. Retain all worktrees, outputs and command receipts; cleanup requires a separate approved plan.",
       "Aggregate clean command failures. Dirty output skips remaining checks for that node, not unrelated nodes. Unsafe identity changes or uncertain execution stop for explicit recovery without retrying commands.",
       "Update only local validation evidence after rechecking pinned graph, refs, PRs, policy, objects and integration freshness. Clear selected unsuccessful validation receipts; preserve readiness intent.",
       "The helper does not change source checkout/index, product/helper refs, PRs or integration snapshots, install dependencies, replay setup, publish, upload backups, promote readiness or merge. Repository commands are not sandboxed; review their effects explicitly.",
@@ -88,10 +97,16 @@ function verifyInputs(ctx, plan, io) {
   const freshness = io.freshness(plan.graph, facts);
   requireValue(digest(inputs(ctx, plan.graph, plan.validationSelection, facts, freshness)) === digest(plan.validationInputs),
     "Validation inputs or integration freshness changed; create a fresh plan.");
+  if (plan.validationEnvironment) for (const input of plan.validationInputs) {
+    const key = plan.validationEnvironment.keys[input.id];
+    if (key) requireValue(fingerprint(ctx, plan.validationEnvironment.config, input) === key,
+      "Validation environment/toolchain/cache inputs changed; create a fresh plan.");
+  }
   return freshness;
 }
 
-function inspectWorktree(ctx, journal, result) {
+function inspectWorktree(ctx, journal, result, record = false) {
+  if (journal.plan.validationEnvironment) return inspectWorker(ctx, journal, result, record);
   const expected = path.join(ctx.dir, "trees", worktreeId(journal.id, result.id));
   requireValue(result.worktree === expected, "Unexpected validation worktree path.");
   const info = git.operationWorktreeInfo(ctx, expected);
@@ -106,7 +121,8 @@ function report(journal, executed = new Set(), alreadyDone = false) {
     if (check.source === "executed" && !executed.has(`${result.id}:${check.index}`)) check.source = "retained-operation";
   }
   return { graph: journal.candidate, operation: journal.id, ...(alreadyDone ? { alreadyDone: true } : {}),
-    validation: { success: results.every((r) => ["passed", "no-check"].includes(r.status)), results },
+    validation: { success: results.every((r) => ["passed", "no-check"].includes(r.status)), results,
+      ...(journal.validationWorkers ? { workers: structuredClone(journal.validationWorkers), concurrency: 1 } : {}) },
     cleanup: "Worktrees and output retained; cleanup requires its own approved plan." };
 }
 
@@ -161,7 +177,14 @@ export function applyValidationPlan(ctx, plan, io) {
       }
       const node = plan.graph.nodes.find((n) => n.id === result.id);
       const details = nodeDetails(plan.graph, node);
-      if (!result.worktree) {
+      if (plan.validationEnvironment) {
+        if (!prepareWorker(ctx, journal, result)) {
+          result.status = "unavailable";
+          result.reason = "Approved worker budget exhausted; retain existing output and approve a new bounded run.";
+          save(ctx, journal);
+          continue;
+        }
+      } else if (!result.worktree) {
         const id = worktreeId(journal.id, result.id);
         const dir = path.join(ctx.dir, "trees", id);
         requireValue(!fs.existsSync(dir), "Unexpected existing validation worktree; preserve it and inspect explicitly.");
@@ -205,7 +228,7 @@ export function applyValidationPlan(ctx, plan, io) {
         check.status = check.signal ? "uncertain" : check.exitCode === null ? "unavailable" : check.exitCode === 0 ? "passed" : "failed";
         save(ctx, journal);
         requireValue(!check.signal, "Validation was terminated by a signal; inspect and explicitly abort without retrying.");
-        const after = inspectWorktree(ctx, journal, result);
+        const after = inspectWorktree(ctx, journal, result, true);
         verifyInputs(ctx, plan, io);
         check.dirty = after.dirty;
         if (after.dirty) {
@@ -221,10 +244,17 @@ export function applyValidationPlan(ctx, plan, io) {
         if (after.dirty) break;
       }
       if (result.status === "pending") result.status = result.checks.every((c) => c.status === "passed") ? "passed" : "failed";
+      if (plan.validationEnvironment && result.status !== "passed") journal.validationWorkers[result.worker].quarantined = true;
       save(ctx, journal);
     }
     const freshness = verifyInputs(ctx, plan, io);
+    if (plan.validationEnvironment) for (const result of retainedWorktrees(journal)) inspectWorktree(ctx, journal, result);
     for (const result of journal.validationResults.filter((r) => r.status === "passed")) {
+      if (plan.validationEnvironment && journal.validationWorkers[result.worker].snapshot.dirty) {
+        result.status = "dirty";
+        result.reason = "Shared worker was subsequently contaminated; no current validation receipt retained.";
+        continue;
+      }
       requireValue(!inspectWorktree(ctx, journal, result).dirty,
         "A previously successful validation worktree changed; preserve evidence and abort before replanning.");
     }
@@ -271,8 +301,11 @@ export function validationRecoveryPlan(ctx, action, options, journal) {
   requireValue(options.spec?.worktree === true && Array.isArray(options.spec.branches) && !options.spec.branches.length &&
     Object.keys(options.spec).every((key) => ["branches", "worktree"].includes(key)),
   "Validation cleanup requires only branches: [] and worktree: true; no branch or PR cleanup.");
-  const worktrees = journal.validationResults.filter((r) => r.worktree && fs.existsSync(r.worktree)).map((r) => {
-    const { info, dirty } = inspectWorktree(ctx, journal, r);
+  requireValue(!journal.validationWorkers?.some((worker) => worker.transferredTo),
+    "Validation workers transferred to another operation; clean their latest owner instead.");
+  const worktrees = retainedWorktrees(journal).filter((r, index, all) => fs.existsSync(r.worktree) &&
+    all.findIndex((item) => item.worktree === r.worktree) === index).map((r) => {
+    const { info, dirty } = inspectWorktree(ctx, journal, r, "cleanup");
     requireValue(!dirty && !git.out(r.worktree, ["status", "--porcelain", "--untracked-files=all", "--ignored"]),
       `Validation output remains dirty: ${r.worktree}; preserve and handle it explicitly before cleanup.`);
     return info;
@@ -286,12 +319,12 @@ export function applyValidationRecovery(ctx, plan, journal) {
     journal.recoveries ??= [];
     journal.recoveries.push({ operation: plan.approval, action: "abort", recordedAt: now(ctx) });
     save(ctx, journal);
-    return { aborted: journal.id, worktrees: journal.validationResults.filter((r) => r.worktree).map((r) => r.worktree) };
+    return { aborted: journal.id, worktrees: retainedWorktrees(journal).map((r) => r.worktree) };
   }
   for (const expected of plan.worktrees) {
-    const result = journal.validationResults.find((r) => r.worktree === expected.path);
+    const result = retainedWorktrees(journal).find((r) => r.worktree === expected.path);
     requireValue(result, "Unexpected validation cleanup path.");
-    const { info, dirty } = inspectWorktree(ctx, journal, result);
+    const { info, dirty } = inspectWorktree(ctx, journal, result, "cleanup");
     requireValue(digest(info) === digest(expected) && !dirty &&
       !git.out(expected.path, ["status", "--porcelain", "--untracked-files=all", "--ignored"]),
     "Validation cleanup worktree changed after approval.");

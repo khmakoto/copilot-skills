@@ -16,7 +16,8 @@ Read the relevant action reference before preparing a plan:
   unassessed sequencing candidates and agent-guided exact-approved dependency edits.
 - [Lifecycle commands](lifecycle-commands.md): publication, sync, retargeting,
   readiness, merging, descriptions, and landing receipts.
-- [Standalone validation](validation.md): separately approved checks at existing
+- [Standalone validation](validation.md): separately approved checks and optional
+  bounded warm/clean worker policies at existing
   pinned heads, aggregate results, local evidence updates and retained output.
 - [Backup and recovery commands](recovery-commands.md): checkpoint, adoption, local graph import,
   backup/restore, interrupted operations, and cleanup.

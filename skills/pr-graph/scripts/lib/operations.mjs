@@ -494,6 +494,8 @@ export function createPlan(ctx, action, options = {}) {
 
 function preparePlan(ctx, action, options = {}) {
   requireValue(ACTIONS.has(action), `Unknown action: ${action}`);
+  requireValue(options.validationEnvironment === undefined || action === "validate",
+    "Validation environments are supported only for standalone validate plans.");
   requireValue(options.selector === undefined || (["publish", "validate"].includes(action) &&
     options.publishNodes === undefined && options.node === undefined && options.spec === undefined),
   "Selectors support only publish or validate; do not combine with --nodes, --node, or --spec.");
@@ -2099,8 +2101,10 @@ export function inspect(ctx, id) {
     operations: state.journals(ctx, (j) => j.plan.graph?.id === id ? ({
       id: j.id, status: j.status, error: j.error, pending: j.pendingChange,
       ...(j.plan.action === "validate" ? {
-        worktrees: j.validationResults.filter((r) => r.worktree).map((r) => r.worktree),
+        worktrees: j.validationWorkers ? j.validationWorkers.map((worker) => worker.path) :
+          j.validationResults.filter((r) => r.worktree).map((r) => r.worktree),
         validationResults: j.validationResults, pendingValidation: j.pendingValidation ?? null,
+        ...(j.validationWorkers ? { validationWorkers: j.validationWorkers } : {}),
         pendingValidationWorktree: j.pendingValidationWorktree ?? null,
       } : { worktree: worktreePath(ctx, j) }),
       ...(j.reconstruction ? { reconstruction: j.reconstruction } : {}),

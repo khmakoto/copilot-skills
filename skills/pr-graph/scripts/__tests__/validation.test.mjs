@@ -400,3 +400,286 @@ test("validation CLI supports saved selectors and aggregate failure exit codes, 
     ["apply", "--plan", file, "--select", "node:a"],
   ]) assert.equal(cli(f.root, ...args).status, 1, args.join(" "));
 });
+
+const workerPolicy = (overrides = {}) => ({ mode: "warm", maxWorkers: 2, maxCacheBytes: 1024 * 1024,
+  identity: "fixture-incremental-v1", inputPaths: [], caches: [".build"], reuse: [], ...overrides });
+const managedPlan = (f, policy, selector = "unpublished") => createPlan(f.ctx, "validate", {
+  graph: "example", selector, validationEnvironment: policy,
+});
+function managedFixture(t, names = ["a", "b", "c"]) {
+  const f = fixture({ names });
+  t.after(() => f.dispose());
+  fs.appendFileSync(path.join(f.ctx.common, "info", "exclude"), "\n.build/\nunknown/\n");
+  f.apply("split", { spec: f.spec });
+  return f;
+}
+
+test("bounded warm workers reduce incremental build work, retain approved artifacts and always rerun checks", (t) => {
+  const f = managedFixture(t);
+  const build = command(`
+    const fs = require('node:fs'), crypto = require('node:crypto'), cp = require('node:child_process');
+    const start = performance.now(); fs.mkdirSync('.build', { recursive: true });
+    const setupMs = performance.now() - start, buildStart = performance.now();
+    let processes = 1;
+    for (const part of fs.readFileSync('shared.txt', 'utf8').split(/(?=^[abc]=)/m)) {
+      const key = crypto.createHash('sha256').update(part).digest('hex');
+      if (!fs.existsSync('.build/' + key)) {
+        const artifact = cp.execFileSync(process.execPath, ['-e', 'process.stdout.write(require("node:crypto").createHash("sha256").update(process.argv[1]).digest("hex"))', part]);
+        fs.writeFileSync('.build/' + key, artifact); processes++;
+      }
+    }
+    const buildMs = performance.now() - buildStart, checkStart = performance.now();
+    for (const file of fs.readdirSync('.build')) if (fs.readFileSync('.build/' + file, 'utf8') !== file) process.exit(7);
+    console.log(JSON.stringify({ setupMs, buildMs, checkMs: performance.now() - checkStart, processes, pid: process.pid }));
+  `);
+  configure(f, { a: [build], b: [build], c: [build] });
+  const graph = state.load(f.ctx, "example");
+  git(f.root, "worktree", "add", path.join(f.dir, "occupied-warm-node"), graph.nodes[0].branch);
+  fs.appendFileSync(path.join(f.root, "shared.txt"), "user staged output\n");
+  git(f.root, "add", "shared.txt");
+  fs.appendFileSync(path.join(f.root, "shared.txt"), "user unstaged output\n");
+  fs.writeFileSync(path.join(f.root, "personal.txt"), "user untracked output\n");
+  const original = productState(f);
+  const cold = apply(f, managedPlan(f, workerPolicy({ mode: "clean", maxWorkers: 3 })));
+  assert.equal(cold.validation.success, true);
+  const warmPlan = managedPlan(f, workerPolicy({ maxWorkers: 1 }));
+  const warm = apply(f, warmPlan);
+  assert.equal(warm.validation.success, true);
+  assert.equal(new Set(warm.validation.results.map((r) => r.worktree)).size, 1);
+  const metrics = (result) => result.validation.results.map((r) => JSON.parse(r.checks[0].stdout));
+  const coldMetrics = metrics(cold), warmMetrics = metrics(warm);
+  assert.ok(warmMetrics.reduce((n, m) => n + m.processes, 0) < coldMetrics.reduce((n, m) => n + m.processes, 0));
+  for (const m of [...coldMetrics, ...warmMetrics]) for (const key of ["setupMs", "buildMs", "checkMs", "processes"]) assert.ok(m[key] >= 0);
+  assert.deepEqual(warm.validation.results.map((r) => r.environment.worktreeReused), [false, true, true]);
+  assert.deepEqual(warm.validation.results.map((r) => r.environment.artifactsReused), [false, true, true]);
+  assert.ok(warm.validation.results.every((r) => r.environment.cacheBytes > 0 && r.environment.cacheFiles > 0 &&
+    !r.environment.setupReplayed && !r.environment.resultsReused && r.checks[0].source === "executed"));
+  t.diagnostic(JSON.stringify({ cold: coldMetrics, warm: warmMetrics,
+    disk: warm.validation.results.map((r) => ({ bytes: r.environment.cacheBytes, files: r.environment.cacheFiles })) }));
+  const source = journal(f, warmPlan);
+  const forged = structuredClone(source);
+  forged.plan.action = "split";
+  state.atomicJson(state.journalFile(f.ctx, warmPlan.approval), forged);
+  assert.throws(() => managedPlan(f, workerPolicy({ maxWorkers: 1, reuse: [{ operation: warmPlan.approval, worker: 0 }] })), /unavailable/);
+  state.atomicJson(state.journalFile(f.ctx, warmPlan.approval), source);
+  const reuse = managedPlan(f, workerPolicy({ maxWorkers: 1, reuse: [{ operation: warmPlan.approval, worker: 0 }] }));
+  const rerun = apply(f, reuse);
+  assert.equal(rerun.validation.success, true);
+  assert.ok(rerun.validation.results.every((r) => r.environment.worktreeReused && r.environment.artifactsReused));
+  assert.notEqual(metrics(rerun)[0].pid, warmMetrics[0].pid);
+  assert.throws(() => createPlan(f.ctx, "cleanup", { operation: warmPlan.approval,
+    spec: { branches: [], worktree: true } }), /latest owner/);
+  assert.throws(() => managedPlan(f, workerPolicy({ maxWorkers: 1, reuse: [{ operation: warmPlan.approval, worker: 0 }] })), /transferred/);
+  assert.deepEqual(productState(f), original);
+  assert.equal(fs.readFileSync(path.join(f.root, "personal.txt"), "utf8"), "user untracked output\n");
+});
+
+test("managed workers quarantine failures and tracked, untracked, unknown ignored and oversized output", (t) => {
+  for (const script of ["process.exit(7)", "require('node:fs').appendFileSync('shared.txt', 'dirty')",
+    "require('node:fs').writeFileSync('untracked.txt', 'keep')",
+    "require('node:fs').mkdirSync('unknown'); require('node:fs').writeFileSync('unknown/file', 'keep')",
+    "require('node:fs').mkdirSync('.build'); require('node:fs').writeFileSync('.build/file', 'too big')"]) {
+    const f = managedFixture(t, ["a", "b"]);
+    const check = command(`if (require('node:fs').readFileSync('shared.txt', 'utf8').startsWith('a=1')) { ${script} }`);
+    configure(f, { a: [check], b: [check] });
+    const original = productState(f);
+    const plan = managedPlan(f, workerPolicy({ maxCacheBytes: 2 }));
+    const result = apply(f, plan);
+    assert.ok(["failed", "dirty"].includes(result.validation.results[0].status));
+    assert.equal(result.validation.results[1].status, "passed");
+    assert.notEqual(result.validation.results[0].worktree, result.validation.results[1].worktree);
+    assert.equal(journal(f, plan).validationWorkers[0].quarantined, true);
+    assert.deepEqual(productState(f), original);
+  }
+});
+
+test("clean mode reruns in fresh workers and bounded exhaustion never cleans or expands execution", (t) => {
+  const f = managedFixture(t, ["a", "b"]);
+  configure(f, { a: [command("console.log(process.pid)")], b: [command("console.log(process.pid)")] });
+  const config = workerPolicy({ mode: "clean", caches: [] });
+  const first = apply(f, managedPlan(f, config));
+  const second = apply(f, managedPlan(f, config));
+  assert.ok(first.validation.success && second.validation.success);
+  assert.equal(new Set([...first.validation.results, ...second.validation.results].map((r) => r.worktree)).size, 4);
+  const bounded = apply(f, managedPlan(f, { ...config, maxWorkers: 1 }));
+  assert.deepEqual(bounded.validation.results.map((r) => r.status), ["passed", "unavailable"]);
+  assert.equal(bounded.validation.results[1].checks.length, 0);
+  assert.ok(fs.existsSync(bounded.validation.results[0].worktree));
+});
+
+test("environment, toolchain, cache policy and retained bytes drift invalidate warm reuse", (t) => {
+  const f = managedFixture(t, ["a"]);
+  configure(f, { a: [command("require('node:fs').mkdirSync('.build', { recursive: true }); require('node:fs').writeFileSync('.build/file', 'retained')")] });
+  const config = workerPolicy();
+  const plan = managedPlan(f, config);
+  const first = apply(f, plan);
+  const reuse = { ...config, reuse: [{ operation: plan.approval, worker: 0 }] };
+  for (const changed of [{ identity: "different-toolchain" }, { inputPaths: ["shared.txt"] }, { caches: ["different-cache"] }]) {
+    assert.throws(() => managedPlan(f, { ...reuse, ...changed }), /incompatible/);
+  }
+  const saved = managedPlan(f, reuse);
+  const previous = process.env.PR_GRAPH_WORKER_TEST;
+  process.env.PR_GRAPH_WORKER_TEST = "changed environment";
+  try { assert.throws(() => apply(f, saved), /environment\/toolchain/); }
+  finally {
+    if (previous === undefined) delete process.env.PR_GRAPH_WORKER_TEST;
+    else process.env.PR_GRAPH_WORKER_TEST = previous;
+  }
+  f.apply("abort", { operation: saved.approval });
+  const changedBytes = managedPlan(f, reuse);
+  fs.writeFileSync(path.join(first.validation.results[0].worktree, ".build/file"), "changed bytes");
+  assert.throws(() => apply(f, changedBytes), /changed after approval/);
+  assert.throws(() => apply(f, changedBytes), /changed after approval/);
+  assert.equal(journal(f, changedBytes).validationResults[0].checks.length, 0);
+  f.apply("abort", { operation: changedBytes.approval });
+  assert.throws(() => managedPlan(f, reuse), /output changed/);
+});
+
+test("managed worker cleanup pins current ownership and preserves dirty or ignored artifacts", (t) => {
+  const f = managedFixture(t, ["a", "b"]);
+  configure(f, { a: [command("console.log('checked')")], b: [command("console.log('checked')")] });
+  const plan = managedPlan(f, workerPolicy({ maxWorkers: 1 }));
+  const result = apply(f, plan);
+  const options = { operation: plan.approval, spec: { branches: [], worktree: true } };
+  const cleanup = createPlan(f.ctx, "cleanup", options);
+  assert.equal(cleanup.worktrees.length, 1);
+  const dir = result.validation.results[0].worktree;
+  fs.mkdirSync(path.join(dir, ".build"));
+  fs.writeFileSync(path.join(dir, ".build/file"), "preserve");
+  assert.throws(() => apply(f, cleanup), /changed after approval/);
+  assert.throws(() => createPlan(f.ctx, "cleanup", options), /output remains dirty/);
+  fs.unlinkSync(path.join(dir, ".build/file"));
+  fs.rmdirSync(path.join(dir, ".build"));
+  apply(f, createPlan(f.ctx, "cleanup", options));
+  assert.ok(!fs.existsSync(dir));
+});
+
+test("managed validation cancellation retains an uncertain worker without command retry or reuse", { skip: process.platform === "win32" }, (t) => {
+  const f = managedFixture(t, ["a"]);
+  configure(f, { a: [command("console.log('retained'); process.kill(process.pid, 'SIGTERM')")] });
+  const plan = managedPlan(f, workerPolicy());
+  assert.throws(() => apply(f, plan), /terminated by a signal/);
+  assert.throws(() => apply(f, plan), /uncertain outcome/);
+  f.apply("abort", { operation: plan.approval });
+  assert.throws(() => managedPlan(f, workerPolicy({ reuse: [{ operation: plan.approval, worker: 0 }] })), /uncertain/);
+  assert.match(journal(f, plan).validationResults[0].checks[0].stdout, /retained/);
+  assert.ok(fs.existsSync(journal(f, plan).validationWorkers[0].path));
+});
+
+test("managed cache configuration differences consume separate slots rather than carrying incompatible artifacts", (t) => {
+  const f = managedFixture(t, ["a", "b"]);
+  const check = command("console.log('fresh check')");
+  configure(f, { a: [check], b: [check] });
+  const plan = managedPlan(f, workerPolicy({ maxWorkers: 1, inputPaths: ["shared.txt"] }));
+  assert.notEqual(plan.validationEnvironment.keys.a, plan.validationEnvironment.keys.b);
+  const result = apply(f, plan);
+  assert.deepEqual(result.validation.results.map((r) => r.status), ["passed", "unavailable"]);
+  assert.equal(result.validation.results[1].checks.length, 0);
+});
+
+test("changed executable bytes and ignored-input configuration block managed execution before checks", (t) => {
+  const f = managedFixture(t, ["a"]);
+  const executable = path.join(f.dir, "fixture-executable");
+  fs.writeFileSync(executable, "original executable bytes");
+  configure(f, { a: [{ command: executable, args: [] }] });
+  const plan = managedPlan(f, workerPolicy());
+  fs.appendFileSync(executable, "changed toolchain bytes");
+  assert.throws(() => apply(f, plan), /environment\/toolchain/);
+  assert.equal(journal(f, plan).validationResults[0].checks.length, 0);
+  f.apply("abort", { operation: plan.approval });
+  configure(f, { a: [command("console.log('must not run')")] });
+  const ignore = managedPlan(f, workerPolicy());
+  fs.appendFileSync(path.join(f.ctx.common, "info", "exclude"), "new-ignore-rule\n");
+  assert.throws(() => apply(f, ignore), /environment\/toolchain/);
+  assert.equal(journal(f, ignore).validationResults[0].checks.length, 0);
+});
+
+test("managed continuation retains durable command receipts without rerun after an observation outage", (t) => {
+  const f = managedFixture(t, ["a", "b"]);
+  const check = command("console.log(process.pid)");
+  configure(f, { a: [check], b: [check] });
+  let outage = false, operation;
+  f.ctx.providerFactory = () => ({ kind: "github", find() {
+    const current = operation && state.readJson(state.journalFile(f.ctx, operation), true);
+    if (outage && current?.validationResults[0].status === "passed") throw new Error("Observation outage");
+    return null;
+  } });
+  const plan = managedPlan(f, workerPolicy({ maxWorkers: 1 }));
+  operation = plan.approval;
+  outage = true;
+  assert.throws(() => apply(f, plan), /Observation outage/);
+  const retained = journal(f, plan).validationResults[0].checks[0].stdout;
+  assert.equal(journal(f, plan).pendingValidation, null);
+  outage = false;
+  const result = apply(f, plan);
+  assert.equal(result.validation.success, true);
+  assert.equal(result.validation.results[0].checks[0].stdout, retained);
+  assert.equal(result.validation.results[0].checks[0].source, "retained-operation");
+  assert.equal(result.validation.results[1].checks[0].source, "executed");
+  assert.equal(result.validation.results[1].environment.worktreeReused, true);
+});
+
+test("managed CLI policy is pinned to validate plans, not apply or other actions", (t) => {
+  const f = managedFixture(t, ["a"]);
+  configure(f, { a: [command("console.log('fresh')")] });
+  const policy = path.join(f.dir, "worker-policy.json"), file = path.join(f.dir, "warm-plan.json");
+  state.atomicJson(policy, workerPolicy());
+  const planned = cli(f.root, "plan", "validate", "--graph", "example", "--select", "node:a",
+    "--validation-environment", policy, "--out", file);
+  assert.equal(planned.status, 0, planned.stderr);
+  const plan = JSON.parse(planned.stdout);
+  const altered = structuredClone(plan);
+  altered.validationEnvironment.config.maxCacheBytes++;
+  assert.throws(() => apply(f, altered), /approval/);
+  assert.equal(cli(f.root, "apply", "--plan", file, "--yes", "--approve", plan.approval,
+    "--validation-environment", policy).status, 1);
+  assert.equal(cli(f.root, "plan", "sync", "--graph", "example", "--validation-environment", policy).status, 1);
+  const applied = cli(f.root, "apply", "--plan", file, "--yes", "--approve", plan.approval);
+  assert.equal(applied.status, 0, applied.stderr);
+  assert.equal(JSON.parse(applied.stdout).validation.results[0].checks[0].source, "executed");
+});
+
+test("worktree-specific configuration changes stop validation without authorizing a blind retry", (t) => {
+  const f = managedFixture(t, ["a"]);
+  git(f.root, "config", "extensions.worktreeConfig", "true");
+  configure(f, { a: [command("require('node:child_process').execFileSync('git', ['config', '--worktree', 'validation.changed', 'true']); console.log('configuration changed')")] });
+  const plan = managedPlan(f, workerPolicy());
+  assert.throws(() => apply(f, plan), /worker configuration changed/);
+  assert.match(journal(f, plan).validationResults[0].checks[0].stdout, /configuration changed/);
+  assert.throws(() => apply(f, plan), /uncertain outcome/);
+  f.apply("abort", { operation: plan.approval });
+  assert.ok(fs.existsSync(journal(f, plan).validationWorkers[0].path));
+});
+
+test("managed cache symlinks and tracked cache paths cannot be reused or silently accepted", { skip: process.platform === "win32" }, (t) => {
+  const f = managedFixture(t, ["a"]);
+  configure(f, { a: [command("require('node:fs').mkdirSync('.build'); require('node:fs').symlinkSync('../shared.txt', '.build/link')")] });
+  assert.throws(() => managedPlan(f, workerPolicy({ caches: ["shared.txt"] })), /tracked input/);
+  const plan = managedPlan(f, workerPolicy());
+  assert.throws(() => apply(f, plan), /cache symlinks/);
+  assert.throws(() => apply(f, plan), /uncertain outcome/);
+  f.apply("abort", { operation: plan.approval });
+  assert.ok(fs.lstatSync(path.join(journal(f, plan).validationWorkers[0].path, ".build/link")).isSymbolicLink());
+});
+
+test("cleanup includes claimed workers even when no selected node used their slot", (t) => {
+  const f = managedFixture(t, ["a", "b"]);
+  const check = command("console.log('fresh')");
+  configure(f, { a: [check], b: [check] });
+  const policy = workerPolicy();
+  const a = managedPlan(f, policy, "node:a");
+  const first = apply(f, a);
+  const b = managedPlan(f, policy, "node:b");
+  const second = apply(f, b);
+  const combined = managedPlan(f, { ...policy, reuse: [{ operation: a.approval, worker: 0 },
+    { operation: b.approval, worker: 0 }] }, "node:a");
+  const result = apply(f, combined);
+  assert.equal(result.validation.workers.length, 2);
+  assert.equal(result.validation.results.length, 1);
+  const cleanup = createPlan(f.ctx, "cleanup", { operation: combined.approval,
+    spec: { branches: [], worktree: true } });
+  assert.equal(cleanup.worktrees.length, 2);
+  apply(f, cleanup);
+  assert.ok(!fs.existsSync(first.validation.results[0].worktree));
+  assert.ok(!fs.existsSync(second.validation.results[0].worktree));
+});

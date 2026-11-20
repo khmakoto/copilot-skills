@@ -36,6 +36,7 @@ Prepare a concrete execution/mutation plan:
            record-landing, adopt, checkpoint, remove-retired, import-graph,
            export-history, import-history, publication-policy, validate
   validate --select <selector>  Rerun configured checks at pinned heads; no reconstruction or publication
+  --validation-environment <json>  Explicit bounded warm/clean worker policy for plan validate
   publication-policy --spec <json>  Approved local exclude/release lists and reason; preserves lineage evidence
   export-history|import-history --archive <file>  Separately approved evidence-only local transfer
   import-graph --source-repo <path>  Recover changed DAG shape from another verified local clone
@@ -80,7 +81,7 @@ function args(argv) {
   const known = new Set(["repo", "graph", "spec", "out", "node", "strategy", "remote",
     "backup-ref", "backup-branch", "operation", "body-file", "plan", "approve", "base", "head", "landing",
     "fetch-observation", "commit-trailers-file", "reuse-worktree", "nodes", "source-repo",
-    "from", "to", "format", "select", "archive"]);
+    "from", "to", "format", "select", "archive", "validation-environment"]);
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (!a.startsWith("--")) { positional.push(a); continue; }
@@ -105,6 +106,8 @@ export function main(argv) {
 }
 
 function execute(flags, command, action) {
+  requireValue(flags["validation-environment"] === undefined || (command === "plan" && action === "validate"),
+    "Use --validation-environment only with plan validate.");
   const historical = ["history", "interdiff"].includes(command);
   const operationReport = command === "operation-diff";
   requireValue(flags.archive === undefined || historical ||
@@ -191,6 +194,7 @@ function execute(flags, command, action) {
       sourceRepo: flags["source-repo"],
       publishNodes: flags.nodes === undefined ? undefined : flags.nodes.split(","),
       selector: flags.select,
+      validationEnvironment: flags["validation-environment"] ? state.readJson(path.resolve(flags["validation-environment"])) : undefined,
       landing: flags.landing,
       remote: flags.remote, backupRef: flags["backup-ref"], backupBranch: flags["backup-branch"],
       operation: flags.operation, allowNonAtomic: flags["allow-non-atomic"],

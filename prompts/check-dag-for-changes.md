@@ -35,3 +35,17 @@ Review and save the complete exact plan. It must include amended ownership,
 preserved identities, descendant reconstruction, validations and the expected
 full tree. Apply unambiguous allocations under the skill's YOLO contract
 without another approval prompt.
+
+For checks that do not require reconstruction, use a separately approved
+`plan validate --select <selector>`. Proactively prefer warm workers whenever
+safe, supported reuse is possible. This prompt requests warm worker and artifact
+reuse for necessary validation within this task. Review and approve the exact
+`--validation-environment <json>` policy under the skill's YOLO contract.
+Verify cache semantics and complete input identity, set worker and cache-byte
+limits, and select compatible healthy workers from their latest owners.
+Use fresh workers when reuse cannot be verified or when clean execution is
+requested. Preserve rejected workers and their output; do not bypass pending
+recovery or retry uncertain commands. Always rerun checks. Do not add checks or
+extra validation runs just to warm a cache. Cache presence does not authorize
+setup replay, installation, fixes or cleanup. This worker policy does not apply
+to reconstruction validation.

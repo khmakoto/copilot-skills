@@ -37,6 +37,9 @@ and its references for:
   `publish`, `ready`, `describe`, and standalone `validate` plans, including
   routine validation. A validation-only request authorizes checks and reporting,
   not setup, fixes, reconstruction, sync, publication or readiness changes.
+  Warm worker/cache policies and latest-owner transfers require an explicit
+  in-scope reuse request and the exact validation-environment contract; ordinary
+  validation does not implicitly approve pooling or new retention scope.
   Retargeting still requires the user to choose the intended target.
 - Locally rendered DAG images, uploads through the selected provider's verified
   attachment workflow with repository-appropriate access, and exact managed

@@ -30,7 +30,7 @@ workflow runs, build runs and local build or test commands. Before investigating
 failure, it records the tested revision, run attempt, job or matrix entry and
 relevant configuration.
 
-The skill classifies causes as change-related, pre-existing, test-fixture,
+The skill classifies each cause as change-related, pre-existing, test-fixture,
 infrastructure or environment, flaky, or undetermined. It gives evidence and a
 confidence level for each cause. An unchanged failing file or a successful
 retry alone does not prove that a failure is unrelated or flaky.
@@ -127,8 +127,7 @@ request or a branch in the current local repository. It orders review stops by
 their dependencies and makes no changes.
 
 The walkthrough explains what to review and how the changes depend on each other.
-It splits files with substantial behavior into focused review stops rather than
-treating each file as one review unit.
+It splits files with substantial behavior into separate review stops.
 
 ```text
 /pr-walkthrough <GitHub-or-Azure-DevOps-PR-URL | local-branch-name>
@@ -144,11 +143,11 @@ paths. It lists sequencing candidates that the agent has not assessed. These
 candidates are not findings of unnecessary sequencing. For each hypothetical
 edge removal, it shows the affected nodes and changes to prerequisite closures
 and dependency eligibility.
-The agent reviews owned patches, consumers and edge intent before proposing a
-change. If evidence is missing, it reports the gap rather than recommending
-removal. The command runs no checks or reconstruction. The helper applies
-accepted advice only through approved `deps` plans that preserve the complete
-combined tree and run required validation. See
+The agent reviews owned patches, consumers and the reason for each edge before
+proposing a change. If evidence is missing, it reports the gap instead of
+recommending removal. The command runs no checks or reconstruction.
+The helper applies accepted advice only through approved `deps` plans.
+Those plans preserve the complete combined tree and run required validation. See
 [dependency advice](pr-graph.md#simplify-dependencies-and-review-sequencing).
 
 The read-only `operation-diff` command reports graph and node changes for a
@@ -160,10 +159,13 @@ freshness or prove that a merge is safe.
 
 The helper reruns configured checks at existing pinned heads through a separately
 approved `plan validate --select <selector>` plan. It does not reconstruct or
-publish nodes. It runs checks in a separate worktree for each node and collects
-their results. It distinguishes no-check reasons from stale or unavailable
-inputs. It preserves source checkouts, refs and pull requests. Failed checks
-do not authorize fixes or setup. See
+publish nodes. By default, it runs checks in a separate worktree for each node.
+An explicitly approved environment policy can reuse validation workers and build
+artifacts within worker and cache-byte limits. Clean mode starts each node in a
+fresh worker. Neither mode reuses test results or replays setup. The helper
+collects each check's results. It distinguishes no-check reasons from stale or
+unavailable inputs. It preserves source checkouts, refs and pull requests.
+Failed checks do not authorize fixes or setup. See
 [standalone validation](pr-graph.md#standalone-validation).
 
 All published nodes start as drafts. Blocked drafts use helper integration
@@ -193,7 +195,7 @@ secrets or protect against external tools. See the
 [policy contract](../skills/pr-graph/references/publication-exclusions.md).
 
 Explicit `--yolo` lets the agent approve every pr-graph action that needs human
-approval for this task and invocation. This includes merging, deletion,
+approval for this task and invocation. These actions include merging, deletion,
 pull request closure, recovery, new setup and fixes, restore, graph import,
 checkpoint, exclusion release and history transfer. It can irreversibly delete
 resources, execute setup scripts or disclose unpublished or discarded source
@@ -215,8 +217,8 @@ with this task and invocation and does not apply to other skills. Ordinary
 
 The helper requires Node.js 22+ and Git 2.31+. Hosted operations also require
 authenticated `gh` or `az` for the selected provider. Install the complete skill
-directory. It needs no dependency installation or build step. During
-reconstruction, the helper can reuse verified sequences of previously
+directory. It needs no dependency installation or build step.
+During reconstruction, the helper can reuse verified sequences of previously
 composed changes when their exact inputs and known execution context match.
 Reuse does not carry over validation or freshness evidence.
 
