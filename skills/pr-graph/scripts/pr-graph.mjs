@@ -28,13 +28,14 @@ Read-only:
   interdiff --graph <id> --node <id> --from <version|last-published|last-validated|current>
             [--to <version|current>] [--format json|text]
 
-Prepare a concrete mutation plan:
+Prepare a concrete execution/mutation plan:
   plan <action> --graph <id> [--spec <json>] --out <file>
   Actions: init, split, add, deps, split-node, fold, remove, absorb,
            publish, sync, retarget, ready, merge, describe, backup,
            fetch-backup, restore, resolve, reconcile, abort, cleanup, unlock,
            record-landing, adopt, checkpoint, remove-retired, import-graph,
-           export-history, import-history, publication-policy
+           export-history, import-history, publication-policy, validate
+  validate --select <selector>  Rerun configured checks at pinned heads; no reconstruction or publication
   publication-policy --spec <json>  Approved local exclude/release lists and reason; preserves lineage evidence
   export-history|import-history --archive <file>  Separately approved evidence-only local transfer
   import-graph --source-repo <path>  Recover changed DAG shape from another verified local clone
@@ -45,7 +46,7 @@ Prepare a concrete mutation plan:
   remove-retired --node <id>  Remove retired unpublished node metadata, preserving all Git refs and files
   --node <id>                 Select ready/merge/describe node
   --nodes <id,id>             Publish only selected nodes and their required helper bases
-  --select <selector>         Preview or plan publish: node:<id>, dependents:<id>, eligible, unpublished
+  --select <selector>         Preview or plan publish/validate: node:<id>, dependents:<id>, eligible, unpublished
   --strategy merge|squash|rebase
   --landing <sha>             Verified external local landing to record
   --remote <name>             Backup download/restore remote
@@ -118,9 +119,9 @@ function execute(flags, command, action) {
   requireValue(flags.nodes === undefined || (command === "plan" && action === "publish"),
     "Use --nodes only when planning publish; apply and continue use the approved selection.");
   requireValue(flags.select === undefined || ((command === "select" ||
-    (command === "plan" && action === "publish")) &&
+    (command === "plan" && ["publish", "validate"].includes(action))) &&
     flags.nodes === undefined && flags.node === undefined && flags.spec === undefined),
-  "Use --select only with select or plan publish; do not combine with --nodes, --node, or --spec.");
+  "Use --select only with select or plan publish/validate; do not combine with --nodes, --node, or --spec.");
   requireValue(flags["local-only"] === undefined || (command === "plan" && action === "sync"),
     "Use --local-only only when planning sync; apply and continue use the approved plan's mode.");
   requireValue(flags["landings-only"] === undefined || (command === "plan" && action === "adopt"),
@@ -218,6 +219,10 @@ function execute(flags, command, action) {
     throw new Error(`Unknown command: ${command}. Run help.`);
   }
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+  if (result.validation?.success === false) {
+    process.stderr.write(`${JSON.stringify({ error: "Standalone validation has unsuccessful or unavailable results; inspect the JSON report.", operation: result.operation })}\n`);
+    process.exitCode = 1;
+  }
   return result;
 }
 

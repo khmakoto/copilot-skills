@@ -131,6 +131,26 @@ approval evidence. No scenario permits modifying journals or bypassing hooks.
    and validation. Failed checks stop for supported recovery; publication,
    readiness, merging and cleanup are not implied.
 
+## Standalone validation stays validation-only
+
+1. **Checks need exact approval.** Request checks for a node and its dependents.
+   Expect a saved `validate` plan with exact IDs, realized heads and commands,
+   not execution through `select` or `check`. Interactive execution waits for
+   approval; auto/YOLO still review the exact in-scope plan. Previous successful
+   checks are rerun, not substituted with graph receipts.
+
+2. **Aggregate failures, not repairs.** Return a clean nonzero check, a dirty
+   generated file and an unrelated node that passes. Expect the full result
+   set, retained output, skipped contaminated checks and nonzero overall exit,
+   never a silent fix, setup replay, reconstruction, upload or readiness change.
+   Repeat in auto/YOLO: validation-only intent does not authorize making tests pass.
+
+3. **Stale and uncertain are not green.** Change a pinned head/configuration or
+   let freshness expire. Expect a blocker and a new plan rather than implicit
+   sync or observation renewal. Interrupt an in-flight check: inspect and abort,
+   never blindly retry. A completed plan returns retained receipts; a deliberate
+   rerun needs a new plan. Cleanup remains separate and never discards dirty output.
+
 ## Correctness and uncertainty blockers in YOLO
 
 1. **Digest/input drift.** Change a saved plan payload, observed branch/PR,

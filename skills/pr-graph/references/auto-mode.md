@@ -34,7 +34,9 @@ and its references for:
 - Concrete preflight fetches and safe, expected-old-SHA fast-forwards of
   unoccupied branches.
 - Exact `init`, `split`, `add`, `deps`, `split-node`, `fold`, `sync`, `retarget`,
-  `publish`, `ready`, and `describe` plans, including routine validation.
+  `publish`, `ready`, `describe`, and standalone `validate` plans, including
+  routine validation. A validation-only request authorizes checks and reporting,
+  not setup, fixes, reconstruction, sync, publication or readiness changes.
   Retargeting still requires the user to choose the intended target.
 - Locally rendered DAG images, uploads through the selected provider's verified
   attachment workflow with repository-appropriate access, and exact managed

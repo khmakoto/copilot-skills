@@ -131,6 +131,12 @@ graph. The agent selects concrete checks from actual repository guidance.
 Every node records either those commands or a specific no-check rationale.
 Restoration deliberately clears validation commands and results.
 
+To rerun existing checks without reconstruction or publication, use the
+separately approved [standalone validation operation](validation.md). It pins
+realized heads, aggregates results and isolates each node's output. No-check
+reasons, retained receipts and fresh executions are distinct evidence; failed
+checks never authorize fixes, setup or publication.
+
 No ten-node limit or fixed files/lines target is imposed. Explain review size
 using the target repository's norms and the complexity of the actual change.
 

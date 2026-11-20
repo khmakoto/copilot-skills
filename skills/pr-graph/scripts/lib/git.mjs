@@ -14,8 +14,9 @@ export function run(command, args, cwd, input, env = {}, encoding = "utf8") {
       ...(command === "az" ? { AZURE_EXTENSION_USE_DYNAMIC_INSTALL: "no" } : {}),
     },
   });
-  if (result.error) throw new Error(`Cannot run ${command}: ${result.error.message}. Use an installed executable and explicit argv; shell wrappers are not expanded automatically.`);
-  return { status: result.status ?? 1, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
+  if (result.error) throw new Error(`Cannot run ${command}: ${result.error.message}. Use an installed executable and explicit argv; shell wrappers are not expanded automatically.`, { cause: result.error });
+  return { status: result.status ?? 1, stdout: result.stdout ?? "", stderr: result.stderr ?? "",
+    ...(result.signal ? { signal: result.signal } : {}) };
 }
 
 export function git(cwd, args, input, allowFailure = false) {
