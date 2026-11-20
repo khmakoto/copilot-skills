@@ -63,7 +63,7 @@ test("standalone validation pins multi-parent selection, aggregates check failur
   assert.deepEqual(result.validation.results.map((r) => r.checks.map((c) => c.exitCode)), [[2, 0], [3, 4], [0]]);
   assert.match(result.validation.results[0].checks[0].stderr, /diagnostic/);
   assert.match(result.validation.results[0].checks[1].stdout, /a continued/);
-  assert.equal(result.validation.results[2].checks[0].stdout.trim(), f.text(["a", "b", "c", "d", "e", "f"]).trim());
+  assert.equal(result.validation.results[2].checks[0].stdout.replace(/\r\n/g, "\n").trim(), f.text(["a", "b", "c", "d", "e", "f"]).trim());
   assert.equal(new Set(result.validation.results.map((r) => r.worktree)).size, 3);
   for (const r of result.validation.results) assert.equal(git(r.worktree, "rev-parse", "HEAD"), r.head);
   assert.equal(result.graph.nodes.find((n) => n.id === "a").validation, null);
