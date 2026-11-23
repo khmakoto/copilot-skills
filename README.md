@@ -3,8 +3,8 @@
 [![skills.sh](https://skills.sh/b/khmakoto/copilot-skills)](https://skills.sh/khmakoto/copilot-skills)
 
 Skills and prompt templates for GitHub Copilot CLI. Each skill contains workflow
-instructions, approval rules, and supporting references. The prompts cover branch
-and pull request maintenance.
+instructions, approval rules, and supporting references. The prompts cover progress
+reporting, branch maintenance, and pull request maintenance.
 
 The skills favor:
 
@@ -41,9 +41,12 @@ requirements, and safety boundaries, with extended coverage in the
 
 ## Prompts
 
-The `prompts/` directory contains reusable templates for branch and pull request
-maintenance:
+The `prompts/` directory contains reusable templates for progress reporting,
+branch maintenance, and pull request maintenance:
 
+- [`scheduled-updates.md`](prompts/scheduled-updates.md) requests progress updates
+  every two minutes, covering completed work, current work, and remaining work.
+  Each section uses an ordered list in execution order.
 - [`update-pr-stack.md`](prompts/update-pr-stack.md) refreshes the base branch,
   checks a pull request stack for stale local branches, and updates the stack
   after one pull request changes. Replace `[PR-NUMBER]`, `[updated/merged]`, and

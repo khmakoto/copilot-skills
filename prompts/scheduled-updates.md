@@ -1,0 +1,1 @@
+Give me an update every two minutes. In that update include: What has already been done, what are you currently doing, what is still left to do. Output in each section should come as an ordered list in the order things have been/are going to be done.
