@@ -176,7 +176,9 @@ Maintain one separately bounded block:
 
 ```markdown
 <!-- pr-graph:diagram:begin -->
-![DAG snapshot for graph feature; THIS PR is node c.](<hosted-image-url>)
+
+![DAG snapshot for graph feature; THIS PR is node c.](hosted-image-url)
+
 <!-- pr-graph:diagram:end -->
 ```
 

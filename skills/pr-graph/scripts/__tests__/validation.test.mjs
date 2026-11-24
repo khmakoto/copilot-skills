@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fixture, git, cli } from "./fixtures.mjs";
-import { digest } from "../lib/graph.mjs";
+import { digest, footer, render } from "../lib/graph.mjs";
 import { createPlan, applyPlan, inspect } from "../lib/operations.mjs";
 import * as state from "../lib/state.mjs";
 import { history } from "../lib/history.mjs";
@@ -35,6 +35,155 @@ function productState(f) {
     content: fs.readFileSync(path.join(f.root, "shared.txt"), "utf8"),
   };
 }
+
+test("explicit deferred selective publication invalidates current receipts graph-wide without running checks", (t) => {
+  const f = fixture({ remote: true, names: ["a", "b"] });
+  t.after(() => f.dispose());
+  f.apply("split", { spec: f.spec });
+  configure(f, { a: [command("throw new Error('must not run')")], b: [command("throw new Error('must not run')")] });
+  const before = f.apply("ready", { graph: "example", node: "a" }).graph;
+  assert.equal(before.nodes[0].ready, true);
+  const original = productState(f);
+  const planned = cli(f.root, "plan", "publish", "--graph", "example", "--nodes", "b", "--defer-validation", "--quiet");
+  assert.equal(planned.status, 0, planned.stderr);
+  const plan = JSON.parse(planned.stdout);
+  assert.equal(plan.deferValidation, true);
+  assert.deepEqual(plan.graph.nodes.map((n) => n.validations), before.nodes.map((n) => n.validations));
+  assert.match(plan.effects.join("\n"), /including unselected nodes/);
+  assert.match(plan.outboundScope.find((s) => s.route === "product:b").metadata.join("\n"), /validation pending/);
+  const tampered = structuredClone(plan);
+  delete tampered.deferValidation;
+  assert.throws(() => apply(f, tampered), /approval/);
+  assert.deepEqual(productState(f), original);
+  const result = apply(f, plan);
+  assert.deepEqual(result.graph.nodes.map((n) => n.head), before.nodes.map((n) => n.head));
+  assert.deepEqual(result.graph.integration, before.integration);
+  assert.ok(result.graph.nodes.every((n) => !n.validation && !n.ready));
+  assert.deepEqual(Object.values(result.freshness).map((n) => n.validation), ["pending", "pending"]);
+  assert.match(render(result.graph, result.freshness), /validation: pending/);
+  for (const node of result.graph.nodes) {
+    assert.deepEqual(node.validationPending, { status: "pending", head: node.head,
+      commands: digest(node.validations), operation: plan.approval });
+    assert.match(footer(result.graph, node), /\*\*validation pending\*\*/);
+  }
+  assert.equal(journal(f, plan).validated, undefined);
+  assert.equal(git(f.root, "ls-remote", "upstream", `refs/heads/${before.nodes[0].branch}`), "");
+  assert.match(git(f.root, "ls-remote", "upstream", `refs/heads/${before.nodes[1].branch}`), new RegExp(before.nodes[1].head));
+  assert.equal(apply(f, plan).freshness.b.validation, "pending");
+  assert.throws(() => f.apply("ready", { graph: "example", node: "a" }), /validation is missing or stale/);
+  const interrupted = inspect(f.ctx, "example").operations.find((o) => o.status === "running");
+  f.apply("abort", { operation: interrupted.id });
+});
+
+test("deferred allocation and publication retain failing checks; exact-head validation collects failures and later enables readiness", (t) => {
+  const f = fixture({ remote: true, names: ["a", "b"] });
+  t.after(() => f.dispose());
+  f.spec.nodes[0].validations = [command("console.log('failed'); process.exit(2)"), command("console.log('continued')")];
+  f.spec.nodes[1].validations = [command("console.log('other node')")];
+  const split = f.apply("split", { spec: f.spec, deferValidation: true });
+  assert.equal(git(f.root, "rev-parse", `${split.graph.combined}^{tree}`), git(f.root, "rev-parse", `${f.head}^{tree}`));
+  assert.ok(split.graph.nodes.every((n) => !n.validation));
+  const published = f.apply("publish", { graph: "example", deferValidation: true });
+  const plan = planValidation(f, "eligible");
+  assert.deepEqual(plan.validationInputs.map((n) => n.head), published.graph.nodes.map((n) => n.head));
+  const original = productState(f);
+  const result = apply(f, plan);
+  assert.equal(result.validation.success, false);
+  assert.deepEqual(result.validation.results.map((r) => r.checks.map((c) => c.exitCode)), [[2, 0], [0]]);
+  assert.equal(result.graph.nodes[0].validationPending.status, "failed");
+  assert.match(footer(result.graph, result.graph.nodes[0]), /validation failed/);
+  assert.equal(result.graph.nodes[1].validationPending, undefined);
+  assert.equal(result.graph.nodes[1].ready, false);
+  assert.deepEqual(productState(f), original);
+  assert.throws(() => f.apply("ready", { graph: "example", node: "a" }), /validation is missing or stale/);
+  const interrupted = inspect(f.ctx, "example").operations.find((o) => o.status === "running");
+  f.apply("abort", { operation: interrupted.id });
+  const synced = f.apply("sync", { graph: "example", localOnly: true, deferValidation: true,
+    spec: { id: "example", validations: { a: [command("console.log('fixed configured check')")] } } });
+  assert.ok(synced.graph.nodes.every((n) => n.validationPending.status === "pending"));
+  const passed = apply(f, planValidation(f, "eligible"));
+  assert.equal(passed.validation.success, true);
+  assert.ok(passed.graph.nodes.every((n) => n.validation && !n.validationPending && !n.ready));
+  assert.equal(f.apply("ready", { graph: "example", node: "a" }).graph.nodes[0].ready, true);
+});
+
+test("validation-first remains default and blocks publication before pushes", (t) => {
+  const f = fixture({ remote: true, names: ["a"] });
+  t.after(() => f.dispose());
+  f.apply("split", { spec: f.spec });
+  const graph = configure(f, { a: [command("process.exit(9)")] });
+  graph.nodes[0].validation = null;
+  state.save(f.ctx, graph);
+  const plan = createPlan(f.ctx, "publish", { graph: "example" });
+  assert.equal(plan.deferValidation, undefined);
+  assert.throws(() => apply(f, plan), /Validation failed/);
+  assert.equal(git(f.root, "ls-remote", "upstream", `refs/heads/${graph.nodes[0].branch}`), "");
+  f.apply("abort", { operation: plan.approval });
+  f.apply("publish", { graph: "example", deferValidation: true });
+});
+
+test("subsequent validation rejects changed deferred heads before executing any checks", (t) => {
+  const f = fixture({ names: ["a", "b"] });
+  t.after(() => f.dispose());
+  for (const node of f.spec.nodes) node.validations = [command("throw new Error('must not execute')")];
+  const graph = f.apply("split", { spec: f.spec, deferValidation: true }).graph;
+  const plan = planValidation(f, "eligible");
+  git(f.root, "update-ref", `refs/heads/${graph.nodes[1].branch}`, f.base);
+  assert.throws(() => apply(f, plan), /observations changed/);
+  assert.ok(journal(f, plan).validationResults.every((r) => !r.worktree && !r.checks.length));
+});
+
+for (const unsafe of ["refs", "worktree-head"]) {
+  test(`deferred validation stops later checks on unsafe ${unsafe} changes`, (t) => {
+    const f = fixture({ names: ["a", "b"] });
+    t.after(() => f.dispose());
+    f.spec.nodes[0].validations = [command(`require('node:child_process').execFileSync('git', ${JSON.stringify(unsafe === "refs"
+      ? ["update-ref", "refs/heads/trunk", f.head] : ["checkout", "--detach", f.base])}); console.log('unsafe change')`),
+    command("throw new Error('must not execute next check')")];
+    f.spec.nodes[1].validations = [command("throw new Error('must not execute next node')")];
+    f.apply("split", { spec: f.spec, deferValidation: true });
+    const before = digest(state.load(f.ctx, "example"));
+    const plan = planValidation(f, "eligible");
+    assert.throws(() => apply(f, plan), /observations changed|identity or HEAD changed/);
+    const retained = journal(f, plan);
+    assert.equal(retained.validationResults[0].checks.length, 1);
+    assert.match(retained.validationResults[0].checks[0].stdout, /unsafe change/);
+    assert.equal(retained.validationResults[1].checks.length, 0);
+    assert.ok(retained.pendingValidation);
+    assert.equal(digest(state.load(f.ctx, "example")), before);
+  });
+}
+
+test("deferral cannot omit configuration, bypass ownership or hooks, or be added to readiness/apply", (t) => {
+  const f = fixture({ names: ["a"] });
+  t.after(() => f.dispose());
+  f.apply("split", { spec: f.spec, deferValidation: true });
+  for (const action of ["ready", "merge", "retarget", "validate", "backup"]) {
+    assert.throws(() => createPlan(f.ctx, action, { graph: "example", node: "a", deferValidation: true }), /deferral is supported only/);
+  }
+  assert.notEqual(cli(f.root, "plan", "ready", "--defer-validation").status, 0);
+  assert.notEqual(cli(f.root, "apply", "--defer-validation").status, 0);
+  const graph = state.load(f.ctx, "example");
+  graph.nodes[0].validationReason = null;
+  state.save(f.ctx, graph);
+  const missing = createPlan(f.ctx, "sync", { graph: "example", deferValidation: true });
+  assert.throws(() => apply(f, missing), /Validation configuration required/);
+  f.apply("abort", { operation: missing.approval });
+  graph.nodes[0].validationReason = "No automated checks apply.";
+  state.save(f.ctx, graph);
+  const occupied = path.join(f.dir, "occupied");
+  git(f.root, "worktree", "add", occupied, graph.nodes[0].branch);
+  const unsafe = createPlan(f.ctx, "sync", { graph: "example", deferValidation: true });
+  assert.throws(() => apply(f, unsafe), /checked out/);
+  f.apply("abort", { operation: unsafe.approval });
+  git(f.root, "worktree", "remove", occupied);
+  const hooks = path.join(f.dir, "hooks");
+  fs.mkdirSync(hooks);
+  fs.writeFileSync(path.join(hooks, "post-checkout"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+  git(f.root, "config", "core.hooksPath", hooks);
+  const hooked = createPlan(f.ctx, "sync", { graph: "example", deferValidation: true });
+  assert.throws(() => apply(f, hooked), /hook|failed|Command/i);
+});
 
 test("standalone validation pins multi-parent selection, aggregates check failures, and preserves product state", (t) => {
   const f = fixture({ remote: true });

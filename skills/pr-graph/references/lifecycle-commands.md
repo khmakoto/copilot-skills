@@ -39,6 +39,19 @@ including manual transitions, even when reconstruction changes their head/base.
 Blocked or superseded nodes must be draft. A status change after planning
 invalidates approval; replan rather than overwriting it.
 
+Validation runs before writes by default. Only an explicit validation-last
+request permits `plan publish --defer-validation` or `plan sync --defer-validation`
+(including local-only sync). This flag is pinned in each exact approved plan,
+retains all check definitions, and clears every active unlanded node's validation
+and readiness receipts, including unselected nodes. Publication results and managed
+footers must say **validation pending**; preserved non-draft hosting
+state does not imply readiness. Unselected refs and PRs remain untouched.
+Then separately approve `plan validate` against the exact resulting heads;
+failed or pending validation never grants readiness. Hooks, ownership,
+composition, leases, freshness and provider checks are not deferred. No merge
+permission or freshness extension is implied. See the complete
+[deferral contract](validation.md#explicit-publish-first-validate-last-plans).
+
 `publish --select <selector>` expands the
 [fixed selection vocabulary](commands.md#graph-relative-node-selection) once at
 planning time into `selection.nodes` and the existing exact `publishNodes` list.
@@ -68,7 +81,7 @@ Abort/compensate an interrupted operation under the existing recovery contract
 before replanning when necessary. Explicit `--nodes` behavior is unchanged.
 Selectors add no authorization for readiness, merging, deletion, backup, or recovery.
 
-`sync --local-only` reconstructs on the approved fresh target, runs validation,
+`sync --local-only` reconstructs on the approved fresh target, runs validation by default,
 and persists local branches and graph state without pushing refs or making any
 hosting writes, including draft changes, footers, and backup uploads. It retains
 PR identities and backup configuration; remote publication remains pending.
@@ -82,14 +95,19 @@ the graph `id` and a nonempty `validations` map from active, unlanded node IDs
 to nonempty executable-plus-argv arrays:
 
 ```json
-{"id":"feature","validations":{"model":[{"command":"yarn","args":["test"]}]}}
+{
+  "id": "feature",
+  "validations": { "model": [{ "command": "yarn", "args": ["test"] }] }
+}
 ```
 
 Only named nodes' checks are replaced. Changed checks clear their validation and
-readiness receipts; all checks are pinned in the plan digest and run normally.
+readiness receipts; all checks are pinned in the plan digest and run normally
+unless the exact plan explicitly includes `--defer-validation`.
 This option cannot change dependencies, source ownership, or landed nodes,
 and does not permit omitting validation through an empty check list.
-It can be combined with `--local-only` to defer publication.
+It can be combined with `--local-only` to defer publication. Validation deferral
+is separate and never permits missing check definitions.
 
 `retarget` migrates a fully realized, unlanded graph to another integration
 branch. Its spec contains only `{"id":"feature","target":"main"}`. The new

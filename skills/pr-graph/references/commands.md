@@ -19,6 +19,8 @@ Read the relevant action reference before preparing a plan:
 - [Standalone validation](validation.md): separately approved checks and optional
   bounded warm/clean worker policies at existing
   pinned heads, aggregate results, local evidence updates and retained output.
+  Its [validation-last contract](validation.md#explicit-publish-first-validate-last-plans)
+  documents explicitly requested `--defer-validation` allocation/sync/publish plans.
 - [Backup and recovery commands](recovery-commands.md): checkpoint, adoption, local graph import,
   backup/restore, interrupted operations, and cleanup.
 - [Approved setup replay](setup-replay.md): agent-side approval receipts and
@@ -380,7 +382,9 @@ Each integration report includes `status` (`current`, `grace`, `stale`, or
 `expiresAt`, `observedAt`, `scope`, and `mergeCurrent`. Timestamps are epoch milliseconds.
 Branch reports compare recorded/local/remote heads and distinguish unpublished
 and local-only scope. Validation is independently `current`, `stale`, or
-`missing`; none of these imply dependency eligibility or provider-policy success.
+`missing`, with `pending` for explicitly deferred validation and `failed` after
+unsuccessful validation of deferred nodes. None implies dependency eligibility
+or provider-policy success; pending/failed nodes cannot be made ready.
 
 Only `main`/`master` integration snapshots have a 3-hour grace, measured from
 the start of the last successful fetch for the latest tip, supplied through

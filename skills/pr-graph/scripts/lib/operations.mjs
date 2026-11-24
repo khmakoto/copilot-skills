@@ -25,6 +25,7 @@ import {
 } from "./publication.mjs";
 
 const SHAPE = new Set(["init", "split", "add", "deps", "split-node", "fold", "remove", "absorb"]);
+const DEFER_VALIDATION = new Set([...SHAPE, "sync", "publish"]);
 const FORWARD_TARGET = new Set(["retarget", "describe"]);
 const ACTIONS = new Set([...SHAPE, "publish", "sync", "retarget", "ready", "merge", "backup",
   "fetch-backup", "restore", "resolve", "abort", "cleanup", "describe", "reconcile", "unlock",
@@ -101,8 +102,8 @@ function freshnessReport(ctx, graph, facts) {
             expected: node.head ?? null, local: local ?? null, remote: remote ?? null,
             scope: graph.repository.remote ? remote ? "remote" : "unpublished" : "local-only",
           },
-          validation: !node.validation ? "missing" :
-            node.validation.head === node.head && node.validation.commands === digest(node.validations) ? "current" : "stale",
+          validation: node.validationPending?.status ?? (!node.validation ? "missing" :
+            node.validation.head === node.head && node.validation.commands === digest(node.validations) ? "current" : "stale"),
         }];
       }, nodeDetails(graph, node))));
   });
@@ -494,6 +495,9 @@ export function createPlan(ctx, action, options = {}) {
 
 function preparePlan(ctx, action, options = {}) {
   requireValue(ACTIONS.has(action), `Unknown action: ${action}`);
+  requireValue(options.deferValidation === undefined ||
+    (DEFER_VALIDATION.has(action) && typeof options.deferValidation === "boolean"),
+  "Validation deferral is supported only for allocation, sync, and publish plans and must be boolean.");
   requireValue(options.validationEnvironment === undefined || action === "validate",
     "Validation environments are supported only for standalone validate plans.");
   requireValue(options.selector === undefined || (["publish", "validate"].includes(action) &&
@@ -758,12 +762,20 @@ function preparePlan(ctx, action, options = {}) {
     base: n.dependencies.length ? `${helperBranch(graph, n.id)} until all prerequisites land` : graph.target,
     validations: n.validations, validationReason: n.validationReason,
   }));
+  if (options.deferValidation === true) {
+    for (const node of graph.nodes.filter((n) => !n.landing && !n.retired)) {
+      node.validation = null;
+      node.ready = false;
+      node.validationPending = { status: "pending" };
+    }
+  }
   const reuseWorktree = options.reuseWorktree === undefined ? null :
     planWorktreeReuse(ctx, options.reuseWorktree, graph.id);
   const plan = {
     version: VERSION, action, repository: ctx.root, common: ctx.common,
     graph, previousDigest: previous ? digest(previous) : null, landing,
     ...(localOnly ? { localOnly: true } : {}),
+    ...(options.deferValidation === true ? { deferValidation: true } : {}),
     ...(options.commitTrailers ? { commitTrailers: [...options.commitTrailers] } : {}),
     ...(reuseWorktree ? { reuseWorktree } : {}),
     ...(options.publishNodes ? { publishNodes: [...options.publishNodes].sort() } : {}),
@@ -782,6 +794,10 @@ function preparePlan(ctx, action, options = {}) {
     ].filter((r) => typeof r === "string" && !/^[a-f0-9]{40}$|^[a-f0-9]{64}$/.test(r))
       .map((r) => [r, git.commitId(ctx.root, r)])),
     effects: [
+      ...(options.deferValidation === true ? [
+        "Explicitly defer automated validation for every active unlanded node, retaining all configured commands and no-check reasons. Clear existing validation and readiness receipts, including unselected nodes; publication is validation pending, not review-ready.",
+        "Run hooks, ownership and worktree checks, full-tree composition, leases, freshness and provider checks normally. Validate the exact resulting heads later through a separately approved plan validate; do not extend freshness or authorize merging.",
+      ] : []),
       ...(graph.repository.remote ? [action === "retarget"
         ? `Fetch configured remote ${graph.repository.remote} and verify its integration branch still contains the approved snapshot before writes.`
         : selection
@@ -807,15 +823,18 @@ function preparePlan(ctx, action, options = {}) {
           .map((n) => ({ node: n.id, branch: n.branch, head: n.head })),
         validationNodes: topological(graph).filter((n) => !n.retired && !n.landing).map((n) => n.id),
         otherEffects: [
-          "Whole-graph composition and validation; persist graph metadata and validation receipts.",
+          options.deferValidation === true ? "Whole-graph composition; persist validation pending metadata, not validation receipts."
+            : "Whole-graph composition and validation; persist graph metadata and validation receipts.",
           "Only selected source/helper refs and PRs may be written; prerequisites are not implicitly published.",
           ...(graph.backup.enabled ? ["Upload the enabled whole-graph backup under its separate approval boundary."] : []),
         ],
       }] : []),
       ...(["merge", "ready", "describe", "backup"].includes(action) ? [] :
         [options.publishNodes
-          ? "Verify whole-graph composition and validation in an isolated worktree; update only the selected unoccupied node branches and their helper bases."
-          : "Build/validate candidate own changes and integration bases in an isolated worktree; update only unoccupied graph branches."]),
+          ? `Verify whole-graph composition${options.deferValidation === true ? "; automated validation pending" : " and validation"} in an isolated worktree; update only the selected unoccupied node branches and their helper bases.`
+          : options.deferValidation === true
+            ? "Build candidate own changes and integration bases in an isolated worktree; automated validation pending; update only unoccupied graph branches."
+            : "Build/validate candidate own changes and integration bases in an isolated worktree; update only unoccupied graph branches."]),
       ...plans,
       ...(action === "retarget" ? [
         `Reconstruct every active node and prerequisite base on ${graph.target}@${target}; preserve own-change ownership and existing PR identities.`,
@@ -1049,7 +1068,15 @@ function validateNodes(ctx, graph, journal, cwd) {
     requireValue(node.validations.length || node.validationReason,
       `Validation configuration required for restored node ${node.id}; approve repository-specific checks first.`);
     const details = nodeDetails(graph, node);
-    if (node.validation?.head === node.head && node.validation.commands === digest(node.validations)) {
+    if (journal.plan.deferValidation) {
+      node.validation = null;
+      node.ready = false;
+      node.validationPending = { status: "pending", head: node.head,
+        commands: digest(node.validations), operation: journal.id };
+      step("Automated validation pending (explicitly deferred)", () => {}, details);
+      continue;
+    }
+    if (!node.validationPending && node.validation?.head === node.head && node.validation.commands === digest(node.validations)) {
       step("Reusing current validation (checks not rerun)", () => {}, details);
       continue;
     }
@@ -1063,6 +1090,7 @@ function validateNodes(ctx, graph, journal, cwd) {
         }, { ...details, success: "passed" });
       }
       node.validation = { head: node.head, commands: digest(node.validations), reason: node.validationReason };
+      delete node.validationPending;
       journal.validated ??= {};
       journal.validated[node.id] = node.validation;
       saveJournal(ctx, journal);
@@ -1260,7 +1288,7 @@ function readyChecks(ctx, graph, node, provider, target, action = "merge") {
     (action !== "merge" || graph.targetSha === target) &&
     node.base === graph.targetSha && node.baseBranch === graph.target,
     "Sync onto the current integration branch before ready/merge.");
-  requireValue(node.validation?.head === node.head && node.validation.commands === digest(node.validations),
+  requireValue(!node.validationPending && node.validation?.head === node.head && node.validation.commands === digest(node.validations),
     "Current node validation is missing or stale.");
   requireValue(node.validations.length || node.validationReason, "Approve validation configuration first.");
   if (provider.kind !== "local") {
@@ -1412,6 +1440,9 @@ function graphPins(ctx, graph) {
 
 export function applyPlan(ctx, plan, approval, yes) {
   verifyApproval(plan, approval, yes);
+  requireValue(plan.deferValidation === undefined ||
+    (DEFER_VALIDATION.has(plan.action) && plan.deferValidation === true),
+  "Invalid approved validation deferral.");
   if (plan.selection) {
     requireValue(plan.action === "publish" && plan.selection.evidence?.graph === plan.previousDigest &&
       plan.selection.evidence?.facts === digest(plan.facts) &&

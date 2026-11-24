@@ -25,6 +25,15 @@ context, ask for that missing decision. Delegated approval cannot supply intent.
 
 ## Complete approval matrix
 
+YOLO does not by itself request validation-last ordering. Only a direct task
+request to run automated validation last permits `--defer-validation` on
+applicable exact allocation/sync/publish plans under the
+[deferral contract](validation.md#explicit-publish-first-validate-last-plans).
+Retain all checks and safety gates, invalidate validation/readiness receipts,
+label publication pending, and separately approve validation of the resulting
+exact heads. Pending or failed validation still blocks readiness and merging;
+deferral never extends freshness or carries into another invocation.
+
 In each row, YOLO replaces the human approval with agent approval **only within
 the established task boundary**. Separate plans and operations remain separate;
 this is not permission to fold effects into an unrelated plan.

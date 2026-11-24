@@ -11,9 +11,9 @@ skills require explicit invocation.
 
 ## `brainstorm`
 
-The skill analyzes a local or remote repository. It ranks possible improvements
-to the product, engineering practices, reliability, security, accessibility,
-delivery, and design.
+The skill analyzes a local or remote repository and ranks possible improvements.
+It covers product behavior, engineering practices, reliability, security,
+accessibility, delivery, and design.
 
 The skill presents one suggestion at a time for the user to refine or triage.
 It can prepare a GitHub issue or Azure DevOps work item once the user confirms
@@ -139,14 +139,14 @@ The skill splits existing branches and manages changes as a multi-parent
 dependency graph in local Git, GitHub, GitHub Enterprise Server, or Azure DevOps.
 
 The read-only `dependencies` command reports redundant edges with alternate
-paths. It lists sequencing candidates that the agent has not assessed. These
-candidates are not findings of unnecessary sequencing. For each hypothetical
+paths. It lists sequencing candidates that the agent has not assessed.
+It does not claim that this sequencing is unnecessary. For each hypothetical
 edge removal, it shows the affected nodes and changes to prerequisite closures
 and dependency eligibility.
 The agent reviews owned patches, consumers and the reason for each edge before
 proposing a change. If evidence is missing, it reports the gap instead of
 recommending removal. The command runs no checks or reconstruction.
-The helper applies accepted advice only through approved `deps` plans.
+The helper applies approved dependency changes through `deps` plans.
 Those plans preserve the complete combined tree and run required validation. See
 [dependency advice](pr-graph.md#simplify-dependencies-and-review-sequencing).
 
@@ -160,13 +160,22 @@ freshness or prove that a merge is safe.
 The helper reruns configured checks at existing pinned heads through a separately
 approved `plan validate --select <selector>` plan. It does not reconstruct or
 publish nodes. By default, it runs checks in a separate worktree for each node.
-An explicitly approved environment policy can reuse validation workers and build
+An approved environment policy lets the helper reuse validation workers and build
 artifacts within worker and cache-byte limits. Clean mode starts each node in a
 fresh worker. Neither mode reuses test results or replays setup. The helper
 collects each check's results. It distinguishes no-check reasons from stale or
 unavailable inputs. It preserves source checkouts, refs and pull requests.
 Failed checks do not authorize fixes or setup. See
 [standalone validation](pr-graph.md#standalone-validation).
+
+Validation-first is the default. An explicit request to run validation last
+permits `--defer-validation` in approved allocation, sync or publication plans.
+The helper retains all checks and safety requirements. Results and diagrams say
+**validation pending**. The helper clears validation and readiness receipts for
+all active unlanded nodes. Approve a separate validation plan for the exact
+resulting heads before any readiness operation. Auto mode and YOLO mode do not
+request deferral. See
+[publish-first ordering](pr-graph.md#explicit-publish-first-validate-last-ordering).
 
 All published nodes start as drafts. Blocked drafts use helper integration
 bases to show only their own changes. A node becomes eligible for review after
@@ -186,9 +195,9 @@ refs, or worktrees. Restore, general adoption, graph import, checkpoint, new
 setup, and new conflict fixes also require human approval. The agent pauses
 when outcomes are uncertain. It never bypasses digests or safety checks.
 
-Publication exclusions within a graph keep local-only node lineage, retained
-versions, and metadata out of product refs, helper refs, backups, and history
-exports. The user must separately approve the release of an exclusion, even in
+Publication exclusions prevent the helper from uploading local-only node lineage,
+retained versions, and metadata through product refs, helper refs, backups, and
+history exports. The user must separately approve the release of an exclusion, even in
 ordinary auto mode. In YOLO mode, the agent may approve that separate release
 only within established disclosure limits. These exclusions do not detect
 secrets or protect against external tools. See the
@@ -201,7 +210,7 @@ checkpoint, exclusion release and history transfer. It can irreversibly delete
 resources, execute setup scripts or disclose unpublished or discarded source
 and metadata.
 
-The agent uses the task and verified context to establish the exact source,
+The agent uses the task and verified repository evidence to establish the exact source,
 destination, access permissions and limits on retained data. The operation
 stops if intent or destinations are missing or ambiguous, or if remote effects
 remain unresolved. Plans, digests, freshness, validation, hooks and provider
@@ -222,8 +231,8 @@ During reconstruction, the helper can reuse verified sequences of previously
 composed changes when their exact inputs and known execution context match.
 Reuse does not carry over validation or freshness evidence.
 
-The helper batches live-provider reads within a check. It never caches them
-across checks. Selecting nodes does not skip graph-wide drift checks or readback
+The helper batches reads from the provider within a check. It never caches them
+across checks. Selecting nodes does not skip checks for graph-wide changes or readback
 after writes.
 
 See the [`pr-graph` guide](pr-graph.md) for requirements, validation and approval
@@ -270,7 +279,7 @@ rather than a pinned local copy. If the fetch fails or returns incomplete or
 unexpected content, the skill stops. It does not invent rules, silently use cached
 rules, or send the user's text or repository content upstream.
 
-Upstream rules remain subject to higher-priority instructions and the user's
+The upstream rules remain subject to higher-priority instructions and the user's
 scope and tone constraints. Fetching does not authorize running upstream scripts,
 unrelated edits, commits, or publication.
 

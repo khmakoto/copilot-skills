@@ -1,5 +1,53 @@
 # Standalone graph validation
 
+## Explicit publish-first, validate-last plans
+
+Validation-first remains the default. Only a direct request to run automated
+validation last permits adding `--defer-validation` to a new allocation, sync or
+publish plan. The flag is accepted for `init`, `split`, `add`, `deps`,
+`split-node`, `fold`, `remove`, `absorb`, `sync` and `publish`; it is not a graph
+setting, persistent preference, apply/continue override or readiness/merge option.
+Auto/YOLO approval alone does not request deferral. Review each exact plan under
+the invocation's normal approval contract; changing the flag or commands changes
+the full-payload digest.
+
+```text
+node "<helper>" plan publish --repo "<repo>" --graph feature --defer-validation --out "<publish-plan.json>"
+node "<helper>" apply --repo "<repo>" --plan "<publish-plan.json>" --yes --approve "<publish-digest>"
+node "<helper>" plan validate --repo "<repo>" --graph feature --select "dependents:model" --out "<validation-plan.json>"
+node "<helper>" apply --repo "<repo>" --plan "<validation-plan.json>" --yes --approve "<validation-digest>"
+```
+
+Deferral retains every executable/argv check and explicit no-check reason; missing
+configuration still blocks. Full-tree composition, ownership verification,
+hooks, worktree safety, pinned observations, leases, freshness and provider checks
+run normally. Every active unlanded node loses its validation and readiness
+receipts, even with selective publication; unselected refs and PRs remain untouched.
+The plan exposes `deferValidation: true`; resulting nodes carry
+`validationPending` with exact head, command digest and originating operation.
+Results (`freshness.<id>.validation`), views and managed footers say
+**validation pending**, not successful validation or review readiness. Eligible
+existing hosted PRs may remain non-draft under the normal preservation contract;
+that status does not restore the cleared local readiness receipt.
+
+After the requested allocation/sync/publication steps, prepare a separately
+approved `plan validate` from the resulting graph. Review its exact heads and
+configured checks; choose a selector covering the pending nodes (use `node:<id>`
+or `dependents:<id>` as needed for already-published blocked nodes, not only
+`unpublished` or `eligible`). Changed pinned heads require a new plan, not
+validation of replacement content under the old approval. The ordinary safe
+failure-collection and interruption rules below apply. Successful nodes clear
+`validationPending`; unsuccessful nodes retain a failed marker and no validation
+receipt. Checks never grant readiness: explicitly ready only after successful
+exact-head validation and independent dependency/freshness/provider checks.
+Validation-only operations never update PRs; refresh hosted footers
+and diagrams through separately approved description/publication operations
+(or an explicitly requested ready operation) before claiming current hosted evidence.
+Deferral does not authorize merging, extend main/master grace or
+defer any mandatory safety check.
+
+## Validation-only invocation
+
 `plan validate` runs existing configured checks without reconstruction or
 publication. Running repository code is not read-only inspection: review and
 approve the exact saved plan, including commands and their effects, before apply.

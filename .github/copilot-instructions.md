@@ -156,6 +156,13 @@ Fixture coverage is not live provider certification.
   successful freshness checks, validation, or mutations; report completion only
   after the corresponding checks or readback succeed. Keep presentation details
   in `skills/pr-graph/SKILL.md` and its command reference.
+- Validation-first is the default. Only a direct validation-last request permits
+  exact allocation/sync/publish plans with `--defer-validation`; retain every
+  check definition and all hooks, ownership, composition, lease, freshness and
+  provider gates. Clear active unlanded validation/readiness receipts, label
+  publication pending, and separately approve validation at resulting exact
+  heads. Auto/YOLO alone does not request deferral; pending or failed validation
+  never grants readiness, merge permission or renewed freshness.
 - A node owns an immutable-base delta, not its accumulated branch. Its realized
   base contains each unlanded prerequisite once; helper bases keep blocked draft
   PR diffs limited to the node's own changes. All prerequisites must land in the
