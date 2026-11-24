@@ -259,7 +259,14 @@ export function checkoutClean(cwd, sha) {
 export function commitStaged(cwd, message) {
   requireValue(git(cwd, ["diff", "--cached", "--quiet"], undefined, true).status === 1, "Change produces no delta.");
   const expectedTree = out(cwd, ["write-tree"]);
-  out(cwd, ["commit", "-F", "-"], message);
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "pr-graph-commit-"));
+  try {
+    const file = path.join(temp, "message");
+    fs.writeFileSync(file, message, { mode: 0o600, flag: "wx" });
+    out(cwd, ["commit", "-F", file]);
+  } finally {
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
   const sha = commitId(cwd, "HEAD");
   requireValue(tree(cwd, sha) === expectedTree, "Commit hooks changed the approved tree; inspect and replan.");
   requireValue(!out(cwd, ["status", "--porcelain"]), "Commit hooks left worktree changes; inspect before continuing.");

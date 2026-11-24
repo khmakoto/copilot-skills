@@ -386,6 +386,14 @@ Inspection performs no hosting writes, validation, repair, or freshness renewal;
 the normal preflight still applies. An equal comparison never establishes
 semantic equivalence, current validation, readiness, or merge safety.
 
+Local records can reference shared immutable payloads. Read them through the
+helper, not as standalone journal/graph JSON; preserve the complete `payloads/`
+directory with state backups. Missing/corrupt blocks require explicit repair,
+never silent regeneration or a fallback to candidate evidence. Legacy inline
+records remain readable, but new writes cannot be read by older helpers. See
+[retained state storage](references/state-storage.md). This changes neither
+approval gates nor the self-contained portable history format.
+
 For aggregate sync or reshape inspection, use
 [operation-wide diffs](references/commands.md#operation-wide-diffs) with an exact
 operation digest from status or history. Present graph changes and every node's

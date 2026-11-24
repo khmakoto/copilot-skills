@@ -27,6 +27,8 @@ Read the relevant action reference before preparing a plan:
   unchanged-input checks; no helper installer or new setup authorization.
 - [Portable history archives](history-archives.md): separately approved offline
   evidence export/import, provenance, completeness and retention.
+- [Retained state storage](state-storage.md): shared immutable payloads, durable
+  record publication, corruption diagnostics and legacy-helper compatibility.
 - [Publication exclusions](publication-exclusions.md): persistent local-only
   node/lineage restrictions, exact outbound scope, release approval and limits.
 

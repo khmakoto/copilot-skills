@@ -93,6 +93,12 @@ approval requirements remain unchanged for graph execution.
 
 Version 1 is a single JSON object with `format: "pr-graph-history"`:
 
+Local [shared-payload storage](state-storage.md) does not change this format.
+Exports expand and verify local payload references into self-contained evidence;
+archives never depend on the source's `payloads/` directory. Missing/corrupt local
+payloads block export instead of becoming legacy evidence gaps. Imports remain
+private evidence, never local storage envelopes or executable journal migration.
+
 | Field                       | Contract                                                                                                                                                                                                                                      |
 | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `id`                        | SHA-256 digest of the canonical complete payload excluding `id`.                                                                                                                                                                              |

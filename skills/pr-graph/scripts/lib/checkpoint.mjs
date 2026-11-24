@@ -78,7 +78,7 @@ export function applyCheckpointPlan(ctx, plan) {
     journal.commit = head;
     journal.status = "done";
     journal.error = null;
-    state.atomicJson(file, journal);
+    state.saveJournal(ctx, journal);
     return { branch: plan.branch, commit: head, operation: plan.approval };
   }
   requireValue(branch === plan.originalBranch || (journal && branch === plan.branch),
@@ -92,18 +92,18 @@ export function applyCheckpointPlan(ctx, plan) {
   journal ??= { id: plan.approval, plan, status: "running", local: {}, remote: {}, prs: {},
     commits: {}, pendingChange: null, remoteStarted: false };
   journal.expectedTree = git.out(ctx.root, ["write-tree"]);
-  state.atomicJson(file, journal);
+  state.saveJournal(ctx, journal);
   try {
     if (branch === plan.originalBranch) git.out(ctx.root, ["switch", "-c", plan.branch]);
     journal.commit = git.commitStaged(ctx.root, plan.message);
     journal.status = "done";
     journal.error = null;
-    state.atomicJson(file, journal);
+    state.saveJournal(ctx, journal);
     return { branch: plan.branch, commit: journal.commit, operation: plan.approval,
       warning: "Local preservation checkpoint only; no graph branches or remote refs moved." };
   } catch (error) {
     journal.error = error.message;
-    state.atomicJson(file, journal);
+    state.saveJournal(ctx, journal);
     throw new Error(`${error.message}\nCheckpoint operation: ${plan.approval}. Work preserved; do not reset or stash.`);
   }
 }

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import fs from "node:fs";
+import path from "node:path";
 import childProcess from "node:child_process";
 import { syncBuiltinESMExports } from "node:module";
 import { fixture, git } from "./fixtures.mjs";
@@ -8,26 +8,23 @@ import { tree } from "../lib/git.mjs";
 import { readJson, journalFile } from "../lib/state.mjs";
 import { setProgressSink } from "../lib/progress.mjs";
 
-function measured(t, action) {
+function measured(t, ctx, action) {
   const counts = { subprocesses: 0, checkouts: 0, journalWrites: 0, journalBytes: 0,
     phasesMs: {} };
   const spawn = childProcess.spawnSync;
-  const write = fs.writeFileSync;
+  const previousStorageEvent = ctx.storageEvent;
   const spawnMock = t.mock.method(childProcess, "spawnSync", function(command, args, ...rest) {
     counts.subprocesses++;
     if (command === "git" && args[0] === "checkout") counts.checkouts++;
     return spawn.call(this, command, args, ...rest);
   });
-  const writeMock = t.mock.method(fs, "writeFileSync", function(file, data, ...rest) {
-    if (typeof data === "string" && data.startsWith("{\n") && data.includes('"plan":')) {
-      const value = JSON.parse(data);
-      if (value.id && value.id === value.plan?.approval) {
-        counts.journalWrites++;
-        counts.journalBytes += Buffer.byteLength(data);
-      }
+  ctx.storageEvent = (event) => {
+    previousStorageEvent?.(event);
+    if (event.phase === "file-synced" && path.dirname(event.file) === path.join(ctx.dir, "operations")) {
+      counts.journalWrites++;
+      counts.journalBytes += event.bytes;
     }
-    return write.call(this, file, data, ...rest);
-  });
+  };
   syncBuiltinESMExports();
   setProgressSink((event) => {
     if (event.type === "done") {
@@ -43,7 +40,7 @@ function measured(t, action) {
   } finally {
     setProgressSink(undefined);
     spawnMock.mock.restore();
-    writeMock.mock.restore();
+    ctx.storageEvent = previousStorageEvent;
     syncBuiltinESMExports();
   }
 }
@@ -62,8 +59,8 @@ for (const shape of ["chain", "diamond", "wide"]) {
           : shape === "wide" ? [] : shape === "diamond" ? diamond[node.id] : [];
       }
     }
-    const old = measured(t, () => baseline.apply("split", { spec: baseline.spec }));
-    const next = measured(t, () => optimized.apply("split", { spec: optimized.spec }));
+    const old = measured(t, baseline.ctx, () => baseline.apply("split", { spec: baseline.spec }));
+    const next = measured(t, optimized.ctx, () => optimized.apply("split", { spec: optimized.spec }));
     const before = readJson(journalFile(baseline.ctx, old.result.operation)).reconstruction;
     const after = readJson(journalFile(optimized.ctx, next.result.operation)).reconstruction;
     assert.equal(tree(baseline.root, old.result.graph.combined),

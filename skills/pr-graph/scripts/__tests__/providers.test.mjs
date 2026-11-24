@@ -7,7 +7,7 @@ import { adoProvider } from "../lib/providers/ado.mjs";
 import { resolveProvider } from "../lib/providers/index.mjs";
 import { fixture, git, cli } from "./fixtures.mjs";
 import { createPlan, applyPlan, inspect, previewSelection } from "../lib/operations.mjs";
-import { git as gitResult, tree } from "../lib/git.mjs";
+import { git as gitResult, tree, commitStaged } from "../lib/git.mjs";
 import { setProgressSink } from "../lib/progress.mjs";
 import { digest } from "../lib/graph.mjs";
 import { history, interdiff } from "../lib/history.mjs";
@@ -575,7 +575,7 @@ test("selective publish creates only selected drafts and preserves landed and ou
     const [sha, ref] = line.split("\t");
     if (!allowed.has(ref.slice("refs/heads/".length))) assert.equal(sha, oldRefs.get(ref), ref);
   }
-  const journal = JSON.parse(fs.readFileSync(path.join(f.ctx.dir, "operations", `${result.operation}.json`)));
+  const journal = state.readJson(state.journalFile(f.ctx, result.operation));
   assert.ok(Object.keys(journal.local).every((branch) => allowed.has(branch)));
   assert.ok(Object.keys(journal.remote).every((branch) => allowed.has(branch)));
   assert.deepEqual(Object.keys(journal.prs).sort(), ["b", "c"]);
@@ -1243,6 +1243,43 @@ test("retarget still rejects a changed source ref even when its integration bran
   assert.equal(git(f.root, "rev-parse", node.branch), node.head);
   assert.equal(host.p.get(node.pr.id).baseBranch, "trunk");
 });
+
+for (const reject of [false, true]) {
+  test(`commitStaged preserves large messages and cleans temporary input after ${reject ? "hook rejection" : "success"}`, (t) => {
+    const f = fixture({ names: ["a"] });
+    t.after(() => f.dispose());
+    fs.appendFileSync(path.join(f.root, "shared.txt"), "staged change\n");
+    git(f.root, "add", "shared.txt");
+    const before = git(f.root, "rev-parse", "HEAD");
+    const staged = git(f.root, "write-tree");
+    const message = "Subject \u00e9\n\n# Literal comment\n\n" + "Retained body line\n".repeat(131072);
+    if (reject) {
+      fs.writeFileSync(path.join(f.root, ".git", "hooks", "pre-commit"),
+        "#!/bin/sh\necho rejected-by-test >&2\nexit 1\n", { mode: 0o755 });
+    }
+    const temporary = [];
+    const mkdtemp = fs.mkdtempSync;
+    t.mock.method(fs, "mkdtempSync", (...args) => {
+      const dir = mkdtemp(...args);
+      temporary.push(dir);
+      return dir;
+    });
+    t.after(() => {
+      for (const dir of temporary) fs.rmSync(dir, { recursive: true, force: true });
+    });
+    if (reject) {
+      assert.throws(() => commitStaged(f.root, message), /git commit failed \(1\): rejected-by-test/);
+      assert.equal(git(f.root, "rev-parse", "HEAD"), before);
+      assert.equal(git(f.root, "write-tree"), staged);
+    } else {
+      const head = commitStaged(f.root, message);
+      assert.equal(head, git(f.root, "rev-parse", "HEAD"));
+      assert.equal(tree(f.root, head), staged);
+      assert.equal(git(f.root, "log", "-1", "--format=%B"), message.trim());
+    }
+    for (const dir of temporary) assert.equal(fs.existsSync(dir), false, "temporary commit input must be removed");
+  });
+}
 
 test("retarget abort never rolls back a separately observed native integration fast-forward", (t) => {
   const f = fixture({ remote: true, names: ["a"] });

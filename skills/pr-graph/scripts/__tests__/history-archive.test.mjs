@@ -53,6 +53,53 @@ function rewrite(file, edit) {
   return archive;
 }
 
+test("shared local payloads export self-contained legacy-compatible archives without execution authority", (t) => {
+  const f = fixture({ names: ["a"] });
+  t.after(() => f.dispose());
+  f.spec.nodes[0].description = "retained historical description\n".repeat(1024);
+  f.apply("split", { spec: f.spec });
+  const timeline = history(f.ctx, "example", "a");
+  const shared = exportArchive(f, "shared-history.json").archive;
+  const stateFiles = [
+    state.graphFile(f.ctx, "example"),
+    ...fs.readdirSync(path.join(f.ctx.dir, "operations")).map((name) => path.join(f.ctx.dir, "operations", name)),
+    ...fs.readdirSync(path.join(f.ctx.dir, "history", "example")).map((name) => path.join(f.ctx.dir, "history", "example", name)),
+  ];
+  for (const file of stateFiles) state.atomicJson(file, state.readJson(file));
+  const legacy = exportArchive(f, "legacy-history.json").archive;
+  const { id: sharedId, createdAt: sharedTime, ...sharedPayload } = shared;
+  const { id: legacyId, createdAt: legacyTime, ...legacyPayload } = legacy;
+  assert.deepEqual(sharedPayload, legacyPayload);
+  assert.equal(shared.format, "pr-graph-history");
+  assert.equal(shared.version, 1);
+  assert.equal(JSON.stringify(shared).includes("pr-graph-state"), false);
+  const destination = clone(f);
+  const before = executionState(destination);
+  importArchive(destination, path.join(f.dir, "shared-history.json"));
+  assert.deepEqual(executionState(destination), before);
+  const imported = history(destination, "example", "a", shared.id);
+  assert.deepEqual(imported.versions.map((v) => v.id), timeline.versions.map((v) => v.id));
+  assert.equal(fs.existsSync(path.join(destination.dir, "payloads")), false);
+});
+
+test("missing shared evidence blocks graph reads and history export instead of becoming an ignorable gap", (t) => {
+  const f = fixture({ names: ["a"] });
+  t.after(() => f.dispose());
+  const payloads = [];
+  f.ctx.storageEvent = (e) => { if (e.phase === "after-payload" && e.kind === "text") payloads.push(e.file); };
+  f.spec.nodes[0].description = "retained historical description\n".repeat(1024);
+  f.apply("split", { spec: f.spec });
+  const file = path.join(f.dir, "unwritten-history.json");
+  const plan = createPlan(f.ctx, "export-history", { graph: "example", archive: file });
+  assert.equal(payloads.length, 1);
+  fs.unlinkSync(payloads[0]);
+  assert.throws(() => state.load(f.ctx, "example"), /Cannot read retained payload/);
+  assert.throws(() => createPlan(f.ctx, "export-history", { graph: "example", archive: file }), /Cannot read retained payload/);
+  assert.throws(() => applyPlan(f.ctx, plan, plan.approval, true), /Cannot read retained payload/);
+  assert.equal(fs.existsSync(file), false);
+  assert.equal(fs.existsSync(payloads[0]), false);
+});
+
 test("portable history retains unreachable versions, lineage and historical baselines offline without importing execution state", (t) => {
   const f = fixture({ remote: true, names: ["a", "b"] });
   t.after(() => f.dispose());

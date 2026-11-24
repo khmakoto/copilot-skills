@@ -192,7 +192,7 @@ export function applyImportPlan(ctx, plan) {
   const current = state.load(ctx, plan.graph.id);
   if (journal?.candidate && digest(current) === digest(journal.candidate)) {
     journal.status = "done";
-    state.atomicJson(file, journal);
+    state.saveJournal(ctx, journal);
     return { graph: current, operation: plan.approval, alreadyDone: true };
   }
   requireValue(!journal || journal.status === "running", "Import was aborted or superseded.");
@@ -237,7 +237,7 @@ export function applyImportPlan(ctx, plan) {
   graph.lastOperation = plan.approval;
   graph.import.operation = plan.approval;
   journal.candidate = graph;
-  state.atomicJson(file, journal);
+  state.saveJournal(ctx, journal);
   step("Fetching pinned snapshots from approved local clone", () => {
     git.out(ctx.root, ["fetch", "--no-tags", "--no-write-fetch-head", "--refmap=", "--", source.root,
       ...plan.pins.map((sha) => `${sha}:refs/pr-graph/${plan.approval}/imported/${sha}`)]);
@@ -262,10 +262,10 @@ export function applyImportPlan(ctx, plan) {
   step("Updating approved local DAG branches atomically", () =>
     git.out(ctx.root, ["update-ref", "--stdin"], `${commands.join("\n")}\n`));
   for (const update of plan.updates) journal.local[update.branch] = update.head;
-  state.atomicJson(file, journal);
+  state.saveJournal(ctx, journal);
   state.save(ctx, graph, plan);
   journal.status = "done";
-  state.atomicJson(file, journal);
+  state.saveJournal(ctx, journal);
   return { graph, operation: plan.approval, updates: plan.updates,
     warning: "Imported locally only; validation and composition are unverified. No hosting writes or checkout changes." };
 }

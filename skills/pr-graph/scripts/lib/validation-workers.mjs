@@ -5,7 +5,7 @@ import { digest, requireValue } from "./graph.mjs";
 import * as git from "./git.mjs";
 import * as state from "./state.mjs";
 
-const persist = (ctx, journal) => state.atomicJson(state.journalFile(ctx, journal.id), journal);
+const persist = (ctx, journal) => state.saveJournal(ctx, journal);
 const hashFile = (file) => createHash("sha256").update(fs.readFileSync(file)).digest("hex");
 const relative = (value) => typeof value === "string" && /^[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*$/.test(value) &&
   value.split("/").every((part) => ![".", "..", ".git"].includes(part));

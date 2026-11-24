@@ -72,14 +72,15 @@ function portableTimeline(value, graphs) {
 function localGraphs(ctx, graphId) {
   state.graphFile(ctx, graphId);
   const dir = path.join(ctx.dir, "history", graphId);
+  const cache = new Map();
   return [
-    state.load(ctx, graphId, true),
+    state.load(ctx, graphId, true, cache),
     ...(fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.endsWith(".json"))
       .flatMap((f) => {
-        const r = state.readJson(path.join(dir, f));
+        const r = state.readJson(path.join(dir, f), false, cache);
         return [r.before, r.after];
       }) : []),
-    ...state.journals(ctx).filter((j) => j.plan.graph?.id === graphId || j.plan.graphId === graphId)
+    ...state.journals(ctx, (j) => j, cache).filter((j) => j.plan.graph?.id === graphId || j.plan.graphId === graphId)
       .flatMap((j) => [j.plan.previous, j.candidate]),
   ].filter(Boolean).sort((a, b) => (a.revision ?? 0) - (b.revision ?? 0) ||
     digest(a).localeCompare(digest(b)));
