@@ -34,6 +34,50 @@ const files = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((ent
   return entry.isDirectory() ? files(file) : [file];
 });
 
+for (const scenario of [
+  {
+    name: "namespaced drive paths",
+    dir: String.raw`C:\state\created\records`, first: String.raw`\\?\C:\state\created`,
+    expected: [String.raw`\\?\C:\state\created\records`, String.raw`\\?\C:\state\created`, String.raw`\\?\C:\state`],
+  },
+  {
+    name: "namespaced UNC paths",
+    dir: String.raw`\\server\share\created\records`, first: String.raw`\\?\UNC\server\share\created`,
+    expected: [String.raw`\\?\UNC\server\share\created\records`, String.raw`\\?\UNC\server\share\created`,
+      String.raw`\\?\UNC\server\share`],
+  },
+  {
+    name: "an unreachable ancestor",
+    dir: String.raw`C:\state\created\records`, first: String.raw`\\?\C:\elsewhere\created`, invalid: true,
+    expected: [String.raw`\\?\C:\state\created\records`, String.raw`\\?\C:\state\created`,
+      String.raw`\\?\C:\state`, "\\\\?\\C:\\"],
+  },
+]) {
+  test(`new directory flush handles ${scenario.name} without an unbounded walk`, (t) => {
+    for (const method of ["dirname", "resolve", "toNamespacedPath"]) t.mock.method(path, method, path.win32[method]);
+    t.mock.method(fs, "mkdirSync", (dir, options) => {
+      assert.equal(dir, scenario.dir);
+      assert.deepEqual(options, { recursive: true });
+      return scenario.first;
+    });
+    const synced = [];
+    const descriptors = new Map();
+    const writeReached = new Error("record write reached");
+    t.mock.method(fs, "openSync", (file, flags) => {
+      if (flags !== "r") throw writeReached;
+      assert.ok(descriptors.size < scenario.expected.length, "directory walk did not terminate");
+      const fd = descriptors.size;
+      descriptors.set(fd, file);
+      return fd;
+    });
+    t.mock.method(fs, "fsyncSync", (fd) => synced.push(descriptors.get(fd)));
+    t.mock.method(fs, "closeSync", () => {});
+    assert.throws(() => state.atomicJson(path.win32.join(scenario.dir, "record.json"), {}),
+      scenario.invalid ? /not an ancestor/ : (error) => error === writeReached);
+    assert.deepEqual(synced, scenario.expected);
+  });
+}
+
 test("immutable storage shares patches and snapshots without changing full-payload identities or receipts", (t) => {
   const ctx = storage(t);
   const events = [];

@@ -28,11 +28,14 @@ function syncDirectory(dir, event) {
 function makeDirectory(dir, event) {
   const first = fs.mkdirSync(dir, { recursive: true });
   if (!first) return;
-  let current = dir;
+  const stop = path.dirname(path.toNamespacedPath(path.resolve(first)));
+  let current = path.toNamespacedPath(path.resolve(dir));
   while (true) {
     syncDirectory(current, event);
-    if (current === path.dirname(first)) break;
-    current = path.dirname(current);
+    if (current === stop) break;
+    const parent = path.dirname(current);
+    requireValue(parent !== current, `Created directory ${first} is not an ancestor of ${dir}; preserve it and inspect explicitly.`);
+    current = parent;
   }
 }
 
