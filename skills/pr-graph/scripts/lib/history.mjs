@@ -66,12 +66,13 @@ export function history(ctx, graphId, nodeId, archive) {
 }
 
 function retainedHistory(ctx, graphId) {
-  const current = state.load(ctx, graphId, true);
-  const journals = state.journals(ctx).filter((j) => j.plan.graph?.id === graphId || j.plan.graphId === graphId);
+  const cache = new Map();
+  const current = state.load(ctx, graphId, true, cache);
+  const journals = state.journals(ctx, (j) => j, cache).filter((j) => j.plan.graph?.id === graphId || j.plan.graphId === graphId);
   const byOperation = new Map(journals.map((j) => [j.id, j]));
   const dir = path.join(ctx.dir, "history", graphId);
   const records = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.endsWith(".json")).sort().map((file) => {
-    const record = state.readJson(path.join(dir, file));
+    const record = state.readJson(path.join(dir, file), false, cache);
     const { id, recordedAt, ...payload } = record;
     requireValue(record.version === 1 && digest(payload) === id && file === `${id}.json` &&
       /^[0-9a-f]{64}$/.test(record.operation) && typeof record.action === "string" &&

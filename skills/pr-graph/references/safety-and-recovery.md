@@ -8,10 +8,19 @@ Local state lives in `<git-common-dir>/pr-graph/`, shared by linked worktrees:
 graphs/<graph-id>.json
 operations/<approval-digest>.json
 history/<graph-id>/<receipt-digest>.json
+payloads/<payload-digest>
 publication-policies/<graph-id>.json
 mutation.lock
 trees/<operation-id>/
 ```
+
+Graphs, journals, and history receipts may use versioned envelopes referring to
+shared immutable payloads. Keep `payloads/` with local state copies. Reads verify
+the complete reference closure before existing logical approval/recovery checks;
+missing/corrupt data blocks instead of being silently rebuilt. Legacy inline
+records are readable and migrate only when next written. New envelopes require
+a storage-aware helper; older helpers cannot read them. No history or pins are
+garbage-collected. See [storage format, durability, and compatibility](state-storage.md).
 
 The publication-policy ledger retains exclusions and release receipts separately
 from removable node metadata; graph snapshots also carry it for recovery.

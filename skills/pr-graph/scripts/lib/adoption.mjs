@@ -238,7 +238,7 @@ export function applyAdoptionPlan(ctx, plan) {
   const current = state.load(ctx, plan.graph.id);
   if (journal?.candidate && digest(current) === digest(journal.candidate)) {
     journal.status = "done";
-    state.atomicJson(file, journal);
+    state.saveJournal(ctx, journal);
     return { graph: current, operation: plan.approval };
   }
   requireValue(digest(current) === plan.previousDigest, "Graph changed; prepare a new adoption plan.");
@@ -273,7 +273,7 @@ export function applyAdoptionPlan(ctx, plan) {
   graph.lastOperation = plan.approval;
   graph.adoption.operation = plan.approval;
   journal.candidate = graph;
-  state.atomicJson(file, journal);
+  state.saveJournal(ctx, journal);
   const pins = [...new Set([plan.previous.targetSha, plan.previous.combined, graph.targetSha,
     ...plan.previous.nodes.flatMap((n) => [n.head, n.base, n.change.base, n.change.head, n.landing?.commit]),
     ...graph.nodes.flatMap((n) => [n.head, n.base, n.landing?.commit]),
@@ -298,11 +298,11 @@ export function applyAdoptionPlan(ctx, plan) {
   git.out(ctx.root, ["update-ref", "--stdin"], `${commands.join("\n")}\n`);
   for (const update of plan.updates) journal.local[update.branch] = update.head;
   journal.finalizing = true;
-  state.atomicJson(file, journal);
+  state.saveJournal(ctx, journal);
   state.save(ctx, graph, plan);
   journal.status = "done";
   journal.error = null;
-  state.atomicJson(file, journal);
+  state.saveJournal(ctx, journal);
   return { graph, operation: plan.approval, updates: plan.updates,
     warning: "Adopted locally only; composition and validation are unverified. No PR or remote refs changed." };
 }

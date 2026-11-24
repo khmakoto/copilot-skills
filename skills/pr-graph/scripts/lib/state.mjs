@@ -4,36 +4,17 @@ import os from "node:os";
 import { digest, requireValue, validateGraph } from "./graph.mjs";
 import * as git from "./git.mjs";
 import { retainPolicy } from "./publication.mjs";
+import { readJson, atomicJson, storedJson } from "./storage.mjs";
 
-export function readJson(file, optional = false) {
-  if (optional && !fs.existsSync(file)) return null;
-  try {
-    return JSON.parse(fs.readFileSync(file, "utf8"));
-  } catch (error) {
-    throw new Error(`Cannot read ${file}: ${error.message}; preserve it and repair explicitly.`);
-  }
-}
-
-export function atomicJson(file, value) {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const temp = `${file}.${process.pid}.tmp`;
-  const fd = fs.openSync(temp, "w", 0o600);
-  try {
-    fs.writeFileSync(fd, `${JSON.stringify(value, null, 2)}\n`);
-    fs.fsyncSync(fd);
-  } finally {
-    fs.closeSync(fd);
-  }
-  fs.renameSync(temp, file);
-}
+export { readJson, atomicJson, storedJson };
 
 export const graphFile = (ctx, id) => {
   requireValue(/^[a-z0-9][a-z0-9-]*$/.test(id), "Invalid graph ID.");
   return path.join(ctx.dir, "graphs", `${id}.json`);
 };
 
-export function load(ctx, id, optional = false) {
-  const value = readJson(graphFile(ctx, id), optional);
+export function load(ctx, id, optional = false, cache = new Map()) {
+  const value = readJson(graphFile(ctx, id), optional, cache);
   requireValue(!value || value.id === id, "Graph file identity mismatch; preserve and repair explicitly.");
   return value && validateGraph(value);
 }
@@ -69,11 +50,16 @@ export function save(ctx, graph, plan) {
             }
           }
         });
-        atomicJson(file, { ...payload, id, recordedAt: ctx.now?.() ?? Date.now() });
+        storedJson(ctx, file, { ...payload, id, recordedAt: ctx.now?.() ?? Date.now() });
+      } else {
+        const { id: retainedId, recordedAt, ...retained } = readJson(file);
+        requireValue(retainedId === id && digest(retained) === id &&
+          Number.isSafeInteger(recordedAt) && recordedAt >= 0,
+        "Invalid history receipt; preserve it and inspect explicitly.");
       }
     }
   }
-  atomicJson(graphFile(ctx, graph.id), graph);
+  storedJson(ctx, graphFile(ctx, graph.id), graph);
 }
 
 export function lock(ctx, fn) {
@@ -103,9 +89,13 @@ export function journalFile(ctx, id) {
   return path.join(ctx.dir, "operations", `${id}.json`);
 }
 
-export function journals(ctx, project = (journal) => journal) {
+export function saveJournal(ctx, journal) {
+  storedJson(ctx, journalFile(ctx, journal.id), journal);
+}
+
+export function journals(ctx, project = (journal) => journal, cache = new Map()) {
   const dir = path.join(ctx.dir, "operations");
   if (!fs.existsSync(dir)) return [];
   return fs.readdirSync(dir).filter((n) => n.endsWith(".json"))
-    .map((n) => project(readJson(path.join(dir, n))));
+    .map((n) => project(readJson(path.join(dir, n), false, cache)));
 }

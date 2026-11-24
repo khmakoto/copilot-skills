@@ -889,7 +889,7 @@ function verifyApproval(plan, approval, yes) {
 }
 
 function saveJournal(ctx, journal) {
-  state.atomicJson(state.journalFile(ctx, journal.id), journal);
+  state.saveJournal(ctx, journal);
 }
 
 function recordRecovery(ctx, journal, plan) {

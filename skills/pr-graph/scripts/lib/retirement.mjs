@@ -55,7 +55,7 @@ export function applyRetiredRemovalPlan(ctx, plan) {
   const current = state.load(ctx, plan.graph.id);
   if (journal?.candidate && digest(current) === digest(journal.candidate)) {
     journal.status = "done";
-    state.atomicJson(file, journal);
+    state.saveJournal(ctx, journal);
     return { graph: current, operation: plan.approval, alreadyDone: true };
   }
   requireValue(!journal || journal.status === "running", "Operation was aborted or superseded.");
@@ -69,9 +69,9 @@ export function applyRetiredRemovalPlan(ctx, plan) {
   journal ??= { id: plan.approval, plan, status: "running",
     local: {}, remote: {}, prs: {}, commits: {}, pendingChange: null, remoteStarted: false };
   journal.candidate = graph;
-  state.atomicJson(file, journal);
+  state.saveJournal(ctx, journal);
   state.save(ctx, graph, plan);
   journal.status = "done";
-  state.atomicJson(file, journal);
+  state.saveJournal(ctx, journal);
   return { graph, operation: plan.approval };
 }

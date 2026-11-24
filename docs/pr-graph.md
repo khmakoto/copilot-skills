@@ -122,8 +122,8 @@ Validation-first is the default. A direct request for validation-last ordering
 permits `--defer-validation` on each exact allocation, sync or publication plan.
 Auto mode and YOLO mode do not request validation-last ordering. The option
 applies only to the current invocation. The helper retains every check definition.
-It clears validation and readiness receipts for all active unlanded nodes,
-including unselected nodes in selective publication.
+It clears validation and readiness receipts for all active unlanded nodes.
+This includes unselected nodes in selective publication.
 Unselected refs and pull requests remain unchanged. Hooks, ownership verification,
 full-tree composition, leases, freshness and provider checks still run.
 
@@ -260,8 +260,8 @@ edits. Supply validation commands or reasons for running no automated checks.
 Absorb preserves node identities and dependency edges. New nodes or dependencies
 need separate approved graph changes.
 
-The user must approve the exact plan using its digest. In auto mode, the agent may approve
-a requested allocation when ownership is unambiguous and the plan meets the
+The user must approve the exact plan using its digest. In auto mode, the agent
+may approve a requested allocation when ownership is unambiguous and the plan meets the
 [conditional policy](../skills/pr-graph/references/auto-mode.md#conditional-auto-approvals).
 The helper checks each owner's changes against its assigned edits. It compares
 the complete combined tree with the approved source. It rebuilds dependent nodes
@@ -286,6 +286,17 @@ receipts and pins available commits. The command reports missing evidence,
 including gaps in legacy records. It also marks where history stops at an import
 or restore. It does not repair these gaps.
 
+The helper stores large plans, patches, snapshots and execution evidence in
+shared, digest-addressed payloads. It verifies and expands each payload before
+checking approval digests or history identities. Missing or corrupt payloads stop
+the operation. The helper does not repair them automatically.
+
+The helper reads legacy inline records and migrates each record only on its next
+authorized write. Older helpers cannot read the new storage format. Include
+`payloads/` when copying local state. The helper retains all history and preserves
+the existing write and flush order. Portable archives remain self-contained. See
+the [storage format and compatibility contract](../skills/pr-graph/references/state-storage.md).
+
 Use `interdiff --graph <id> --node <id> --from <version|last-published|last-validated>`
 to compare a retained version against `current`. Use `--to` to select another
 comparison version. The command reports changes to the node's authored patch
@@ -293,10 +304,11 @@ separately from changes to its base or prerequisites.
 
 It compares each version's diff between its realized base and head on a common
 base. The comparison includes conflict-resolution changes. The `last-published`
-baseline requires the helper to read back and verify the published result. An attempted write is
-not enough. The `last-validated` baseline may include a recorded reason for
-running no automated checks. The output labels that reason rather than reporting
-passing tests. Missing baselines produce errors. The helper does not infer them.
+baseline requires the helper to read back and verify the published result.
+An attempted write is not enough. The `last-validated` baseline may include a
+recorded reason for running no automated checks. The output labels that reason
+rather than reporting passing tests. Missing baselines produce errors. The helper
+does not infer them.
 
 Both commands default to JSON and accept `--format text`. They preserve user
 worktrees, refs, and indexes. Neither command fetches objects or writes to the
@@ -322,8 +334,9 @@ intended effects separately from execution records.
 
 Use matching publication receipts for individual nodes to verify partial
 publication after an interruption. Attempted remote writes, ref records and pull
-request responses alone do not verify publication. The helper may write a receipt before
-saving the resulting graph. The receipt alone does not prove that it saved the graph.
+request responses alone do not verify publication. The helper may write a receipt
+before saving the resulting graph. A receipt alone does not prove that the helper
+saved the graph.
 The report lists gaps for missing or legacy snapshots, unavailable objects and
 unmatched receipts. It does not infer success from incomplete evidence.
 
@@ -367,9 +380,8 @@ The helper stores evidence and object-retention refs in separate archive
 namespaces.
 
 The helper transfers archives offline without the skill's normal live freshness
-preflight.
-`--auto` alone does not authorize them. The user may separately authorize
-transfers for the current invocation. That permission must cover the exact
+preflight. `--auto` alone does not authorize these transfers. The user may
+separately authorize transfers for the current invocation. That permission must cover the exact
 source, destination, and retained data, including discarded source, ancestry,
 metadata, and retention costs. The agent may approve reviewed plans only within
 those limits. If the limits change or are unclear, it must ask again.
@@ -483,8 +495,8 @@ uploads or description edits, and selective publication refreshes only selected
 pull requests. Refreshes outside that scope need separate approval. They do not
 block local-only sync.
 
-Eligible existing pull requests retain their live draft or non-draft state
-through sync, retargeting, and graph reshaping, including manual status changes.
+The helper preserves the live draft or non-draft state of eligible pull requests
+during sync, retargeting and graph reshaping. This includes manual status changes.
 Blocked or superseded pull requests must be drafts. Non-draft status does not
 waive validation, freshness, or merge checks. Status changes after planning
 require a new approval.
@@ -553,9 +565,8 @@ spinners. Redirected output uses plain lines. Quiet steps emit a heartbeat every
 two minutes. Reconstruction validation shows command output only on failure.
 Standalone validation returns the output of every recorded check. The agent
 reports work outside the helper, including freshness preflight and pull request
-diagrams.
-It does not repeat every helper line. The helper's `--quiet` flag suppresses
-progress, not errors or results.
+diagrams. It does not repeat every helper line. The helper's `--quiet` flag
+suppresses progress, not errors or results.
 
 ## YOLO mode
 
@@ -679,9 +690,10 @@ journals. It reuses committed results only when the parent, patch,
 full message, and execution fingerprint match exactly. Reuse avoids repeated
 patch applications and commit hooks. Changed or unknown inputs require
 reconstruction. The helper still checks validation, full-tree composition, and
-freshness. Legacy journals export no unverified cache entries. Inspection reports
-how many patches the helper applied and how many cached results it reused from
-another journal. Reuse does not renew the fetch clock.
+freshness. The helper does not export unverified cache entries from legacy
+journals. Inspection reports how many patches the helper applied and how many
+cached results it reused from another journal. Reuse does not renew the fetch
+clock.
 
 During reconstruction, the helper reuses the longest verified sequence of
 previously composed changes, called a composition prefix. It also reuses complete
@@ -752,8 +764,8 @@ stays in the operation journal. The helper preserves Git refs, commits, files,
 indexes, worktrees, and existing validation and readiness evidence. It does not
 reconstruct source, publish, or upload a backup. The user must approve removal
 unless auto mode covers their explicit request to remove that specific metadata.
-The agent does not remove metadata on its own. Use `continue` with the original digest
-after an interrupted metadata write.
+The agent does not remove metadata on its own. After an interrupted metadata
+write, use `continue` with the original digest.
 
 ## Pull request diagrams
 

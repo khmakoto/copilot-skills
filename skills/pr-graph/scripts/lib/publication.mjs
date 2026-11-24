@@ -72,14 +72,15 @@ export function importPolicy(ctx, id, policy) {
 
 function snapshots(ctx, id) {
   const dir = path.join(ctx.dir, "history", id);
+  const cache = new Map();
   return [
-    state.load(ctx, id, true),
+    state.load(ctx, id, true, cache),
     ...(fs.existsSync(dir) ? fs.readdirSync(dir).filter((n) => n.endsWith(".json"))
       .flatMap((n) => {
-        const record = state.readJson(path.join(dir, n));
+        const record = state.readJson(path.join(dir, n), false, cache);
         return [record.before, record.after];
       }) : []),
-    ...state.journals(ctx).filter((j) => j.plan.graph?.id === id || j.plan.graphId === id)
+    ...state.journals(ctx, (j) => j, cache).filter((j) => j.plan.graph?.id === id || j.plan.graphId === id)
       .flatMap((j) => [j.plan.graph, j.plan.previous, j.candidate]),
   ].filter(Boolean);
 }
@@ -206,7 +207,7 @@ export function applyPolicyPlan(ctx, plan) {
   // Explicit local release is the only path allowed to replace active restrictions.
   state.atomicJson(file(ctx, graph.id), policy);
   graph.publicationPolicy = policy;
-  state.atomicJson(state.graphFile(ctx, graph.id), graph);
+  state.storedJson(ctx, state.graphFile(ctx, graph.id), graph);
   return { graph, operation: plan.approval, policy };
 }
 

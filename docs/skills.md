@@ -37,8 +37,8 @@ retry alone does not prove that a failure is unrelated or flaky.
 
 The skill presents one root cause at a time for triage. Discovery is read-only.
 Local reproduction, fixes, and remote reruns each require separate approval.
-Diagnose-only mode makes no changes and runs no retries. Reports separate local
-validation from hosted results. They also distinguish queued reruns from
+Diagnose-only mode makes no changes and runs no retries. Reports distinguish
+local validation from hosted results. They also distinguish queued reruns from
 completed checks.
 
 ```text
@@ -139,13 +139,13 @@ The skill splits existing branches and manages changes as a multi-parent
 dependency graph in local Git, GitHub, GitHub Enterprise Server, or Azure DevOps.
 
 The read-only `dependencies` command reports redundant edges with alternate
-paths. It lists sequencing candidates that the agent has not assessed.
-It does not claim that this sequencing is unnecessary. For each hypothetical
-edge removal, it shows the affected nodes and changes to prerequisite closures
-and dependency eligibility.
+paths. It also lists sequencing candidates for the agent to assess.
+The report does not establish that this sequencing is unnecessary. For each
+hypothetical edge removal, it shows the affected nodes and changes to prerequisite
+closures and dependency eligibility.
 The agent reviews owned patches, consumers and the reason for each edge before
 proposing a change. If evidence is missing, it reports the gap instead of
-recommending removal. The command runs no checks or reconstruction.
+recommending removal. The command does not run checks or reconstruct nodes.
 The helper applies approved dependency changes through `deps` plans.
 Those plans preserve the complete combined tree and run required validation. See
 [dependency advice](pr-graph.md#simplify-dependencies-and-review-sequencing).
@@ -157,13 +157,19 @@ candidate states and attempted remote writes. It reports missing evidence
 rather than inferring success. Its output does not authorize undo, renew
 freshness or prove that a merge is safe.
 
+The helper shares digest-addressed immutable payloads across local journals and
+snapshots. It reads legacy inline state. Older helpers cannot read newly written
+state. Keep `payloads/` with local state backups. Portable history archives remain
+self-contained and do not transfer execution authority. See
+[storage compatibility](../skills/pr-graph/references/state-storage.md).
+
 The helper reruns configured checks at existing pinned heads through a separately
 approved `plan validate --select <selector>` plan. It does not reconstruct or
 publish nodes. By default, it runs checks in a separate worktree for each node.
 An approved environment policy lets the helper reuse validation workers and build
 artifacts within worker and cache-byte limits. Clean mode starts each node in a
 fresh worker. Neither mode reuses test results or replays setup. The helper
-collects each check's results. It distinguishes no-check reasons from stale or
+records each check's result. It distinguishes no-check reasons from stale or
 unavailable inputs. It preserves source checkouts, refs and pull requests.
 Failed checks do not authorize fixes or setup. See
 [standalone validation](pr-graph.md#standalone-validation).
@@ -210,8 +216,8 @@ checkpoint, exclusion release and history transfer. It can irreversibly delete
 resources, execute setup scripts or disclose unpublished or discarded source
 and metadata.
 
-The agent uses the task and verified repository evidence to establish the exact source,
-destination, access permissions and limits on retained data. The operation
+The agent establishes the exact source, destination, access permissions and limits
+on retained data from the task and verified repository evidence. The operation
 stops if intent or destinations are missing or ambiguous, or if remote effects
 remain unresolved. Plans, digests, freshness, validation, hooks and provider
 policies remain mandatory. `--yolo` is not a helper flag. Its permission ends

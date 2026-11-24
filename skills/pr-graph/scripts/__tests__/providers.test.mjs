@@ -575,7 +575,7 @@ test("selective publish creates only selected drafts and preserves landed and ou
     const [sha, ref] = line.split("\t");
     if (!allowed.has(ref.slice("refs/heads/".length))) assert.equal(sha, oldRefs.get(ref), ref);
   }
-  const journal = JSON.parse(fs.readFileSync(path.join(f.ctx.dir, "operations", `${result.operation}.json`)));
+  const journal = state.readJson(state.journalFile(f.ctx, result.operation));
   assert.ok(Object.keys(journal.local).every((branch) => allowed.has(branch)));
   assert.ok(Object.keys(journal.remote).every((branch) => allowed.has(branch)));
   assert.deepEqual(Object.keys(journal.prs).sort(), ["b", "c"]);

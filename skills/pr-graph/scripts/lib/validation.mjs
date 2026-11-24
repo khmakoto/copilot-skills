@@ -9,7 +9,7 @@ import { nodeDetails, step } from "./progress.mjs";
 import { planWorkers, fingerprint, prepareWorker, inspectWorker } from "./validation-workers.mjs";
 
 const now = (ctx) => ctx.now?.() ?? Date.now();
-const save = (ctx, journal) => state.atomicJson(state.journalFile(ctx, journal.id), journal);
+const save = (ctx, journal) => state.saveJournal(ctx, journal);
 const worktreeId = (operation, node) => digest({ operation, validationNode: node });
 const retainedWorktrees = (journal) => journal.validationWorkers ?
   journal.validationWorkers.map((worker, index) => ({ worker: index, worktree: worker.path })) :
