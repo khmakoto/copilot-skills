@@ -267,6 +267,10 @@ export function applyValidationPlan(ctx, plan, io) {
         operation: journal.id, source: result.status === "no-check" ? "explicit-reason" : "executed",
         completedAt: now(ctx),
       } : null;
+      if (node.validation) delete node.validationPending;
+      else if (node.validationPending) node.validationPending = {
+        ...node.validationPending, status: "failed", result: result.status,
+      };
       if (node.validation) journal.validated[node.id] = node.validation;
     }
     graph.revision++;

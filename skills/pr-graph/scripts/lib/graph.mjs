@@ -210,6 +210,7 @@ export function footer(graph, node) {
     `Graph: \`${graph.id}\` / node: \`${node.id}\``,
     `Dependencies: ${deps}`,
     `Review: ${node.retired ? "SUPERSEDED; do not merge" : node.landing ? "landed" : eligible(graph, node) ? "eligible; readiness is explicit" : "BLOCKED until all prerequisites land"}.`,
+    ...(node.validationPending ? [`Validation: **validation ${node.validationPending.status}**; not review-ready. Run a separately approved validation plan against the exact realized head.`] : []),
     `Integration snapshot: \`${snapshot?.target ?? graph.target}@${snapshot?.sha ?? "unknown"}\`; last verified: ${snapshot?.verifiedAt === undefined ? "unknown" : new Date(snapshot.verifiedAt).toISOString()}. Freshness is checked live; merge requires the current tip.`,
     ...(node.replacedBy?.length ? [`Replaced by nodes: ${node.replacedBy.map((id) => `\`${id}\``).join(", ")}.`] : []),
     ...(node.baseBranch !== graph.target
@@ -236,8 +237,8 @@ export function render(graph, freshness = {}) {
     ...topological(graph).map((n) =>
       `${n.id} <- ${n.dependencies.join(" + ") || graph.target}: ${
         n.retired ? "superseded" : n.landing ? "landed" : eligible(graph, n) ? "eligible" : "BLOCKED"
-      }${n.pr ? `; ${n.pr.draft ? "draft" : "ready"} ${n.pr.url}` : "; unpublished"}; freshness: ${
+      }${n.pr ? `; ${n.pr.draft ? "draft" : n.validationPending ? "non-draft" : "ready"} ${n.pr.url}` : "; unpublished"}; freshness: ${
         freshness[n.id]?.integration.status ?? "unknown"
-      }; branch: ${freshness[n.id]?.branch.status ?? "unknown"}; validation: ${freshness[n.id]?.validation ?? "unknown"}`),
+      }; branch: ${freshness[n.id]?.branch.status ?? "unknown"}; validation: ${freshness[n.id]?.validation ?? n.validationPending?.status ?? "unknown"}`),
   ].join("\n");
 }

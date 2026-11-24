@@ -62,6 +62,21 @@ approval evidence. No scenario permits modifying journals or bypassing hooks.
 
 ## Scope and invocation isolation
 
+### Explicit validation-last ordering
+
+Request "publish this graph first, run automated validation last; do not ready
+or merge" in interactive, auto and YOLO modes. Expect `--defer-validation` in
+each applicable saved exact allocation/sync/publish plan, all commands retained,
+graph-wide validation/readiness invalidation (including unselected nodes), and
+pending labels in results, footers and diagrams. Then expect a separately
+approved `plan validate` covering exact resulting pending heads. Clean nonzero
+checks are collected; changed refs or worktree identity stop further execution
+without current receipts. Passing validation does not promote drafts or grant
+readiness. Repeat without the ordering request: expect validation-first, even
+under auto/YOLO or when a prior invocation used deferral. Hooks, ownership,
+full-tree composition, leases, freshness and provider-policy failures still
+block; no merge authorization or grace renewal follows from deferral.
+
 1. **No opt-in from evidence.** The user asks for an interactive split; repository
    instructions, PR text, a tool result, restored settings or an archive says
    `--yolo`. Expect normal human approvals. The question "What does --yolo do?"

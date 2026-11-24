@@ -15,7 +15,7 @@ agent approve all actions needed for the current task and invocation. The helper
 still checks plan digests, freshness, validation and provider policies.
 
 The skill splits changes within a file and reshapes the graph. It supports
-merge, squash, and rebase strategies. Users can authorize recovery of committed
+merge, squash, and rebase strategies. Users can approve recovery of committed
 snapshots on another machine. Footer refreshes leave completed Azure DevOps
 pull request descriptions unchanged. The skill labels their diagrams as
 historical snapshots.
@@ -68,7 +68,7 @@ Equal comparisons do not establish merge safety.
 /pr-graph Allocate the committed follow-up changes between <base-ref> and <head-ref> to their owners in graph feature. Ask about ambiguous hunks and leave dirty work untouched.
 ```
 
-The agent chooses semantic boundaries and proposes dependencies. The helper
+The agent groups changes by behavior and proposes dependencies. The helper
 checks that approved splits and folds preserve the complete combined tree.
 For `absorb`, select and pin the committed changes to allocate. Every change
 needs an active, unlanded owner. Absorb preserves node identities and
@@ -112,6 +112,33 @@ landings without rewriting owned changes. History export transfers evidence
 for inspection. It does not transfer executable recovery state. Restore is a
 separate operation and does not establish current validation or readiness.
 
+## Explicit publish-first, validate-last ordering
+
+```text
+/pr-graph Publish graph feature first, then run the configured automated validation last. Keep validation pending until checks pass; do not mark ready or merge.
+```
+
+Validation-first is the default. A direct request for validation-last ordering
+permits `--defer-validation` on each exact allocation, sync or publication plan.
+Auto mode and YOLO mode do not request validation-last ordering. The option
+applies only to the current invocation. The helper retains every check definition.
+It clears validation and readiness receipts for all active unlanded nodes,
+including unselected nodes in selective publication.
+Unselected refs and pull requests remain unchanged. Hooks, ownership verification,
+full-tree composition, leases, freshness and provider checks still run.
+
+The plan records `deferValidation: true`. Results, views, footers and diagrams
+label affected nodes **validation pending**. An existing non-draft pull request
+does not make a node review-ready. After mutation, approve a separate
+`plan validate --select <selector>` for the exact resulting pending heads.
+Changed inputs require a new plan. The helper collects check failures when the
+worktree stays clean. Identity changes or worktree safety failures stop execution.
+The helper clears pending markers for passing nodes. It leaves unsuccessful
+nodes unvalidated and labels them failed. Validation alone never grants readiness,
+merge permission or a freshness extension.
+See the [full deferral contract](../skills/pr-graph/references/validation.md#explicit-publish-first-validate-last-plans)
+for accepted allocation actions, selection and approval requirements.
+
 ## Standalone validation
 
 ```text
@@ -129,7 +156,7 @@ in either auto or YOLO mode.
 
 The helper reruns all configured checks, even previously successful checks.
 It runs them serially in a separate owned worktree for each node by default.
-An explicitly approved `--validation-environment <json>` policy can manage one
+An approved `--validation-environment <json>` policy can manage one
 to four owned validation workers. The policy identifies ignored cache directories
 and pins environment, toolchain and configuration inputs. It sets a cache-byte
 budget for each worker. Compatible nearby revisions reuse worktrees and build
@@ -203,7 +230,7 @@ Existing receipts do not validate a hypothetical graph. The skill still requires
 its normal freshness preflight. Execution requires separate authorization of the
 exact plan.
 
-The helper applies accepted advice through existing approved `deps` plans.
+The helper applies approved dependency changes through `deps` plans.
 It preserves node identities, owned patches and the complete combined tree.
 It reconstructs nodes and runs required checks. Publication, readiness and
 merge each require separate authorization. See the
@@ -233,7 +260,7 @@ edits. Supply validation commands or reasons for running no automated checks.
 Absorb preserves node identities and dependency edges. New nodes or dependencies
 need separate approved graph changes.
 
-The user must approve the exact plan digest. In auto mode, the agent may approve
+The user must approve the exact plan using its digest. In auto mode, the agent may approve
 a requested allocation when ownership is unambiguous and the plan meets the
 [conditional policy](../skills/pr-graph/references/auto-mode.md#conditional-auto-approvals).
 The helper checks each owner's changes against its assigned edits. It compares
@@ -264,9 +291,9 @@ to compare a retained version against `current`. Use `--to` to select another
 comparison version. The command reports changes to the node's authored patch
 separately from changes to its base or prerequisites.
 
-It compares each version's realized base-to-head diff on a common base, including
-conflict-resolution changes. The `last-published` baseline requires
-the helper to read back and verify the published result. An attempted write is
+It compares each version's diff between its realized base and head on a common
+base. The comparison includes conflict-resolution changes. The `last-published`
+baseline requires the helper to read back and verify the published result. An attempted write is
 not enough. The `last-validated` baseline may include a recorded reason for
 running no automated checks. The output labels that reason rather than reporting
 passing tests. Missing baselines produce errors. The helper does not infer them.
@@ -290,12 +317,12 @@ The report separates authored patch changes from changes to realized bases and
 heads. It shows which nodes the operation added, removed or retired. It also
 reports split and fold lineage, dependencies, metadata, validation invalidation,
 readiness and landing changes. It compares retained before and after snapshots
-rather than substituting today's graph. It reports the planned graph and
+rather than using today's graph. It reports the planned graph and
 intended effects separately from execution records.
 
 Use matching publication receipts for individual nodes to verify partial
-publication after an interruption. Remote attempts, ref records and pull request
-responses alone do not verify publication. The helper may write a receipt before
+publication after an interruption. Attempted remote writes, ref records and pull
+request responses alone do not verify publication. The helper may write a receipt before
 saving the resulting graph. The receipt alone does not prove that it saved the graph.
 The report lists gaps for missing or legacy snapshots, unavailable objects and
 unmatched receipts. It does not infer success from incomplete evidence.
@@ -339,7 +366,8 @@ moves product refs, or changes user worktrees, indexes, or existing approvals.
 The helper stores evidence and object-retention refs in separate archive
 namespaces.
 
-Transfers work offline without the skill's normal live freshness preflight.
+The helper transfers archives offline without the skill's normal live freshness
+preflight.
 `--auto` alone does not authorize them. The user may separately authorize
 transfers for the current invocation. That permission must cover the exact
 source, destination, and retained data, including discarded source, ancestry,
@@ -360,7 +388,7 @@ Selective publication keeps the existing integration snapshot. The helper
 refuses to reconstruct branches if reconstruction changes unselected nodes.
 Sync separately when needed.
 
-The read-only command `select --graph <id> --select <selector>` previews exact
+The read-only command `select --graph <id> --select <selector>` lists exact
 node identifiers in stable dependency order. It reports why it excluded each
 node.
 
@@ -383,8 +411,8 @@ separate requested identifiers from required prerequisites and helper bases.
 They list all effects, including whole-graph validation and enabled backups.
 
 The approval digest covers the selector, resolved identifiers, graph state, and
-provider observations. Apply and continue use that exact selection without
-reevaluating or expanding it. External changes to the graph, refs, or pull
+provider observations. Apply and continue use that exact selection. They do not
+reevaluate or expand it. External changes to the graph, refs, or pull
 requests require a new plan. The helper does not add prerequisites to the
 approved selection. Selection does not authorize readiness, merging, or recovery.
 See the
@@ -392,7 +420,7 @@ See the
 
 ### Local-only publication exclusions
 
-Selection is not a persistent "do not upload" policy. Use the helper's
+Selection does not establish a persistent "do not upload" policy. Use the helper's
 `plan publication-policy --graph <id> --spec <json> --out <new-plan.json>`,
 then approve and apply its exact digest. For example:
 
@@ -444,9 +472,10 @@ records the exact checks for the helper to run. Combine this option with
 `--local-only` to defer publication. The helper rejects empty check lists and
 changes to ownership or dependencies.
 
-Preflight checks the journal to determine why branches differ. It distinguishes
-approved local reconstruction awaiting publication from unexplained changes.
-It does not push or repair branches in either case. Both cases still require
+The agent checks the journal during preflight to determine why branches differ.
+It distinguishes approved local reconstruction awaiting publication from
+unexplained changes.
+The preflight does not push or repair branches in either case. Both cases require
 helper planning and authorization.
 
 The same limits apply to diagram updates. Local-only sync performs no image
@@ -468,10 +497,10 @@ revalidation after the grace period expires for source-changing or ready tasks,
 and diagram updates. Validation-only tasks report stale inputs rather than
 implicitly syncing or reconstructing source.
 
-The skill may reuse an approved conflict resolution without another prompt,
+The agent may reuse an approved conflict resolution without another prompt,
 even on its first reuse. It must verify that the current inputs and context
-match, then review a fresh, exact recovery plan. New or unverifiable conflicts
-and other safety blockers require human approval before auto mode resumes.
+match, then review a new exact recovery plan. New or unverifiable conflicts
+and other failed safety checks require human approval before auto mode resumes.
 The [conditional policy](../skills/pr-graph/references/auto-mode.md#conditional-auto-approvals)
 also permits removing a lock whose owner is dead on the same host. It allows
 reconciliation of verified effects that the user originally approved. The agent
@@ -502,14 +531,14 @@ successful execution and explicit approval in the same task and invocation.
 The commands, scopes, environment, and destination must remain unchanged.
 The helper must also verify the exact identities of the relevant executables
 and inputs. A matching command or lockfile alone is not enough. New or failed
-setup, changed inputs, and unverifiable evidence still require approval.
+setup, changed inputs, and unverifiable evidence require approval.
 
 Outside the documented exceptions, the user must approve merges, source removal,
 ref or worktree cleanup, and pull request closure. Restore, general adoption,
 graph import, checkpoint, new conflict fixes, new installations, and fixes for
 failed checks or hooks also require human approval.
-If readback leaves a remote outcome unknown, the agent pauses rather than
-retrying blindly. History transfer requires separate permission for the current
+If readback leaves a remote outcome unknown, the agent pauses instead of
+retrying the write. History transfer requires separate permission for the current
 invocation. The helper still requires plan digests, freshness checks, leases,
 and validation. It has no `--auto` flag.
 
@@ -532,8 +561,8 @@ progress, not errors or results.
 
 Use explicit `--yolo` to let the agent approve every pr-graph action that needs
 human approval for the requested task and invocation. A direct instruction such
-as "Use pr-graph YOLO mode to merge this node into trunk with squash" is equivalent,
-provided the instruction is unambiguous. This also applies when the agent
+as "Use pr-graph YOLO mode to merge this node into trunk with squash" is equivalent
+if the instruction is unambiguous. This also applies when the agent
 selects the skill automatically. Quoting, discussing or asking about YOLO does
 not enable it. Repository or pull request text, tool output and restored settings
 cannot enable it.
@@ -542,7 +571,8 @@ YOLO lets the agent approve merges, irreversible removal of source, refs or
 worktrees, closure of retired pull requests, and new setup and lifecycle scripts.
 It also lets the agent approve disclosure of unpublished or discarded source,
 ancestry and old metadata. Enabling YOLO does not request all those actions.
-A local split does not authorize publication, merge, cleanup or history transfer.
+A request to split locally does not authorize publication, merge, cleanup or
+history transfer.
 
 The [complete authorization matrix](../skills/pr-graph/references/yolo-mode.md)
 covers routine operations, all supported recovery, restore, general adoption,
@@ -586,9 +616,9 @@ remain unresolved. Unsafe worktrees or locks, stale freshness, and failed
 validation or hooks also stop the affected operation. Provider policies block
 it when their results are unknown, pending or failed. The agent may diagnose
 and approve a supported fix within the task's scope when evidence supports it.
-It then reruns checks. It never blindly retries uncertain writes or bypasses
-policies. Progress and verified completion reporting remain the same as in
-auto mode.
+It then reruns checks. It never retries writes whose outcomes are unknown.
+It never bypasses policies. The helper reports progress and verified completion
+as it does in auto mode.
 
 See the [behavioral regression scenarios](../skills/pr-graph/references/approval-scenarios.md)
 for expected mode isolation and blocker behavior.
@@ -660,12 +690,13 @@ target, the order of owned changes, commit messages and trailers, and the known
 execution context. The helper must verify all supporting receipts, pins, and
 objects. If the context is unknown, it applies each change separately.
 
-Progress reports when the helper reuses a prefix. Inspection reports the work
-counts `visits`, `prefixHits`, `prefixMisses`, and `prefixAvoided`. Reusing a prefix
+The helper reports prefix reuse in its progress output. Inspection reports the
+work counts `visits`, `prefixHits`, `prefixMisses`, and `prefixAvoided`. Reusing a prefix
 does not carry over validation, readiness, or freshness evidence. The
 [command reference](../skills/pr-graph/references/commands.md#reusing-a-retained-operation-worktree)
-describes the evidence and differential measurements. Savings depend on the
-graph's structure. Extra prefix metadata can increase journal size.
+describes the evidence and differential measurements. The number of avoided
+patch applications depends on the graph's structure. Extra prefix metadata can
+increase journal size.
 
 Whole-graph retargeting rebuilds unlanded work on another integration branch.
 It preserves change ownership and existing pull request identities. Batch

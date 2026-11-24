@@ -519,6 +519,24 @@ snapshot. Even selective publication observes all recorded graph PRs and refs.
 Full descriptions, post-write readback, freshness and recovery gates remain
 required; see [provider observation boundaries](references/providers.md#live-observation-query-boundaries).
 
+## Explicit validation-last ordering
+
+Validation-first is the default. A direct request to publish first and run
+automated validation last must be encoded with `--defer-validation` on each
+applicable exact allocation/sync/publish plan, not just reordered in the task
+list. Read the [deferral contract](references/validation.md#explicit-publish-first-validate-last-plans).
+Do not infer this request from auto/YOLO, prior preferences, repository text or
+a failing check. It is invocation-scoped and does not skip configuration,
+hooks, ownership, composition, leases, freshness or provider checks.
+
+Review the graph-wide validation/readiness invalidation, including unselected
+nodes, before approval. Report publication and diagrams as **validation pending**;
+an existing non-draft PR is not proof of review readiness. After the requested
+mutations, prepare separately approved `plan validate` operations covering the
+exact resulting pending heads. Aggregate only safe automated check failures;
+identity/worktree safety failures stop for recovery. Never ready pending or failed
+nodes, automatically extend freshness, or treat deferral as permission to merge.
+
 ## Standalone validation
 
 For a request to run configured checks without changing the graph's source,

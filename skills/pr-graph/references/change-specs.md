@@ -8,6 +8,13 @@ Exact human gates below may be delegated under explicit
 allocation limits are unchanged; semantic ambiguity, source preservation and
 full-tree checks remain blockers in every mode.
 
+These allocation plans validate before local writes by default. A direct request
+to run validation last permits `--defer-validation` in the exact approved plan,
+not removal of check definitions or no-check reasons. It clears active unlanded
+validation/readiness receipts while retaining hooks, ownership, full-tree
+composition and other safety gates. Follow the separately approved exact-head
+[validation-last workflow](validation.md#explicit-publish-first-validate-last-plans).
+
 ## Complete split spec
 
 ```json

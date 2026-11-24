@@ -362,6 +362,49 @@ function hostedFixture(f) {
   return { p, records, loseResponse: () => { loseResponse = true; } };
 }
 
+test("deferred hosted publication recovery and sync preserve pending labels and non-draft state without readiness", (t) => {
+  const f = fixture({ remote: true, names: ["a", "c"] });
+  t.after(() => f.dispose());
+  const host = hostedFixture(f);
+  const log = path.join(f.dir, "checks.log");
+  f.spec.nodes[1].validations = [{ command: process.execPath, args: ["-e",
+    `require('node:fs').appendFileSync(${JSON.stringify(log)}, 'checked\\n')`] }];
+  f.apply("split", { spec: f.spec, deferValidation: true });
+  const plan = createPlan(f.ctx, "publish", { graph: "example", deferValidation: true });
+  host.loseResponse();
+  assert.throws(() => applyPlan(f.ctx, plan, plan.approval, true), /response was lost/);
+  assert.equal(fs.existsSync(log), false);
+  const recovery = createPlan(f.ctx, "reconcile", { operation: plan.approval });
+  applyPlan(f.ctx, recovery, recovery.approval, true);
+  const published = applyPlan(f.ctx, plan, plan.approval, true).graph;
+  assert.equal(host.records.size, 2);
+  assert.ok(published.nodes.every((n) => n.pr.draft && /validation pending/.test(n.pr.body) && !n.validation));
+  const checked = f.apply("validate", { graph: "example", selector: "dependents:a" });
+  assert.equal(checked.validation.success, true);
+  assert.deepEqual(checked.validation.results.map((r) => r.status), ["no-check", "passed"]);
+  assert.equal(fs.readFileSync(log, "utf8"), "checked\n");
+  const before = f.apply("ready", { graph: "example", node: "a" }).graph;
+  assert.equal(before.nodes[0].pr.draft, false);
+  assert.ok(before.nodes.every((n) => !/validation pending/.test(n.pr.body)));
+  const advanced = git(f.root, "commit-tree", `${f.base}^{tree}`, "-p", f.base, "-m", "Forward target");
+  git(f.root, "push", "upstream", `${advanced}:refs/heads/trunk`);
+  const synced = f.apply("sync", { graph: "example", deferValidation: true });
+  assert.equal(synced.graph.targetSha, advanced);
+  assert.ok(synced.graph.nodes.every((n, i) => n.head !== before.nodes[i].head && !n.ready &&
+    !n.validation && n.validationPending.head === n.head && /validation pending/.test(n.pr.body)));
+  assert.equal(synced.graph.nodes[0].pr.draft, false);
+  assert.equal(synced.graph.nodes[1].pr.draft, true);
+  assert.equal(fs.readFileSync(log, "utf8"), "checked\n");
+  assert.throws(() => f.apply("ready", { graph: "example", node: "a" }), /validation is missing or stale/);
+  const interrupted = inspect(f.ctx, "example").operations.find((o) => o.status === "running");
+  f.apply("abort", { operation: interrupted.id });
+  const exact = createPlan(f.ctx, "validate", { graph: "example", selector: "dependents:a" });
+  assert.deepEqual(exact.validationInputs.map((n) => n.head), synced.graph.nodes.map((n) => n.head));
+  assert.equal(applyPlan(f.ctx, exact, exact.approval, true).validation.success, true);
+  assert.equal(fs.readFileSync(log, "utf8"), "checked\nchecked\n");
+  assert.equal(f.apply("ready", { graph: "example", node: "a" }).graph.nodes[0].ready, true);
+});
+
 test("batched selective publication still rechecks unselected multi-parent PRs and helper bases between boundaries", (t) => {
   for (const drift of ["pr", "helper"]) {
     const f = fixture({ remote: true });

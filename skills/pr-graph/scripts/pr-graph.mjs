@@ -37,6 +37,7 @@ Prepare a concrete execution/mutation plan:
            export-history, import-history, publication-policy, validate
   validate --select <selector>  Rerun configured checks at pinned heads; no reconstruction or publication
   --validation-environment <json>  Explicit bounded warm/clean worker policy for plan validate
+  --defer-validation         Explicit allocation/sync/publish plan: retain checks, publish validation pending
   publication-policy --spec <json>  Approved local exclude/release lists and reason; preserves lineage evidence
   export-history|import-history --archive <file>  Separately approved evidence-only local transfer
   import-graph --source-repo <path>  Recover changed DAG shape from another verified local clone
@@ -77,7 +78,7 @@ Plans contain code/payloads; keep them outside the product working tree.
 function args(argv) {
   const flags = {};
   const positional = [];
-  const boolean = new Set(["yes", "allow-non-atomic", "retain-published-refs", "quiet", "local-only", "landings-only"]);
+  const boolean = new Set(["yes", "allow-non-atomic", "retain-published-refs", "quiet", "local-only", "landings-only", "defer-validation"]);
   const known = new Set(["repo", "graph", "spec", "out", "node", "strategy", "remote",
     "backup-ref", "backup-branch", "operation", "body-file", "plan", "approve", "base", "head", "landing",
     "fetch-observation", "commit-trailers-file", "reuse-worktree", "nodes", "source-repo",
@@ -106,6 +107,9 @@ export function main(argv) {
 }
 
 function execute(flags, command, action) {
+  requireValue(flags["defer-validation"] === undefined || (command === "plan" &&
+    ["init", "split", "add", "deps", "split-node", "fold", "remove", "absorb", "sync", "publish"].includes(action)),
+  "Use --defer-validation only when planning allocation, sync, or publish; apply and continue use the approved plan.");
   requireValue(flags["validation-environment"] === undefined || (command === "plan" && action === "validate"),
     "Use --validation-environment only with plan validate.");
   const historical = ["history", "interdiff"].includes(command);
@@ -195,6 +199,7 @@ function execute(flags, command, action) {
       publishNodes: flags.nodes === undefined ? undefined : flags.nodes.split(","),
       selector: flags.select,
       validationEnvironment: flags["validation-environment"] ? state.readJson(path.resolve(flags["validation-environment"])) : undefined,
+      deferValidation: flags["defer-validation"],
       landing: flags.landing,
       remote: flags.remote, backupRef: flags["backup-ref"], backupBranch: flags["backup-branch"],
       operation: flags.operation, allowNonAtomic: flags["allow-non-atomic"],

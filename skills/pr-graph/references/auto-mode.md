@@ -47,6 +47,13 @@ and its references for:
 
 ## Conditional auto approvals
 
+Validation-first remains the default. Auto approval is not an explicit request
+for validation-last ordering. Only the user's direct in-scope request permits
+`--defer-validation` on applicable exact plans under the
+[deferral contract](validation.md#explicit-publish-first-validate-last-plans).
+Review the graph-wide receipt invalidation and separately approve subsequent
+exact-head validation; no readiness, merging or freshness extension is implied.
+
 The following actions may also proceed without another human prompt, but only
 when their specific conditions and the original task scope are satisfied.
 For helper actions, review a fresh exact helper plan and digest; setup replay
