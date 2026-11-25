@@ -6,6 +6,7 @@ import * as git from "./git.mjs";
 import * as state from "./state.mjs";
 import { history } from "./history.mjs";
 import { loadPolicy, validatePolicy, importPolicy, effectivePolicy, assertOutbound } from "./publication.mjs";
+import { validateFreezes } from "./freezes.mjs";
 
 const HEX = /^[0-9a-f]{64}$/;
 const ID = /^[a-z0-9][a-z0-9-]*$/;
@@ -39,6 +40,7 @@ function portableSnapshot(value) {
       automatedChecks: n.automatedChecks ?? Boolean(n.validations?.length),
     },
     target: value.target, targetSha: value.targetSha, integration: integration(value.integration),
+    ...(value.reviewFreezes ? { reviewFreezes: value.reviewFreezes } : {}),
     prerequisites: value.prerequisites.map((p) => ({
       id: p.id, change: change(p.change), head: p.head, landing: landing(p.landing),
     })),
@@ -200,6 +202,7 @@ function exact(value, keys, message) {
 }
 
 function validateSnapshot(value, sha) {
+  if (value.reviewFreezes !== undefined) validateFreezes(value.reviewFreezes);
   requireValue(digest(portableSnapshot(value)) === digest(value),
     "Unsafe or unsupported historical snapshot fields.");
   const { node, prerequisites } = value;

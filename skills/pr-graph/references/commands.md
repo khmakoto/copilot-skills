@@ -31,6 +31,8 @@ Read the relevant action reference before preparing a plan:
   record publication, corruption diagnostics and legacy-helper compatibility.
 - [Publication exclusions](publication-exclusions.md): persistent local-only
   node/lineage restrictions, exact outbound scope, release approval and limits.
+- [Review freezes](review-freezes.md): explicit authored-content or exact-review
+  snapshot protection, separate freeze/unfreeze approval, drift and transfer rules.
 
 ```text
 node "<helper>" help
@@ -46,6 +48,7 @@ node "<helper>" plan absorb --repo "<repo>" --graph feature --spec "<spec.json>"
 node "<helper>" plan remove-retired --repo "<repo>" --graph feature --node staging --out "<plan.json>"
 node "<helper>" plan adopt --repo "<repo>" --graph feature --landings-only --spec "<landings.json>" --out "<plan.json>"
 node "<helper>" plan publication-policy --repo "<repo>" --graph feature --spec "<policy.json>" --out "<new-plan.json>"
+node "<helper>" plan review-freeze --repo "<repo>" --graph feature --spec "<freeze.json>" --out "<new-plan.json>"
 ```
 
 Commands emit JSON except `help` and `view`. Failures emit a JSON error to stderr
@@ -75,6 +78,13 @@ approval receipts, never uploads or reconstructs source, and cannot be silently
 substituted by shape specs. Policy and outbound payload scope are part of plans;
 apply/continue reject drift. Exclusion release requires human approval unless
 the skill's explicit YOLO authorization covers the reviewed release and disclosure.
+
+`review-freeze` requires a spec with `freeze` (`{ node, mode }` entries), `unfreeze`
+(node IDs), and a nonempty `reason`. Modes are `authored-content` and
+`exact-review-snapshot`; changing mode requires unfreezing first. These actions
+only update local graph policy/history, with exact graph/ref/PR observations.
+Both require human approval under ordinary auto. Read the
+[protected-field and recovery contract](review-freezes.md) before planning.
 
 ### Dependency diagnostics and advice
 

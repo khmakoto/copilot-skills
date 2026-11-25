@@ -21,7 +21,7 @@ pull request descriptions unchanged. The skill labels their diagrams as
 historical snapshots.
 
 ```text
-/pr-graph [--auto | --yolo] [split | view | dependencies | select | validate | history | interdiff | operation-diff | export-history | import-history | publication-policy | add | absorb | sync | retarget | ready | merge | describe | reshape | adopt | import-graph | checkpoint | remove-retired | backup | restore]
+/pr-graph [--auto | --yolo] [split | view | dependencies | select | validate | history | interdiff | operation-diff | export-history | import-history | publication-policy | review-freeze | add | absorb | sync | retarget | ready | merge | describe | reshape | adopt | import-graph | checkpoint | remove-retired | backup | restore]
 ```
 
 The human approval requirements below apply to interactive mode and ordinary
@@ -112,6 +112,34 @@ landings without rewriting owned changes. History export transfers evidence
 for inspection. It does not transfer executable recovery state. Restore is a
 separate operation and does not establish current validation or readiness.
 
+## Preserve an active review baseline
+
+```text
+/pr-graph Freeze api's authored content in graph feature, allowing reconstruction on updated prerequisites.
+/pr-graph Freeze api's exact review snapshot in graph feature; do not change its base, head or review configuration.
+/pr-graph Prepare an explicit unfreeze plan for api in graph feature. Do not sync or publish yet.
+```
+
+`plan review-freeze` takes `freeze` entries with `node` and `mode`, an `unfreeze`
+list of node identifiers, and a nonempty `reason`. `authored-content` protects the
+complete owned delta, identity, retirement state and lineage.
+`exact-review-snapshot` also protects the realized base and head, dependencies,
+target, namespace, descriptions, checks and pull request review configuration.
+Exact-review-snapshot freezes block indirect prerequisite reconstruction.
+Authored-content freezes allow reconstruction without changing owned content.
+Both modes block splitting, folding or retiring a frozen node. Inspection reports
+freezes and drift.
+
+Freezing and unfreezing require separate exact approvals. Ordinary auto mode
+requires human approval for both actions. YOLO mode may approve a necessary
+separate unfreeze within the task. It cannot override an instruction to preserve
+the review baseline. Neither mode bypasses freshness, validation, landing
+immutability or provider checks. A freeze is local, not a server-side lock.
+The helper reports external edits instead of adopting them.
+Backup, restore and graph import retain policy without validation or approval
+authority. History archives retain evidence only. See the
+[complete protected-field and recovery contract](../skills/pr-graph/references/review-freezes.md).
+
 ## Explicit publish-first, validate-last ordering
 
 ```text
@@ -155,7 +183,7 @@ A validation-only request does not authorize setup, fixes, sync or publication
 in either auto or YOLO mode.
 
 The helper reruns all configured checks, even previously successful checks.
-It runs them serially in a separate owned worktree for each node by default.
+It runs them one at a time in a separate owned worktree for each node by default.
 An approved `--validation-environment <json>` policy can manage one
 to four owned validation workers. The policy identifies ignored cache directories
 and pins environment, toolchain and configuration inputs. It sets a cache-byte
@@ -172,16 +200,17 @@ See the validation contract for the policy schema and metrics.
 If a command fails without changing its worktree, the helper runs the remaining
 checks. If a command changes tracked files or creates untracked files, the
 helper retains those files and skips that node's remaining checks. Other nodes
-run in separate healthy workers. Unknown execution outcomes or changes to
+run in separate uncontaminated workers. Unknown execution outcomes or changes to
 identities or inputs stop the operation. Validation accepts current snapshots
 and the existing verified-forward freshness grace for `main` and `master`. It never
 renews that grace or refreshes integration snapshots.
 
 Results distinguish newly executed checks, retained receipts from the same
 operation, explicit no-check reasons, unavailable or stale inputs, and skipped
-checks. All selected nodes must pass or have explicit no-check reasons for exit
-zero. Otherwise, the helper returns the full JSON report and an error summary,
-then exits nonzero. `--quiet` suppresses progress, not the summary or report.
+checks. All selected nodes must pass or have explicit no-check reasons for the
+helper to exit with code zero. Otherwise, the helper returns the full JSON report
+and an error summary, then exits with a nonzero code. `--quiet` suppresses progress,
+not the summary or report.
 
 The helper rechecks identities, configuration and freshness before updating
 local validation receipts. It records new receipts for passing nodes and nodes
@@ -194,8 +223,8 @@ before approval.
 
 Reapplying a completed plan returns receipts without another test run. Prepare
 a new plan to rerun checks. Inspect interrupted commands with uncertain outcomes
-and explicitly abort the operation rather than retrying blindly. The helper
-retains all worktrees and output. Cleanup requires separate approval and clean
+and approve an abort instead of retrying without evidence. The helper retains all
+worktrees and output. Cleanup requires separate approval and clean
 worktrees. See the [validation contract](../skills/pr-graph/references/validation.md).
 
 ## Simplify dependencies and review sequencing
@@ -381,10 +410,11 @@ namespaces.
 
 The helper transfers archives offline without the skill's normal live freshness
 preflight. `--auto` alone does not authorize these transfers. The user may
-separately authorize transfers for the current invocation. That permission must cover the exact
-source, destination, and retained data, including discarded source, ancestry,
-metadata, and retention costs. The agent may approve reviewed plans only within
-those limits. If the limits change or are unclear, it must ask again.
+authorize transfers in a separate approval for the current invocation. That
+permission must cover the exact source, destination, and retained data, including
+discarded source, ancestry, metadata, and retention costs. The agent may approve
+reviewed plans only within those limits. If the limits change or are unclear, it
+must ask again.
 Backup, restore, and `import-graph` require their own approval. They do not include
 the source clone's history unless separately authorized. The helper does not
 transfer archives remotely or delete them without approval. It retains evidence
@@ -507,7 +537,7 @@ Use `--auto` to authorize routine plans within the current task without repeated
 prompts. It also covers safe freshness fetches and fast-forwards, sync and
 revalidation after the grace period expires for source-changing or ready tasks,
 and diagram updates. Validation-only tasks report stale inputs rather than
-implicitly syncing or reconstructing source.
+syncing or reconstructing source without a request.
 
 The agent may reuse an approved conflict resolution without another prompt,
 even on its first reuse. It must verify that the current inputs and context
@@ -667,7 +697,7 @@ a clean worktree owned by the operation. The commit must have the exact pending
 parent and full message. The plan pins HEAD, the tree, and the complete patch
 from the parent to the resulting commit. The `apply` command rechecks those
 inputs without rewriting the commit or bypassing hooks.
-Continuation never accepts the change implicitly. Recovery does not establish
+Continuation never accepts the change without approval. Recovery does not establish
 validation or readiness. Historical inspection retains the recovery evidence.
 
 Reconstruction plans accept `--commit-trailers-file <json>`. The helper records
@@ -692,8 +722,8 @@ patch applications and commit hooks. Changed or unknown inputs require
 reconstruction. The helper still checks validation, full-tree composition, and
 freshness. The helper does not export unverified cache entries from legacy
 journals. Inspection reports how many patches the helper applied and how many
-cached results it reused from another journal. Reuse does not renew the fetch
-clock.
+cached results it reused from another journal. Reuse does not change the recorded
+fetch start time.
 
 During reconstruction, the helper reuses the longest verified sequence of
 previously composed changes, called a composition prefix. It also reuses complete
@@ -740,8 +770,8 @@ unchanged head, base, base branch, and provider landing commit hash. The helper
 rejects namespace changes, attempts to repair source refs, unrelated pull request
 identity changes, and target rewinds. It retains owned changes and historical
 nodes. It clears validation and readiness for selected nodes and descendants.
-It does not establish freshness or publish anything. Do not silently fall back
-to general adoption when these checks fail.
+It does not establish freshness or publish anything. Do not use general adoption
+without separate approval when these checks fail.
 
 `import-graph --source-repo <path>` requires separate human approval, even in
 auto mode. Use it to import changed node ownership or dependencies from another

@@ -7,6 +7,7 @@ import { createPlan, applyPlan } from "../lib/operations.mjs";
 import * as state from "../lib/state.mjs";
 import { context, refId } from "../lib/git.mjs";
 import { loadPolicy } from "../lib/publication.mjs";
+import { freezeReport } from "../lib/freezes.mjs";
 
 function setup(t) {
   const f = fixture({ remote: true, names: ["a", "b"] });
@@ -110,6 +111,44 @@ test("local import recovers changed DAG shape, preserves dirty checkout and clea
   assert.equal(refId(f.root, `refs/pr-graph/${plan.approval}/original/${f.graph.nodes[1].head}`),
     f.graph.nodes[1].head);
   assert.equal(applyPlan(f.ctx, plan, plan.approval, true).alreadyDone, true);
+});
+
+test("graph import retains source freeze history and cannot release an unchanged destination freeze", (t) => {
+  const f = setup(t);
+  const freeze = (ctx, node, mode) => {
+    const plan = createPlan(ctx, "review-freeze", { graph: "example", spec: {
+      freeze: [{ node, mode }], unfreeze: [], reason: "Preserve reviewed source." } });
+    return applyPlan(ctx, plan, plan.approval, true).graph;
+  };
+  // Only b drifted in the destination; a's independent authored content is unchanged.
+  const local = freeze(f.ctx, "a", "authored-content");
+  f.source.providerFactory = f.ctx.providerFactory;
+  git(f.source.root, "branch", f.b.baseBranch, f.b.base);
+  const source = freeze(f.source, "b", "exact-review-snapshot");
+  source.reviewFreezes.records.push(structuredClone(local.reviewFreezes.records[0]));
+  state.save(f.source, source);
+  const release = createPlan(f.source, "review-freeze", { graph: "example", spec: {
+    freeze: [], unfreeze: ["a"], reason: "Source release is not destination permission." } });
+  applyPlan(f.source, release, release.approval, true);
+  const plan = f.plan();
+  const result = applyPlan(f.ctx, plan, plan.approval, true);
+  assert.deepEqual(result.graph.reviewFreezes.records.map((r) => [r.node, r.release]), [["a", null], ["b", null]]);
+  assert.equal(result.graph.reviewFreezes.records[0].operation, local.lastOperation);
+  assert.equal(result.graph.reviewFreezes.records[1].operation, source.lastOperation);
+  assert.equal(result.graph.reviewFreezes.records[0].observedReleases[0].operation, release.approval);
+  assert.ok(freezeReport(result.graph).find((r) => r.node === "b").drift.includes("checks"));
+  assert.ok(result.graph.nodes.every((n) => !n.validation && !n.ready && !n.validations.length));
+  assert.equal(applyPlan(f.ctx, plan, plan.approval, true).alreadyDone, true);
+});
+
+test("destination exact snapshots block changed imported review configuration before branch writes", (t) => {
+  const f = setup(t);
+  const freeze = createPlan(f.ctx, "review-freeze", { graph: "example", spec: {
+    freeze: [{ node: "a", mode: "exact-review-snapshot" }], unfreeze: [], reason: "Preserve active review." } });
+  applyPlan(f.ctx, freeze, freeze.approval, true);
+  const before = git(f.root, "for-each-ref", "--format=%(refname) %(objectname)", "refs/heads/");
+  assert.throws(f.plan, /freeze blocks a.*checks/);
+  assert.equal(git(f.root, "for-each-ref", "--format=%(refname) %(objectname)", "refs/heads/"), before);
 });
 
 test("import rejects occupied rewrites and stale source, local, remote or human PR observations", (t) => {

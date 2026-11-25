@@ -16,6 +16,12 @@ apply pin/recheck policy and archive scope. Archives may carry a policy ledger;
 import unions active restrictions without importing authority to release any
 destination exclusion.
 
+Version snapshots also retain [review freeze](review-freezes.md) policy and
+freeze/unfreeze receipts. These remain historical evidence: history import does
+not install active graph freezes, execute commands or grant release/recovery
+authority. Graph backup/restore and graph import use their separate policy
+preservation contract.
+
 ## Invocation-scoped transfer authorization
 
 In auto mode, the user may separately authorize a specified export/import for

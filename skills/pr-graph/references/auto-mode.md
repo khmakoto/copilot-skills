@@ -155,9 +155,9 @@ renew an old observation or bypass the helper's execution-time freshness gate.
 
 **Always ask for concrete approval** before merging, source removal (`remove`),
 branch/worktree deletion or cleanup, closing retired PRs, publication-policy
-changes (especially exclusion release/relaxation), restore, `adopt`,
-`import-graph`, or `checkpoint`, except for the narrow landing-only adoption
-allowance above. Ask before new conflict resolutions, installations, or fixes
+changes (especially exclusion release/relaxation), explicit review freeze/unfreeze
+(`review-freeze`), restore, `adopt`, `import-graph`, or `checkpoint`, except for
+the narrow landing-only adoption allowance above. Ask before new conflict resolutions, installations, or fixes
 for failed checks/hooks, except for verified setup replay above and the
 repeat-resolution rule below. Actions outside the routine list
 and conditional allowances above also need human approval. Inspect all plan
@@ -167,10 +167,13 @@ prompt. Never silently disable backup to avoid that prompt.
 **Pause and ask on blockers:** conflicts, failed validation or hooks, missing
 tooling, unexplained divergence, unsafe worktree updates, ambiguous
 repository/remote/target choices, inaccessible or moving refs, unexpected
-source/helper/PR changes, remote effects still uncertain after readback, or
-unknown/pending/failed merge policies. Inspect read-only evidence and propose
-a specific resolution; do not invent new conflict resolutions, stash, install
+source/helper/PR changes, remote effects still uncertain after readback,
+unknown/pending/failed merge policies, or review-freeze blockers. Inspect read-only
+evidence and propose a specific resolution; do not invent new conflict resolutions, stash, install
 unapproved dependencies, bypass checks, or blindly retry writes.
+If freshness requires reconstruction forbidden by an exact review freeze, pause
+for a separately approved unfreeze or retain the blocker; never renew freshness
+or change the freeze implicitly. See [review freezes](review-freezes.md).
 Missing tooling permits only verified approved setup replay under its contract;
 new or failed setup still requires a pause.
 Obtain approval for a new exact fix or recovery outside the conditional

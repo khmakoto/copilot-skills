@@ -31,6 +31,16 @@ reconstruction remains available without publishing. See
 approval and explicit confidentiality limitations. Imported release evidence
 never relaxes destination restrictions.
 
+Optional `reviewFreezes` and their release receipts live in graph snapshots,
+independently of removable node metadata. Freeze/unfreeze require separate exact
+plans; ordinary auto must not silently unfreeze for sync or freshness. Both modes
+protect owned changes/identity; exact snapshots also protect base/head and review
+configuration, including indirect reconstruction. Recovery carries policy or
+historical evidence without current validation/readiness or approval authority.
+Cleared imported checks may expose exact-freeze drift; explicitly unfreeze before
+reconfiguration, not silently re-fingerprint the baseline. See
+[review freezes](review-freezes.md) for precise fields and transfer behavior.
+
 An approved `add`, `fold`, `sync`, `publish`, or `retarget` plan may explicitly
 reuse a stopped operation's clean detached worktree with `--reuse-worktree`. Its path stays
 unchanged; journals record the ownership transfer and reject recovery/cleanup
