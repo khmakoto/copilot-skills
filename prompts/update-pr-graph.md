@@ -32,6 +32,12 @@ release only after establishing the requested disclosure's scope and checking
 that no keep-local constraint forbids it. Never bypass the helper's exclusion
 checks.
 
+Preserve explicit review freezes. Authored-content freezes permit reconstruction
+without changing owned deltas/identity; exact snapshots can block descendant
+sync. Under YOLO, review and approve a separate exact unfreeze only when necessary
+for this task and not contrary to a preserve-review instruction, then replan.
+Never silently relax a freeze or bypass freshness to complete the update.
+
 For checks that do not require reconstruction, use a separately approved
 `plan validate --select <selector>`. Proactively prefer warm workers whenever
 safe, supported reuse is possible. This prompt requests warm worker and artifact

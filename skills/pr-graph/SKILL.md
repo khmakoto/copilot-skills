@@ -2,7 +2,7 @@
 name: pr-graph
 description: Split a large Git branch into small, independently reviewable changes and manage their multi-parent dependency graph. Create clean blocked draft PRs, advise on dependencies, add or reshape nodes, rerun configured checks without reconstruction, sync after prerequisites land, and explicitly ready or merge eligible changes. Supports local Git, GitHub, GitHub Enterprise Server, and Azure DevOps. Use when the user invokes /pr-graph or asks to split work into dependent PRs, simplify or validate a PR DAG, manage a PR tree or DAG, or land independent parts of a change.
 compatibility: Requires Node.js 22+ and Git 2.31+. Hosted workflows require authenticated gh or az. Scripts are portable across Linux, macOS, and Windows; no package installation or build step.
-argument-hint: "[--auto | --yolo] [split | view | dependencies | select | validate | history | interdiff | operation-diff | export-history | import-history | publication-policy | add | absorb | sync | ready | merge | reshape | backup | restore] [repository, graph, or constraints]"
+argument-hint: "[--auto | --yolo] [split | view | dependencies | select | validate | history | interdiff | operation-diff | export-history | import-history | publication-policy | review-freeze | add | absorb | sync | ready | merge | reshape | backup | restore] [repository, graph, or constraints]"
 ---
 
 # Pull Request Graph
@@ -86,6 +86,15 @@ readback. Incoming restrictions persist through supported transfers, not incomin
 release authority. Do not promise secret detection, retroactive retraction or
 protection against external tools.
 
+For active review protection, use the [review-freeze contract](references/review-freezes.md).
+`authored-content` preserves owned deltas/identity while permitting reconstruction;
+`exact-review-snapshot` also pins realized base/head and review configuration,
+including indirect prerequisite effects. Freeze/unfreeze are separate digest-bound
+local actions with retained history. Never infer freezes from review/draft state,
+silently unfreeze under ordinary auto, or bypass a freeze to satisfy freshness.
+Report external drift without adopting it. Supported transfers preserve policy or
+historical evidence, not validation/readiness or authorization.
+
 The helper is not a server-side dependency policy. It refuses unsafe readiness
 and merges, and detects observable external bypasses; it cannot prevent all
 actions taken directly in a hosting UI. See [providers](references/providers.md).
@@ -106,9 +115,10 @@ including the [conditional approvals](references/auto-mode.md#conditional-auto-a
 
 Keep exact saved plans, `--yes --approve <digest>`, freshness, leases, hooks,
 validation and provider policies. Merging, source/ref/worktree deletion, PR
-closure, exclusion release, restore, general adoption, graph import, checkpoint
-and new setup/conflict/check fixes retain human gates outside the documented
-exceptions. History transfer needs its separate invocation-scoped opt-in.
+closure, exclusion release, review freeze/unfreeze, restore, general adoption,
+graph import, checkpoint and new setup/conflict/check fixes retain human gates
+outside the documented exceptions. History transfer needs its separate
+invocation-scoped opt-in.
 Unresolved blockers still pause; never blindly retry uncertain writes.
 Do not persist or inherit auto authorization into another invocation/task,
 and honor revocation immediately. Other skills and environment permissions
@@ -132,7 +142,7 @@ this invocation only. This includes routine and conditional auto effects,
 merging, source removal, ref/worktree cleanup, retired PR closure, all supported
 recovery, restore, general adoption, graph import, checkpoint, new conflict
 resolutions, setup, failed-check/hook fixes, publication-policy changes including
-exclusion release, and history transfer. Read the
+exclusion release, explicit review freeze/unfreeze, and history transfer. Read the
 [complete authorization matrix and scope contract](references/yolo-mode.md)
 before using this mode.
 

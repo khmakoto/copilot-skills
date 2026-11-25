@@ -15,6 +15,7 @@ function snapshot(graph, id) {
   if (!node) return null;
   return {
     node, target: graph.target, targetSha: graph.targetSha ?? null,
+    ...(graph.reviewFreezes ? { reviewFreezes: graph.reviewFreezes } : {}),
     integration: node.integration ?? graph.integration ?? null,
     prerequisites: prerequisites(graph, id).map((n) => ({
       id: n.id, change: n.change, head: n.head ?? null, landing: n.landing ?? null,
@@ -24,6 +25,7 @@ function snapshot(graph, id) {
 
 function differences(before, after) {
   const changed = (a, b) => digest(a ?? null) !== digest(b ?? null);
+  const freezes = (value) => value?.reviewFreezes?.records.filter((r) => r.node === value.node.id) ?? [];
   return {
     presence: Boolean(before) !== Boolean(after),
     ownChange: changed(before?.node.change, after?.node.change),
@@ -34,9 +36,9 @@ function differences(before, after) {
     integration: changed([before?.target, before?.targetSha, before?.integration],
       [after?.target, after?.targetSha, after?.integration]),
     metadata: changed(before && [before.node.title, before.node.description, before.node.branch,
-      before.node.retired, before.node.supersedes, before.node.replacedBy],
+      before.node.retired, before.node.supersedes, before.node.replacedBy, freezes(before)],
     after && [after.node.title, after.node.description, after.node.branch,
-      after.node.retired, after.node.supersedes, after.node.replacedBy]),
+      after.node.retired, after.node.supersedes, after.node.replacedBy, freezes(after)]),
     validation: changed([before?.node.validationCommandsDigest ?? before?.node.validations,
       before?.node.validationReason, before?.node.validation],
     [after?.node.validationCommandsDigest ?? after?.node.validations,

@@ -3,6 +3,7 @@ import * as state from "./state.mjs";
 import { digest, requireValue, topological, eligible, helperBranch, validateGraph } from "./graph.mjs";
 import { normalizeChange } from "./changes.mjs";
 import { providerFor } from "./providers/index.mjs";
+import { assertFrozenObservations } from "./freezes.mjs";
 
 const provider = (ctx, graph) => ctx.providerFactory?.(graph.repository.provider) ??
   providerFor(graph.repository.provider, ctx.root);
@@ -243,6 +244,7 @@ export function applyAdoptionPlan(ctx, plan) {
   }
   requireValue(digest(current) === plan.previousDigest, "Graph changed; prepare a new adoption plan.");
   const facts = observations(ctx, plan.graph, plan.previous);
+  assertFrozenObservations(current, facts);
   if (plan.landingsOnly) {
     requireValue(plan.updates.length === 0, "Landing-only adoption cannot move source refs.");
     landingTarget(ctx, plan.graph, plan.graph.targetSha, facts.remote[plan.graph.target],

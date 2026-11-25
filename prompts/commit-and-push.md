@@ -25,6 +25,11 @@ effects remain unresolved. Authorization ends with this task and invocation.
 It does not approve other skills' actions, including review-thread replies or
 resolution, or override tool or environment permissions.
 
+Preserve explicit review freezes during allocation and dependent reconstruction.
+If one blocks this task, use the skill's separate exact unfreeze contract under
+YOLO only when in scope and not contrary to a preserve-review instruction, then
+replan. Never bypass a freeze or freshness check.
+
 Allocate follow-up edits with the skill's absorb workflow. Explicitly select
 and pin the committed delta. Do not stage or commit dirty work as an implicit
 part of absorb. Use retained own patches and dependency context to determine

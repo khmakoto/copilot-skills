@@ -34,11 +34,12 @@ Prepare a concrete execution/mutation plan:
            publish, sync, retarget, ready, merge, describe, backup,
            fetch-backup, restore, resolve, reconcile, abort, cleanup, unlock,
            record-landing, adopt, checkpoint, remove-retired, import-graph,
-           export-history, import-history, publication-policy, validate
+           export-history, import-history, publication-policy, review-freeze, validate
   validate --select <selector>  Rerun configured checks at pinned heads; no reconstruction or publication
   --validation-environment <json>  Explicit bounded warm/clean worker policy for plan validate
   --defer-validation         Explicit allocation/sync/publish plan: retain checks, publish validation pending
   publication-policy --spec <json>  Approved local exclude/release lists and reason; preserves lineage evidence
+  review-freeze --spec <json>  Explicit authored-content/exact-review-snapshot freezes or unfreezes; local policy only
   export-history|import-history --archive <file>  Separately approved evidence-only local transfer
   import-graph --source-repo <path>  Recover changed DAG shape from another verified local clone
   adopt --spec <json>         Local-only adoption of verified external PR rewrites

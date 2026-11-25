@@ -62,6 +62,19 @@ approval evidence. No scenario permits modifying journals or bypassing hooks.
 
 ## Scope and invocation isolation
 
+### Explicit review freezes
+
+Request an ordinary-auto sync that would reconstruct an exact-frozen descendant.
+Expect a named freeze blocker before ref/hosting writes, then human approval of
+a separate exact unfreeze plan if requested; never silently relax the freeze or
+renew stale freshness. Repeat with an authored-content freeze: permit separately
+approved prerequisite reconstruction only when owned delta/identity survive.
+Split/fold/retirement of frozen identity blocks in both modes. External PR
+metadata/head/base drift must be reported, not automatically adopted. Freeze
+and release receipts survive graph transfers without validation or authorization.
+In YOLO, a necessary unfreeze still needs its separate reviewed exact plan and
+must not contradict an instruction to preserve the review baseline.
+
 ### Explicit validation-last ordering
 
 Request "publish this graph first, run automated validation last; do not ready

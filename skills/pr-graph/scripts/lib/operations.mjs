@@ -19,6 +19,8 @@ import { nodeDetails, step } from "./progress.mjs";
 import { readPullRequests } from "./observations.mjs";
 import { planAbsorb, verifyAbsorb } from "./absorb.mjs";
 import { createValidationPlan, applyValidationPlan, validationRecoveryPlan, applyValidationRecovery } from "./validation.mjs";
+import { createFreezePlan, applyFreezePlan, checkFreezePlan, assertFreezes,
+  assertFrozenObservations, freezeReport, mergeFreezes } from "./freezes.mjs";
 import {
   loadPolicy, effectivePolicy, createPolicyPlan, applyPolicyPlan, outboundScope,
   assertOutbound, checkOutbound, mergePolicies,
@@ -30,7 +32,7 @@ const FORWARD_TARGET = new Set(["retarget", "describe"]);
 const ACTIONS = new Set([...SHAPE, "publish", "sync", "retarget", "ready", "merge", "backup",
   "fetch-backup", "restore", "resolve", "abort", "cleanup", "describe", "reconcile", "unlock",
   "record-landing", "adopt", "checkpoint", "remove-retired", "import-graph", "export-history", "import-history",
-  "publication-policy", "validate"]);
+  "publication-policy", "review-freeze", "validate"]);
 
 const now = (ctx) => ctx.now?.() ?? Date.now();
 
@@ -160,6 +162,7 @@ function normalizeSpec(ctx, spec, previous) {
     version: VERSION, id: spec.id, title: spec.title ?? previous?.title ?? spec.id,
     revision: previous?.revision ?? 0, ...(previous?.source ? { source: previous.source } : {}),
     ...(previous?.publicationPolicy ? { publicationPolicy: structuredClone(previous.publicationPolicy) } : {}),
+    ...(previous?.reviewFreezes ? { reviewFreezes: structuredClone(previous.reviewFreezes) } : {}),
     repository: { identity: identity(remote.url, config, ctx.root), remote: remote.name, url: remote.url, provider: config },
     target, nodes: [], ...(previous?.integration ? { integration: previous.integration } : {}),
     helperBranchPrefix: spec.helperBranchPrefix ?? previous?.helperBranchPrefix ?? `pr-graph/${spec.id}/bases`,
@@ -480,6 +483,15 @@ export function createPlan(ctx, action, options = {}) {
   const { approval, ...plan } = preparePlan(ctx, action, options);
   const id = plan.graph?.id ?? plan.graphId;
   if (id) {
+    const previous = state.load(ctx, id, true);
+    if (action === "import-graph" && (previous?.reviewFreezes || plan.graph.reviewFreezes)) {
+      plan.graph.reviewFreezes = mergeFreezes(previous?.reviewFreezes, plan.graph.reviewFreezes);
+    }
+    const freezes = checkFreezePlan(previous, plan);
+    if (freezes.length) plan.freezes = freezes;
+    if (previous?.reviewFreezes && plan.facts?.prs && !["review-freeze", "import-graph"].includes(action)) {
+      assertFrozenObservations(previous, plan.facts);
+    }
     plan.publicationPolicy = loadPolicy(ctx, id);
     plan.publicationPolicyDigest = digest(plan.publicationPolicy);
     plan.outboundScope = action === "export-history" ? [{
@@ -516,6 +528,7 @@ function preparePlan(ctx, action, options = {}) {
   "Landing-only mode is supported only for adopt and must be boolean.");
   const localOnly = options.localOnly === true;
   if (action === "publication-policy") return createPolicyPlan(ctx, options);
+  if (action === "review-freeze") return createFreezePlan(ctx, options, validationIO(ctx));
   requireValue(options.reuseWorktree === undefined || ["add", "fold", "sync", "publish", "retarget"].includes(action),
     "Worktree reuse is supported only for add, fold, sync, publish, and retarget.");
   if (options.commitTrailers !== undefined) {
@@ -971,6 +984,8 @@ function verifyFacts(ctx, plan, provider, journal) {
   }
   requireValue(localCurrent(ctx, plan) === plan.previousDigest, "Graph state changed; create a fresh plan.");
   const current = observe(ctx, journal.candidate ?? plan.graph, provider, Boolean(plan.selection));
+  assertFrozenObservations({ ...plan.graph, reviewFreezes: { version: 1,
+    records: (plan.graph.reviewFreezes?.records ?? []).filter((r) => r.mode === "exact-review-snapshot") } }, current);
   for (const [branch, before] of Object.entries(plan.facts.local)) {
     requireValue(current.local[branch] === (journal.local?.[branch] ?? journal.observedLocal?.[branch] ?? before),
       `Local ref changed: ${branch}`);
@@ -1472,6 +1487,10 @@ export function applyPlan(ctx, plan, approval, yes) {
     return { unlocked: owner };
   }
   return state.lock(ctx, () => {
+    if (plan.graph && plan.action !== "review-freeze") {
+      const current = state.load(ctx, plan.graph.id, true);
+      if (current?.lastOperation !== plan.approval) checkFreezePlan(current, plan);
+    }
     const policyGraph = plan.graph?.id ?? plan.graphId;
     if (policyGraph) {
       const currentPolicy = digest(loadPolicy(ctx, policyGraph));
@@ -1495,6 +1514,7 @@ export function applyPlan(ctx, plan, approval, yes) {
       }
     }
     if (plan.action === "publication-policy") return applyPolicyPlan(ctx, plan);
+    if (plan.action === "review-freeze") return applyFreezePlan(ctx, plan, validationIO(ctx));
     if (plan.action === "validate") return applyValidationPlan(ctx, plan, validationIO(ctx));
     if (["export-history", "import-history"].includes(plan.action)) return applyHistoryTransferPlan(ctx, plan);
     if (plan.action === "import-graph") return step("Importing approved local DAG snapshot", () => applyImportPlan(ctx, plan));
@@ -1555,6 +1575,7 @@ export function applyPlan(ctx, plan, approval, yes) {
       const target = git.commitId(ctx.root, plan.target);
       const previous = state.load(ctx, graph.id, true);
       reconcile(ctx, graph, facts, target, SHAPE.has(plan.action) ? previous : null);
+      checkFreezePlan(previous, { ...plan, graph });
       if (plan.action === "absorb") {
         for (const node of graph.nodes.filter((n) => !n.retired && !n.landing)) {
           for (const branch of [node.branch, helperBranch(graph, node.id)]) {
@@ -1596,6 +1617,7 @@ export function applyPlan(ctx, plan, approval, yes) {
         if (plan.source) requireValue(git.tree(cwd, graph.combined) === git.tree(cwd, plan.source.head),
           "Graph is not lossless: reconstructed tree differs from the approved source.");
         graph.targetSha = target;
+        assertFreezes(previous, graph);
         validateNodes(ctx, graph, journal, cwd);
         if (plan.publishNodes) {
           for (const node of graph.nodes.filter((n) => !plan.publishNodes.includes(n.id))) {
@@ -1689,6 +1711,7 @@ export function applyPlan(ctx, plan, approval, yes) {
       }
       if (plan.selection) verifyFacts(ctx, plan, provider, journal);
       const freshness = freshnessReport(ctx, graph, observe(ctx, graph, provider));
+      assertFreezes(previous, graph);
       graph.revision = plan.graph.revision + 1;
       graph.lastOperation = journal.id;
       journal.candidate = graph;
@@ -2125,9 +2148,11 @@ export function previewSelection(ctx, id, selector) {
 
 export function inspect(ctx, id) {
   const graph = state.load(ctx, id, true);
+  const facts = graph ? observe(ctx, graph, getProvider(ctx, graph)) : null;
   return {
     graph,
-    freshness: graph ? freshnessReport(ctx, graph, observe(ctx, graph, getProvider(ctx, graph))) : {},
+    freshness: graph ? freshnessReport(ctx, graph, facts) : {},
+    freezes: graph ? freezeReport(graph, facts) : [],
     eligible: graph?.nodes.filter((n) => eligible(graph, n)).map((n) => n.id) ?? [],
     operations: state.journals(ctx, (j) => j.plan.graph?.id === id ? ({
       id: j.id, status: j.status, error: j.error, pending: j.pendingChange,

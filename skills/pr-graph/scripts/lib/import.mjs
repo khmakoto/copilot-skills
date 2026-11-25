@@ -6,6 +6,7 @@ import { identity, resolveProvider, providerFor } from "./providers/index.mjs";
 import { normalizeChange } from "./changes.mjs";
 import { step, nodeDetails } from "./progress.mjs";
 import { effectivePolicy, loadPolicy } from "./publication.mjs";
+import { assertFrozenObservations } from "./freezes.mjs";
 
 const shaPattern = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
 
@@ -213,6 +214,7 @@ export function applyImportPlan(ctx, plan) {
     "Source and destination repository identities differ.");
   const p = provider(ctx, plan.graph);
   const facts = observe(ctx, plan.graph, plan.previous, p);
+  assertFrozenObservations(current, facts);
   requireValue(forward(ctx, source, p, plan.facts.remote[plan.graph.target], facts.remote[plan.graph.target]),
     "Integration target rewound or diverged.");
   for (const [branch, sha] of Object.entries(plan.facts.remote)) {

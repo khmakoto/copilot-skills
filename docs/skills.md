@@ -163,7 +163,7 @@ state. Keep `payloads/` with local state backups. Portable history archives rema
 self-contained and do not transfer execution authority. See
 [storage compatibility](../skills/pr-graph/references/state-storage.md).
 
-The helper reruns configured checks at existing pinned heads through a separately
+The helper reruns configured checks at existing pinned heads through a separate
 approved `plan validate --select <selector>` plan. It does not reconstruct or
 publish nodes. By default, it runs checks in a separate worktree for each node.
 An approved environment policy lets the helper reuse validation workers and build
@@ -203,18 +203,28 @@ when outcomes are uncertain. It never bypasses digests or safety checks.
 
 Publication exclusions prevent the helper from uploading local-only node lineage,
 retained versions, and metadata through product refs, helper refs, backups, and
-history exports. The user must separately approve the release of an exclusion, even in
-ordinary auto mode. In YOLO mode, the agent may approve that separate release
+history exports. The user must approve the release of an exclusion in a separate
+plan, even in ordinary auto mode. In YOLO mode, the agent may approve that release
 only within established disclosure limits. These exclusions do not detect
 secrets or protect against external tools. See the
 [policy contract](../skills/pr-graph/references/publication-exclusions.md).
 
+Review freezes protect authored content and identity or an exact realized review
+snapshot and its review configuration. Authored-content freezes allow
+reconstruction. Exact-review-snapshot freezes block indirect prerequisite
+reconstruction. Separate digest-bound `review-freeze` plans freeze or unfreeze
+nodes and retain history. Ordinary auto mode requires human approval for both
+actions. It cannot unfreeze a node without that approval to satisfy freshness.
+The helper reports external drift. Supported transfers preserve policy and
+evidence, not current validation or authorization. See
+[review freezes](pr-graph.md#preserve-an-active-review-baseline).
+
 Explicit `--yolo` lets the agent approve every pr-graph action that needs human
 approval for this task and invocation. These actions include merging, deletion,
 pull request closure, recovery, new setup and fixes, restore, graph import,
-checkpoint, exclusion release and history transfer. It can irreversibly delete
-resources, execute setup scripts or disclose unpublished or discarded source
-and metadata.
+checkpoint, exclusion release, explicit review freezing and unfreezing, and history
+transfer. It can irreversibly delete resources, execute setup scripts or disclose
+unpublished or discarded source and metadata.
 
 The agent establishes the exact source, destination, access permissions and limits
 on retained data from the task and verified repository evidence. The operation
@@ -227,7 +237,7 @@ with this task and invocation and does not apply to other skills. Ordinary
 [examples](pr-graph.md#yolo-mode).
 
 ```text
-/pr-graph [--auto | --yolo] [split | view | dependencies | select | validate | history | interdiff | operation-diff | export-history | import-history | publication-policy | add | absorb | sync | retarget | ready | merge | describe | reshape | adopt | import-graph | checkpoint | remove-retired | backup | restore]
+/pr-graph [--auto | --yolo] [split | view | dependencies | select | validate | history | interdiff | operation-diff | export-history | import-history | publication-policy | review-freeze | add | absorb | sync | retarget | ready | merge | describe | reshape | adopt | import-graph | checkpoint | remove-retired | backup | restore]
 ```
 
 The helper requires Node.js 22+ and Git 2.31+. Hosted operations also require
@@ -238,8 +248,8 @@ composed changes when their exact inputs and known execution context match.
 Reuse does not carry over validation or freshness evidence.
 
 The helper batches reads from the provider within a check. It never caches them
-across checks. Selecting nodes does not skip checks for graph-wide changes or readback
-after writes.
+across checks. Selecting nodes does not skip checks for graph-wide changes or
+readback after writes.
 
 See the [`pr-graph` guide](pr-graph.md) for requirements, validation and approval
 rules, and [example requests](pr-graph.md#example-requests) for invocations.

@@ -4,6 +4,7 @@ import os from "node:os";
 import { digest, requireValue, validateGraph } from "./graph.mjs";
 import * as git from "./git.mjs";
 import { retainPolicy } from "./publication.mjs";
+import { assertFreezes } from "./freezes.mjs";
 import { readJson, atomicJson, storedJson } from "./storage.mjs";
 
 export { readJson, atomicJson, storedJson };
@@ -21,10 +22,11 @@ export function load(ctx, id, optional = false, cache = new Map()) {
 
 export function save(ctx, graph, plan) {
   validateGraph(graph);
-  retainPolicy(ctx, graph, load(ctx, graph.id, true));
+  const before = load(ctx, graph.id, true);
+  if (plan?.action !== "review-freeze") assertFreezes(before, graph);
+  retainPolicy(ctx, graph, before);
   validateGraph(graph);
   if (plan) {
-    const before = load(ctx, graph.id, true);
     if (digest(before) !== digest(graph)) {
       const payload = { version: 1, operation: plan.approval, action: plan.action, before, after: graph };
       const id = digest(payload);

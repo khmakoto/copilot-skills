@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { validatePolicy } from "./publication.mjs";
+import { validateFreezes } from "./freezes.mjs";
 
 /**
  * @typedef {{base: string, head: string|null, patch: string, fingerprint: string}} OwnChange
@@ -54,6 +55,7 @@ export function digest(value) {
 }
 
 export function validateGraph(graph) {
+  if (graph?.reviewFreezes !== undefined) validateFreezes(graph.reviewFreezes);
   if (graph?.publicationPolicy !== undefined) validatePolicy(graph.publicationPolicy);
   requireValue(graph?.version === VERSION, "Unsupported graph version.");
   requireValue(typeof graph.id === "string" && /^[a-z0-9][a-z0-9-]*$/.test(graph.id), "Invalid graph ID.");
@@ -239,6 +241,8 @@ export function render(graph, freshness = {}) {
         n.retired ? "superseded" : n.landing ? "landed" : eligible(graph, n) ? "eligible" : "BLOCKED"
       }${n.pr ? `; ${n.pr.draft ? "draft" : n.validationPending ? "non-draft" : "ready"} ${n.pr.url}` : "; unpublished"}; freshness: ${
         freshness[n.id]?.integration.status ?? "unknown"
-      }; branch: ${freshness[n.id]?.branch.status ?? "unknown"}; validation: ${freshness[n.id]?.validation ?? n.validationPending?.status ?? "unknown"}`),
+      }; branch: ${freshness[n.id]?.branch.status ?? "unknown"}; validation: ${freshness[n.id]?.validation ?? n.validationPending?.status ?? "unknown"}${
+        (graph.reviewFreezes?.records ?? []).filter((r) => r.node === n.id && !r.release)
+          .map((r) => `; freeze: ${r.mode}`).join("")}`),
   ].join("\n");
 }
