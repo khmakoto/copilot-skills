@@ -111,8 +111,8 @@ report that constraint; do not weaken the gate to make the command succeed.
 ## Azure DevOps
 
 Use configured native `az` authentication and commands. Read/create/policy
-operations use the DevOps extension; target/draft updates and explicit strategy
-completion use `az rest` with its configured authentication.
+operations use the DevOps extension; target, draft, description and state updates
+and explicit strategy completion use `az rest` with its configured authentication.
 
 Do not extract, print, export, or put bearer tokens in temporary files. In an
 environment with an approved auth broker/shim, follow that environment's
@@ -125,8 +125,10 @@ arguments into a shell command. Environments exposing only a `.cmd`/shell wrappe
 that Node cannot launch must supply an approved executable invocation or report
 the launcher limitation; do not work around it with unsafe shell quoting.
 
-Retarget support is conditional. Read back every requested target, draft, and
-description update; an ignored update is a failure. ADO descriptions are
+Retarget support is conditional. Read back every requested target, draft,
+description and state update; an ignored update is a failure. Closure requests
+map to ADO `abandoned` and must read back as `closed`; reopening requests map to
+`active` and must read back as `open`. ADO descriptions are
 bounded at 4000 characters by the adapter. Propose a shorter body explicitly;
 do not truncate human text.
 
@@ -135,11 +137,12 @@ Completed ADO PRs reject description edits. Footer refresh verifies their
 identity and preserves their immutable descriptions; refresh diagrams only on
 editable active PRs and report completed diagrams as historical.
 Read the current target and omit that field for unchanged targets; still
-apply and verify requested description/draft changes. For changed targets,
-send and verify the retarget separately before sending description/draft
+apply and verify requested description, draft and state changes. For changed targets,
+send and verify the retarget separately before sending description, draft and state
 updates: a combined request can apply the target while ignoring other fields.
 Every requested field still requires exact readback; partial effects require
-approved reconciliation before resuming. Commit diffs include
+approved reconciliation before resuming. Failed or unavailable readback does not
+authorize an automatic write retry. Commit diffs include
 directory entries: exclude trees from own-file comparisons, retain both rename
 paths (including `sourceServerItem`) and submodule entries, and paginate using
 the unfiltered server entry count.

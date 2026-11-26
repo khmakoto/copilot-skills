@@ -145,6 +145,34 @@ test("ADO updates do not retarget an unchanged base but still preserve requested
   assert.deepEqual(patches, [{ description: "After", isDraft: true }]);
 });
 
+for (const requestedState of ["closed", "open"]) {
+  for (const accept of [true, false]) {
+    test(`ADO verifies ${accept ? "accepted" : "ignored"} ${requestedState} state updates`, () => {
+      const calls = [];
+      let status = requestedState === "closed" ? "active" : "abandoned";
+      const runner = (command, args) => {
+        calls.push({ command, args });
+        if (args[0] === "rest") {
+          const body = JSON.parse(args[args.indexOf("--body") + 1]);
+          assert.deepEqual(body, { status: requestedState === "closed" ? "abandoned" : "active" });
+          if (accept) status = body.status;
+        }
+        return { status: 0, stderr: "", stdout: JSON.stringify({
+          pullRequestId: 1, status, sourceRefName: "refs/heads/feature", targetRefName: "refs/heads/trunk",
+        }) };
+      };
+      const provider = adoProvider({ host: "dev.azure.com", organization: "o", project: "p", repo: "r" }, ".", runner);
+      if (accept) assert.equal(provider.update(1, { state: requestedState }).state, requestedState);
+      else assert.throws(() => provider.update(1, { state: requestedState }), /ADO state update was not applied/);
+      assert.deepEqual(calls.map(({ command, args }) => [command, args[0], args[1]]), [
+        ["az", "rest", "--method"], ["az", "repos", "pr"],
+      ]);
+      assert.equal(calls[0].args[calls[0].args.indexOf("--method") + 1], "PATCH");
+      assert.equal(calls[1].args[2], "show");
+    });
+  }
+}
+
 test("ADO active merge previews are not landing receipts", () => {
   let status = "active";
   const provider = adoProvider({ host: "dev.azure.com", organization: "o", project: "p", repo: "r" }, ".",
@@ -207,25 +235,28 @@ test("ADO refuses metadata writes after an ignored retarget", () => {
   assert.deepEqual(patches, [{ targetRefName: "refs/heads/new-helper" }]);
 });
 
-for (const ignored of ["description", "isDraft"]) {
+for (const ignored of ["description", "isDraft", "status"]) {
   test(`ADO still refuses an ignored ${ignored} update after a successful retarget`, () => {
     let target = "refs/heads/old-helper", description = "Human", draft = false;
+    let status = "active";
     const runner = (command, args) => {
       if (args[0] === "rest") {
         const body = JSON.parse(args[args.indexOf("--body") + 1]);
         if (body.targetRefName !== undefined) target = body.targetRefName;
         if (body.description !== undefined && ignored !== "description") description = body.description;
         if (body.isDraft !== undefined && ignored !== "isDraft") draft = body.isDraft;
+        if (body.status !== undefined && ignored !== "status") status = body.status;
       }
       return { status: 0, stderr: "", stdout: JSON.stringify({
         pullRequestId: 1, sourceRefName: "refs/heads/feature", targetRefName: target,
-        description, isDraft: draft, status: "active",
+        description, isDraft: draft, status,
       }) };
     };
     const provider = adoProvider({ host: "dev.azure.com", organization: "o", project: "p", repo: "r" }, ".", runner);
     assert.throws(() => provider.update(1, {
-      baseBranch: "new-helper", body: "Approved body", draft: true,
-    }), ignored === "description" ? /description update was not applied/ : /draft update was not applied/);
+      baseBranch: "new-helper", body: "Approved body", draft: true, state: "closed",
+    }), ignored === "description" ? /description update was not applied/ :
+      ignored === "isDraft" ? /draft update was not applied/ : /state update was not applied/);
     assert.equal(target, "refs/heads/new-helper");
   });
 }

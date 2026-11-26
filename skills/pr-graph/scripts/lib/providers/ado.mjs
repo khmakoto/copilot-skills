@@ -113,6 +113,7 @@ export function adoProvider(config, cwd, runner = run) {
         "ADO retargeting unavailable or ignored. Stop; enable retargeting before continuing.");
       requireValue(fields.draft === undefined || current.draft === fields.draft, "ADO draft update was not applied.");
       requireValue(fields.body === undefined || current.body === fields.body, "ADO description update was not applied.");
+      requireValue(fields.state === undefined || current.state === fields.state, "ADO state update was not applied.");
       return current;
     },
     diffPaths(id) {
