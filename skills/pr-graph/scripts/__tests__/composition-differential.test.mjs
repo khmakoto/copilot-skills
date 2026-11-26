@@ -88,7 +88,7 @@ for (const shape of ["chain", "diamond", "wide"]) {
         next.result.graph.nodes.find((n) => n.id === "e").base);
     }
     t.diagnostic(JSON.stringify({ shape,
-      baseline: { ...old.counts, visits: before.visits },
-      optimized: { ...next.counts, visits: after.visits, avoided: after.prefixAvoided } }));
+      baseline: { ...old.counts, visits: before.visits, applied: before.applied },
+      optimized: { ...next.counts, visits: after.visits, applied: after.applied, avoided: after.prefixAvoided } }));
   });
 }

@@ -25,10 +25,9 @@ the exact contents.
 
 ## `ci-triage`
 
-The skill investigates failures in GitHub or Azure DevOps pull request checks,
-workflow runs, build runs and local build or test commands. Before investigating a
-failure, it records the tested revision, run attempt, job or matrix entry and
-relevant configuration.
+The skill investigates failed GitHub or Azure DevOps pull request checks,
+workflow runs, build runs and local build or test commands. It first records the
+tested revision, run attempt, job or matrix entry and relevant configuration.
 
 The skill classifies each cause as change-related, pre-existing, test-fixture,
 infrastructure or environment, flaky, or undetermined. It gives evidence and a
@@ -68,7 +67,7 @@ publishing anything. Implementation requires a separate instruction.
 
 The skill drafts or updates a GitHub or Azure DevOps pull request description.
 It uses the current published diff and the repository's pull request template
-when one applies. It includes verified validation evidence. It supports GitHub
+when one applies. It reports verified validation evidence. It supports GitHub
 Enterprise Server and legacy Azure DevOps URLs through each provider's tools.
 
 The skill preserves references, attachments, managed graph footers and diagram
@@ -77,7 +76,8 @@ unchanged. It separates validation evidence for the current pull request head
 from historical results. It also reports pending, failed, or unavailable checks.
 
 The user may edit the complete body and must approve its exact content before
-publication. The skill checks for intervening changes before publishing.
+the skill publishes it. The skill checks for intervening changes before
+publishing.
 It reads back the saved description to verify it. Draft-only mode makes no remote
 changes. Neither mode changes code, review threads, graph state, or other pull
 request metadata.
@@ -138,11 +138,11 @@ It splits files with substantial behavior into separate review stops.
 The skill splits existing branches and manages changes as a multi-parent
 dependency graph in local Git, GitHub, GitHub Enterprise Server, or Azure DevOps.
 
-The read-only `dependencies` command reports redundant edges with alternate
+The read-only `dependencies` command reports redundant edges and their alternate
 paths. It also lists sequencing candidates for the agent to assess.
-The report does not establish that this sequencing is unnecessary. For each
-hypothetical edge removal, it shows the affected nodes and changes to prerequisite
-closures and dependency eligibility.
+The report does not prove that the sequencing is unnecessary. For each
+hypothetical edge removal, it shows the affected nodes and changes to their
+prerequisite closures and dependency eligibility.
 The agent reviews owned patches, consumers and the reason for each edge before
 proposing a change. If evidence is missing, it reports the gap instead of
 recommending removal. The command does not run checks or reconstruct nodes.
@@ -157,19 +157,19 @@ candidate states and attempted remote writes. It reports missing evidence
 rather than inferring success. Its output does not authorize undo, renew
 freshness or prove that a merge is safe.
 
-The helper shares digest-addressed immutable payloads across local journals and
-snapshots. It reads legacy inline state. Older helpers cannot read newly written
-state. Keep `payloads/` with local state backups. Portable history archives remain
-self-contained and do not transfer execution authority. See
+The helper stores digest-addressed immutable payloads shared by local journals
+and snapshots. It reads legacy inline state. Older helpers cannot read state
+written in the new format. Keep `payloads/` with local state backups. Portable
+history archives remain self-contained. They do not authorize execution. See
 [storage compatibility](../skills/pr-graph/references/state-storage.md).
 
 The helper reruns configured checks at existing pinned heads through a separate
 approved `plan validate --select <selector>` plan. It does not reconstruct or
 publish nodes. By default, it runs checks in a separate worktree for each node.
 An approved environment policy lets the helper reuse validation workers and build
-artifacts within worker and cache-byte limits. Clean mode starts each node in a
-fresh worker. Neither mode reuses test results or replays setup. The helper
-records each check's result. It distinguishes no-check reasons from stale or
+artifacts. The policy limits worker counts and cache bytes. Clean mode starts
+each node in a fresh worker. Neither mode reuses test results or replays setup.
+The helper records each check's result. It distinguishes no-check reasons from stale or
 unavailable inputs. It preserves source checkouts, refs and pull requests.
 Failed checks do not authorize fixes or setup. See
 [standalone validation](pr-graph.md#standalone-validation).

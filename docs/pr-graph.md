@@ -57,7 +57,7 @@ a node and its dependents includes the root node but excludes inactive nodes.
 Node history and interdiff explain individual versions. Operation-wide diffs
 explain changes across nodes, including lineage, validation and readiness.
 The agent reports missing baselines or receipts rather than inferring results.
-Equal comparisons do not establish merge safety.
+Equal comparisons do not prove that a merge is safe.
 
 ### Split, reshape and allocate work
 
@@ -136,8 +136,8 @@ separate unfreeze within the task. It cannot override an instruction to preserve
 the review baseline. Neither mode bypasses freshness, validation, landing
 immutability or provider checks. A freeze is local, not a server-side lock.
 The helper reports external edits instead of adopting them.
-Backup, restore and graph import retain policy without validation or approval
-authority. History archives retain evidence only. See the
+Backup, restore and graph import retain policy. They do not retain validation
+or authorization. History archives retain evidence only. See the
 [complete protected-field and recovery contract](../skills/pr-graph/references/review-freezes.md).
 
 ## Explicit publish-first, validate-last ordering
@@ -160,7 +160,8 @@ label affected nodes **validation pending**. An existing non-draft pull request
 does not make a node review-ready. After mutation, approve a separate
 `plan validate --select <selector>` for the exact resulting pending heads.
 Changed inputs require a new plan. The helper collects check failures when the
-worktree stays clean. Identity changes or worktree safety failures stop execution.
+worktree stays clean. The helper stops if identities change or worktree safety
+checks fail.
 The helper clears pending markers for passing nodes. It leaves unsuccessful
 nodes unvalidated and labels them failed. Validation alone never grants readiness,
 merge permission or a freshness extension.
@@ -184,14 +185,14 @@ in either auto or YOLO mode.
 
 The helper reruns all configured checks, even previously successful checks.
 It runs them one at a time in a separate owned worktree for each node by default.
-An approved `--validation-environment <json>` policy can manage one
+An approved `--validation-environment <json>` policy lets the helper manage one
 to four owned validation workers. The policy identifies ignored cache directories
 and pins environment, toolchain and configuration inputs. It sets a cache-byte
 budget for each worker. Compatible nearby revisions reuse worktrees and build
-artifacts. The helper still reruns checks and does not replay setup.
+artifacts. The helper reruns checks and does not replay setup.
 
 Reuse across runs requires an exact ownership transfer from the worker's latest
-owner. Failures or contaminated output prevent further reuse of that worker.
+owner. The helper does not reuse a worker with failures or contaminated output.
 Execution remains serial. If the worker budget is exhausted, the helper reports
 remaining nodes as unavailable. It does not add workers or clean output.
 Clean mode starts each node in a fresh worker without inherited artifacts.
@@ -317,8 +318,8 @@ or restore. It does not repair these gaps.
 
 The helper stores large plans, patches, snapshots and execution evidence in
 shared, digest-addressed payloads. It verifies and expands each payload before
-checking approval digests or history identities. Missing or corrupt payloads stop
-the operation. The helper does not repair them automatically.
+checking approval digests or history identities. The helper stops if a payload
+is missing or corrupt. It does not repair payloads automatically.
 
 The helper reads legacy inline records and migrates each record only on its next
 authorized write. Older helpers cannot read the new storage format. Include
@@ -356,10 +357,10 @@ Use `--format text` to group graph changes and node comparisons with patches.
 
 The report separates authored patch changes from changes to realized bases and
 heads. It shows which nodes the operation added, removed or retired. It also
-reports split and fold lineage, dependencies, metadata, validation invalidation,
-readiness and landing changes. It compares retained before and after snapshots
-rather than using today's graph. It reports the planned graph and
-intended effects separately from execution records.
+reports split and fold lineage, dependencies, metadata and changes that
+invalidate validation. It reports changes to readiness and landing records.
+It compares retained before and after snapshots rather than using today's graph.
+It separates the planned graph and intended effects from execution records.
 
 Use matching publication receipts for individual nodes to verify partial
 publication after an interruption. Attempted remote writes, ref records and pull
@@ -861,3 +862,17 @@ node --test skills/pr-graph/scripts/__tests__/observations.test.mjs
 
 These tests check results and work counts. They report timings but do not require
 a speedup.
+
+To measure reconstruction after prefix reuse and compare a test-only tree-first
+prototype with normal Git replay, run:
+
+```text
+node --test skills/pr-graph/scripts/__tests__/composition-differential.test.mjs skills/pr-graph/scripts/__tests__/tree-first-differential.test.mjs
+```
+
+The experiment compares every intermediate tree with normal Git replay.
+It tests filters, hooks, signing failures, conflicts and missing objects.
+The prototype does not fetch missing objects. It does not introduce a helper
+flag or change production execution. Fewer Git processes in the prototype do not
+prove faster reconstruction. See the
+[research measurements, non-adoption decision and limitations](../skills/pr-graph/references/tree-first-research.md).

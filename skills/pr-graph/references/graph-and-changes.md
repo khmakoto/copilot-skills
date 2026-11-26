@@ -71,6 +71,11 @@ Each node commits through normal Git hooks and signing configuration. If a hook
 changes the staged tree, the helper rejects the discrepancy and retains
 evidence. A successful hook exit alone is not proof the approved tree survived.
 
+The [tree-first research experiment](tree-first-research.md) measures isolated
+candidate-tree computation and documents its materialization boundaries. It is
+test-only: normal commits, verified-prefix reuse, validation and recovery remain
+unchanged; candidate tree equality is not execution evidence.
+
 ## Realization and clean draft diffs
 
 For each active unlanded node:

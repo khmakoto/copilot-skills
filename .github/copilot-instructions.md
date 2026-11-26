@@ -58,6 +58,18 @@ identities and structural inputs on entry; eligibility still reads live landing
 state. Extend the read-boundary and missing-object differential tests when
 changing these caches.
 
+To replay the tree-first research measurements and boundary checks:
+
+```sh
+node --test skills/pr-graph/scripts/__tests__/composition-differential.test.mjs skills/pr-graph/scripts/__tests__/tree-first-differential.test.mjs
+```
+
+The first test file measures real reconstruction with and without prefix reuse;
+the second compares disposable candidate trees with normal Git replay, including
+filter, hook, signing-failure, conflict and no-network boundaries. The prototype
+is test-only and does not replace approved commits or execution evidence. See
+[the research decision and limitations](../skills/pr-graph/references/tree-first-research.md).
+
 ## Architecture
 
 This is a collection of portable agent workflows, not an application. Each
